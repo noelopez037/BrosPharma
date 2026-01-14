@@ -43,7 +43,7 @@ export default function LoginScreen() {
         return;
       }
 
-      router.replace("/(tabs)");
+      router.replace("/(drawer)/(tabs)");
     } catch {
       Alert.alert("Error", "Ocurrió un error inesperado");
     } finally {
