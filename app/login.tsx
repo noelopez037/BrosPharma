@@ -1,20 +1,42 @@
+// app/login.tsx
+// Reemplaza tu archivo completo por este.
+// Cambios:
+// - Estilo nativo consistente (iOS/Android): inputs con altura correcta, botón azul iOS, tipografía normal
+// - Soporta dark/light (colores correctos)
+// - El teclado ya no tapa: KeyboardAvoidingView + ScrollView
+// - TextInput siempre visible (color, selectionColor, cursorColor, keyboardAppearance)
+// - SafeAreaView
+
 import { useTheme } from "@react-navigation/native";
 import { router } from "expo-router";
-import { useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   Alert,
   Image,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 
 export default function LoginScreen() {
-  const { colors } = useTheme();
-  const s = styles(colors);
+  const { dark } = useTheme();
+  const isDark = !!dark;
+
+  const C = {
+    bg: isDark ? "#000" : "#fff",
+    card: isDark ? "#0f0f10" : "#fff",
+    text: isDark ? "#fff" : "#111",
+    sub: isDark ? "rgba(255,255,255,0.65)" : "#666",
+    border: isDark ? "rgba(255,255,255,0.14)" : "#e5e5e5",
+    tint: "#007AFF", // iOS blue
+  } as const;
 
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
@@ -52,94 +74,129 @@ export default function LoginScreen() {
   };
 
   return (
-    <View style={s.container}>
-      <Image
-        source={require("../assets/images/logo.png")}
-        style={[s.logo, { tintColor: colors.text }]}
-        resizeMode="contain"
-      />
+    <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={["top", "bottom"]}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.select({ ios: "padding", android: undefined })}
+        keyboardVerticalOffset={Platform.select({ ios: 10, android: 0 })}
+      >
+        <ScrollView
+          contentContainerStyle={styles.container}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          automaticallyAdjustKeyboardInsets
+        >
+          <Image
+            source={require("../assets/images/logo.png")}
+            style={[styles.logo, { tintColor: C.text }]}
+            resizeMode="contain"
+          />
 
-      <Text style={s.title}>Iniciar sesión</Text>
+          <Text maxFontSizeMultiplier={1.2} style={[styles.title, { color: C.text }]}>
+            Iniciar sesión
+          </Text>
 
-      <Text style={s.label}>Correo</Text>
-      <TextInput
-        value={email}
-        onChangeText={setEmail}
-        autoCapitalize="none"
-        keyboardType="email-address"
-        placeholder="correo@ejemplo.com"
-        placeholderTextColor={colors.border}
-        style={s.input}
-        returnKeyType="next"
-        onSubmitEditing={() => passRef.current?.focus()}
-      />
+          <Text maxFontSizeMultiplier={1.2} style={[styles.label, { color: C.text }]}>
+            Correo
+          </Text>
+          <TextInput
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="email-address"
+            textContentType="username"
+            placeholder="correo@ejemplo.com"
+            placeholderTextColor={C.sub}
+            style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.card }]}
+            selectionColor={C.tint}
+            cursorColor={C.tint}
+            keyboardAppearance={isDark ? "dark" : "light"}
+            returnKeyType="next"
+            onSubmitEditing={() => passRef.current?.focus()}
+          />
 
-      <Text style={s.label}>Contraseña</Text>
-      <TextInput
-        ref={passRef}
-        value={pass}
-        onChangeText={setPass}
-        secureTextEntry
-        placeholder="••••••••"
-        placeholderTextColor={colors.border}
-        style={s.input}
-        returnKeyType="done"
-        onSubmitEditing={onLogin}
-      />
+          <Text maxFontSizeMultiplier={1.2} style={[styles.label, { color: C.text }]}>
+            Contraseña
+          </Text>
+          <TextInput
+            ref={passRef}
+            value={pass}
+            onChangeText={setPass}
+            secureTextEntry
+            textContentType="password"
+            placeholder="••••••••"
+            placeholderTextColor={C.sub}
+            style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.card }]}
+            selectionColor={C.tint}
+            cursorColor={C.tint}
+            keyboardAppearance={isDark ? "dark" : "light"}
+            returnKeyType="done"
+            onSubmitEditing={onLogin}
+          />
 
-      <Pressable style={s.button} onPress={onLogin} disabled={loading}>
-        <Text style={s.buttonText}>
-          {loading ? "Entrando..." : "Entrar"}
-        </Text>
-      </Pressable>
-    </View>
+          <Pressable
+            onPress={onLogin}
+            disabled={loading}
+            style={({ pressed }) => [
+              styles.button,
+              { backgroundColor: C.tint, opacity: loading ? 0.7 : pressed ? 0.85 : 1 },
+            ]}
+          >
+            <Text maxFontSizeMultiplier={1.2} style={styles.buttonText}>
+              {loading ? "Entrando..." : "Entrar"}
+            </Text>
+          </Pressable>
+
+          <View style={{ height: 24 }} />
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
-const styles = (colors: any) =>
-  StyleSheet.create({
-    container: {
-      flex: 1,
-      paddingHorizontal: 20,
-      justifyContent: "center",
-      backgroundColor: colors.background,
-      gap: 10,
-    },
-    logo: {
-      width: 180,
-      height: 180,
-      alignSelf: "center",
-      marginBottom: 10,
-    },
-    title: {
-      fontSize: 28,
-      fontWeight: "700",
-      marginBottom: 10,
-      color: colors.text,
-    },
-    label: {
-      fontSize: 14,
-      opacity: 0.8,
-      color: colors.text,
-    },
-    input: {
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: 10,
-      paddingHorizontal: 12,
-      paddingVertical: 12,
-      color: colors.text,
-      backgroundColor: colors.card,
-    },
-    button: {
-      marginTop: 10,
-      backgroundColor: colors.text,
-      paddingVertical: 14,
-      borderRadius: 10,
-      alignItems: "center",
-    },
-    buttonText: {
-      color: colors.background,
-      fontWeight: "700",
-    },
-  });
+const styles = StyleSheet.create({
+  container: {
+    flexGrow: 1,
+    paddingHorizontal: 20,
+    justifyContent: "center",
+    gap: 10,
+  },
+  logo: {
+    width: 160,
+    height: 160,
+    alignSelf: "center",
+    marginBottom: 10,
+  },
+  title: {
+    fontSize: 26,
+    fontWeight: "700",
+    marginBottom: 10,
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: "600",
+    marginTop: 6,
+    marginBottom: 6,
+  },
+  input: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    minHeight: 46,
+    fontSize: 16,
+  },
+  button: {
+    marginTop: 12,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  buttonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+});
