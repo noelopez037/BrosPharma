@@ -8,6 +8,7 @@
 // ✅ Editar abre compra-nueva en modo edición (editId)
 // ✅ Eliminar usa RPC rpc_compra_eliminar_compra
 // ✅ UI: más “nativa” iOS/Android (grouped bg, cards más suaves, sombras sutiles, mejor jerarquía)
+// ✅ AJUSTE: Factura y Fecha en líneas separadas + pesos tipográficos menos “pesados”
 
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -299,9 +300,19 @@ export default function CompraDetalleScreen() {
                   <Text style={[styles.h1, { color: C.text }]} numberOfLines={2}>
                     {compra.proveedor_nombre ?? `Proveedor #${compra.proveedor_id}`}
                   </Text>
-                  <Text style={[styles.meta, { color: C.sub }]} numberOfLines={1}>
-                    Factura: {compra.numero_factura ?? "—"} · {fmtDate(compra.fecha)}
-                  </Text>
+
+                  {/* ✅ Factura y Fecha en líneas separadas */}
+                  <View style={{ marginTop: 8 }}>
+                    <Text style={[styles.metaK, { color: C.sub }]}>Factura</Text>
+                    <Text style={[styles.metaV, { color: C.text }]} numberOfLines={1}>
+                      {compra.numero_factura ?? "—"}
+                    </Text>
+
+                    <Text style={[styles.metaK, { color: C.sub, marginTop: 6 }]}>Fecha</Text>
+                    <Text style={[styles.metaV, { color: C.text }]} numberOfLines={1}>
+                      {fmtDate(compra.fecha)}
+                    </Text>
+                  </View>
                 </View>
 
                 <View
@@ -317,7 +328,9 @@ export default function CompraDetalleScreen() {
               <View style={[styles.kvGrid, { marginTop: 12 }]}>
                 <View style={styles.kv}>
                   <Text style={[styles.k, { color: C.sub }]}>Tipo</Text>
-                  <Text style={[styles.v, { color: C.text }]}>{normalizeUpper(compra.tipo_pago) || "—"}</Text>
+                  <Text style={[styles.v, { color: C.text }]}>
+                    {normalizeUpper(compra.tipo_pago) || "—"}
+                  </Text>
                 </View>
 
                 {normalizeUpper(compra.tipo_pago) === "CREDITO" ? (
@@ -367,9 +380,7 @@ export default function CompraDetalleScreen() {
               </View>
             ) : (
               lineas.map((d, idx) => {
-                const imgUrl = d.producto_image_path
-                  ? storagePublicUrl(BUCKET, d.producto_image_path)
-                  : null;
+                const imgUrl = d.producto_image_path ? storagePublicUrl(BUCKET, d.producto_image_path) : null;
 
                 return (
                   <View
@@ -401,7 +412,7 @@ export default function CompraDetalleScreen() {
                             { borderColor: C.border, backgroundColor: C.mutedBg },
                           ]}
                         >
-                          <Text style={{ color: C.sub, fontWeight: "800", fontSize: 12 }}>
+                          <Text style={{ color: C.sub, fontWeight: "700", fontSize: 12 }}>
                             Sin foto
                           </Text>
                         </View>
@@ -445,8 +456,7 @@ export default function CompraDetalleScreen() {
 
                     <View style={[styles.subtotalPill, { backgroundColor: C.mutedBg }]}>
                       <Text style={[styles.subtotalText, { color: C.text }]}>
-                        Subtotal:{" "}
-                        {fmtQ(d.subtotal ?? Number(d.cantidad) * Number(d.precio_compra_unit))}
+                        Subtotal: {fmtQ(d.subtotal ?? Number(d.cantidad) * Number(d.precio_compra_unit))}
                       </Text>
                     </View>
                   </View>
@@ -490,13 +500,13 @@ export default function CompraDetalleScreen() {
             <Pressable
               onPress={eliminarCompra}
               disabled={deleting}
-              android_ripple={Platform.OS === "android" ? { color: "rgba(0,0,0,0.10)" } : undefined}
+              android_ripple={Platform.OS === "android" ? { color: "rgba(140, 38, 38, 0.1)" } : undefined}
               style={({ pressed }) => [
                 styles.dangerBtn,
                 {
                   backgroundColor: C.dangerBg,
-                  borderColor: C.danger,
-                  opacity: deleting ? 0.65 : 1,
+                  
+                  opacity: deleting ? 0.60 : 2,
                 },
                 pressed && Platform.OS === "ios" && !deleting ? { opacity: 0.85 } : null,
               ]}
@@ -522,7 +532,6 @@ const styles = StyleSheet.create({
     padding: 16,
   },
 
-  // Sombra sutil (sin cambiar layout/flow)
   shadowCard: Platform.select({
     ios: {
       shadowColor: "#000",
@@ -530,15 +539,11 @@ const styles = StyleSheet.create({
       shadowRadius: 12,
       shadowOffset: { width: 0, height: 6 },
     },
-    android: {
-      elevation: 2,
-    },
+    android: { elevation: 2 },
     default: {},
   }),
 
-  headerCard: {
-    padding: 16,
-  },
+  headerCard: { padding: 16 },
 
   headerTop: {
     flexDirection: "row",
@@ -547,8 +552,12 @@ const styles = StyleSheet.create({
     gap: 10,
   },
 
-  h1: { fontSize: 20, fontWeight: "900", letterSpacing: -0.2 },
-  meta: { marginTop: 6, fontSize: 13, fontWeight: "600" },
+  // ✅ Pesos más ligeros en cabecera
+  h1: { fontSize: 20, fontWeight: "800", letterSpacing: -0.2 },
+
+  // ✅ nuevos estilos para meta en dos líneas
+  metaK: { fontSize: 12, fontWeight: "700" },
+  metaV: { marginTop: 2, fontSize: 14, fontWeight: "700" },
 
   badgePill: {
     borderWidth: StyleSheet.hairlineWidth,
@@ -557,21 +566,23 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignSelf: "flex-start",
   },
-  badgeText: { fontSize: 12, fontWeight: "900", letterSpacing: 0.2 },
+  badgeText: { fontSize: 12, fontWeight: "800", letterSpacing: 0.2 },
 
   kvGrid: { flexDirection: "row", gap: 16, flexWrap: "wrap" },
   kv: { minWidth: 130 },
-  k: { fontSize: 12, fontWeight: "800" },
-  v: { marginTop: 3, fontSize: 14, fontWeight: "800" },
-  note: { marginTop: 6, fontSize: 14, fontWeight: "700", lineHeight: 19 },
+
+  // ✅ bajar un poco pesos generales
+  k: { fontSize: 12, fontWeight: "700" },
+  v: { marginTop: 3, fontSize: 14, fontWeight: "700" },
+  note: { marginTop: 6, fontSize: 14, fontWeight: "600", lineHeight: 19 },
 
   divider: { height: StyleSheet.hairlineWidth, marginVertical: 14 },
 
   totalRow: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" },
-  total: { fontSize: 24, fontWeight: "900", marginTop: 4, letterSpacing: -0.3 },
-  totalSmall: { fontSize: 16, fontWeight: "900", marginTop: 4 },
+  total: { fontSize: 24, fontWeight: "800", marginTop: 4, letterSpacing: -0.3 },
+  totalSmall: { fontSize: 16, fontWeight: "800", marginTop: 4 },
 
-  sectionTitle: { marginTop: 16, fontSize: 18, fontWeight: "900", letterSpacing: -0.2 },
+  sectionTitle: { marginTop: 16, fontSize: 18, fontWeight: "800", letterSpacing: -0.2 },
 
   rowBetween: {
     flexDirection: "row",
@@ -579,8 +590,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 10,
   },
-  cardTitle: { fontSize: 16, fontWeight: "900", flex: 1, paddingRight: 10 },
-  brand: { fontSize: 13, fontWeight: "800" },
+  cardTitle: { fontSize: 16, fontWeight: "800", flex: 1, paddingRight: 10 },
+  brand: { fontSize: 13, fontWeight: "700" },
 
   productBody: { marginTop: 12, flexDirection: "row", gap: 12, alignItems: "flex-start" },
 
@@ -595,8 +606,8 @@ const styles = StyleSheet.create({
   },
 
   miniRow: { flexDirection: "row", justifyContent: "space-between", gap: 10, marginBottom: 6 },
-  miniK: { fontSize: 12, fontWeight: "800", minWidth: 56 },
-  miniV: { fontSize: 13, fontWeight: "800", flex: 1, textAlign: "right" },
+  miniK: { fontSize: 12, fontWeight: "700", minWidth: 56 },
+  miniV: { fontSize: 13, fontWeight: "700", flex: 1, textAlign: "right" },
 
   stockPill: {
     marginTop: 6,
@@ -605,7 +616,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  stock: { fontSize: 12, fontWeight: "700" },
+  stock: { fontSize: 12, fontWeight: "600" },
 
   subtotalPill: {
     marginTop: 12,
@@ -613,7 +624,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 14,
   },
-  subtotalText: { fontSize: 14, fontWeight: "900" },
+  subtotalText: { fontSize: 14, fontWeight: "800" },
 
   bottomBar: {
     position: "absolute",
@@ -632,7 +643,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  primaryBtnText: { color: "#fff", fontSize: 16, fontWeight: "900" },
+  primaryBtnText: { color: "#fff", fontSize: 16, fontWeight: "800" },
 
   dangerBtn: {
     borderWidth: StyleSheet.hairlineWidth,
@@ -641,5 +652,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  dangerBtnText: { fontSize: 16, fontWeight: "900" },
+  dangerBtnText: { fontSize: 16, fontWeight: "800" },
 });

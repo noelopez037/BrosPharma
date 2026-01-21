@@ -5,17 +5,19 @@
 // - Mantiene el FIX de franja blanca (SafeArea bottom + contentInsetAdjustmentBehavior="never")
 // ✅ FIX TEMA: usa ThemePref (toggle del drawer), NO useColorScheme()
 // ✅ MODO EDICIÓN: si viene ?editId=123, carga la compra al draft y guarda con rpc_compra_reemplazar
-// ✅ FIX: al hidratar edición con N líneas, esperar a que el draft tenga N lineas (evita que solo se popule la línea 1)
-// ✅ FIX: si NO es edición, limpiar draft para que "Nueva compra" siempre empiece vacío
-// ✅ UI: Botón "+ Agregar" movido debajo de la última línea y renombrado a "+ Agregar otro producto"
+// ✅ FIX: CARGA EDIT ESTABLE (device físico): esperar líneas antes de hidratar productos
+// ✅ FIX: si NO es edición, reset al enfocar (nueva compra limpia)
+// ✅ UI: botón “+ Agregar otro producto” al final de las líneas
+// ✅ FIX (ESTE CAMBIO): no resetear al regresar de /select-proveedor o /select-producto
 
 import DateTimePicker, {
   DateTimePickerAndroid,
   DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
+import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import { Stack, router, useLocalSearchParams } from "expo-router";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -72,8 +74,11 @@ async function uriToArrayBuffer(uri: string): Promise<ArrayBuffer> {
 export default function CompraNuevaScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ editId?: string }>();
-  const editId = params?.editId ? String(params.editId) : null;
-  const isEdit = !!editId && Number.isFinite(Number(editId)) && Number(editId) > 0;
+
+  const editIdRaw = params?.editId ? String(params.editId) : null;
+  const editId =
+    editIdRaw && Number.isFinite(Number(editIdRaw)) && Number(editIdRaw) > 0 ? editIdRaw : null;
+  const isEdit = !!editId;
 
   // ✅ TEMA DESDE TOGGLE (drawer)
   const { resolved } = useThemePref();
@@ -109,59 +114,112 @@ export default function CompraNuevaScreen() {
 
   const { proveedor, numeroFactura, tipoPago, comentarios, fechaVenc, lineas } = draft;
 
+  // Mantener referencia al draft actual (para evitar estados stale en timers)
+  const draftRef = useRef(draft);
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+
   const [saving, setSaving] = useState(false);
 
   // ====== LOAD EDIT MODE
   const [loadingEdit, setLoadingEdit] = useState(false);
-  const didLoadEditRef = useRef<string | null>(null);
 
-  // ✅ FIX: al hidratar varias líneas, esperar a que el draft tenga N líneas antes de aplicar updateLinea
-  const pendingHydrateRef = useRef<{ editId: string; rows: any[] } | null>(null);
+  // Cancelación/orden de requests para no mezclar compras
+  const loadSeqRef = useRef(0);
+  const lastLoadedEditIdRef = useRef<string | null>(null);
 
-  // ✅ FIX: si NO es edición, limpiar draft para que "Nueva compra" siempre empiece vacío
-  useEffect(() => {
-    if (!isEdit) {
-      reset();
-      didLoadEditRef.current = null;
-      pendingHydrateRef.current = null;
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEdit]);
+  // ✅ FIX: cuando navegamos a selectores, al volver NO debemos resetear
+  const skipResetOnFocusRef = useRef(false);
 
-  useEffect(() => {
-    if (!isEdit || !editId) return;
-    if (didLoadEditRef.current === editId) return;
+  const hydrateWhenReady = useCallback(
+    (targetEditId: string, rows: any[]) => {
+      const mySeq = loadSeqRef.current;
 
-    const load = async () => {
+      const N = rows.length;
+
+      const tick = () => {
+        // si cambió la carga, salir
+        if (mySeq !== loadSeqRef.current) return;
+        if (!targetEditId) return;
+
+        const cur = draftRef.current;
+        if (!cur) return;
+
+        if (cur.lineas.length < N) {
+          // agregar hasta llegar a N
+          const missing = N - cur.lineas.length;
+          for (let i = 0; i < missing; i++) addLinea();
+          // reintentar en el próximo tick
+          setTimeout(tick, 0);
+          return;
+        }
+
+        const keys = cur.lineas.slice(0, N).map((l) => l.key);
+
+        rows.forEach((r: any, idx: number) => {
+          const k = keys[idx];
+          if (!k) return;
+
+          const nombre = r.productos?.nombre ?? "";
+          const marca = r.productos?.marca ?? "";
+          const label = `${nombre}${marca ? ` • ${marca}` : ""}`;
+
+          updateLinea(k, {
+            producto_id: Number(r.producto_id),
+            producto_label: label,
+            lote: r.producto_lotes?.lote ?? "",
+            fecha_exp: r.producto_lotes?.fecha_exp ?? null,
+            cantidad: String(r.cantidad ?? "1"),
+            precio: String(r.precio_compra_unit ?? "0"),
+            image_path: null,
+            image_uri: null,
+          });
+        });
+
+        lastLoadedEditIdRef.current = targetEditId;
+      };
+
+      setTimeout(tick, 0);
+    },
+    [addLinea, updateLinea]
+  );
+
+  const loadEdit = useCallback(
+    async (idToLoad: string) => {
+      const seq = ++loadSeqRef.current;
       setLoadingEdit(true);
+
       try {
-        // 1) Cabecera + proveedor
         const { data: c, error: e1 } = await supabase
           .from("compras")
           .select(
             "id,proveedor_id,numero_factura,tipo_pago,fecha_vencimiento,comentarios,proveedores(nombre)"
           )
-          .eq("id", Number(editId))
+          .eq("id", Number(idToLoad))
           .maybeSingle();
+
+        if (seq !== loadSeqRef.current) return;
 
         if (e1) throw e1;
         if (!c) throw new Error("Compra no encontrada");
 
-        // 2) Detalles
         const { data: d, error: e2 } = await supabase
           .from("compras_detalle")
           .select(
             "id,cantidad,precio_compra_unit,producto_id, productos(nombre,marca), producto_lotes(lote,fecha_exp)"
           )
-          .eq("compra_id", Number(editId))
+          .eq("compra_id", Number(idToLoad))
           .order("id", { ascending: true });
+
+        if (seq !== loadSeqRef.current) return;
 
         if (e2) throw e2;
 
-        // 3) Hidratar draft (sin romper compra-nueva)
+        // Reset primero
         reset();
 
-        // cabecera
+        // Cabecera
         setProveedor({
           id: Number(c.proveedor_id),
           nombre: (c as any).proveedores?.nombre ?? `Proveedor #${c.proveedor_id}`,
@@ -171,12 +229,9 @@ export default function CompraNuevaScreen() {
         setFechaVenc(c.fecha_vencimiento ?? null);
         setComentarios(c.comentarios ?? "");
 
-        // líneas: queremos exactamente N
         const rows = (d ?? []) as any[];
-        const N = rows.length;
 
-        if (N <= 0) {
-          // deja la línea inicial vacía
+        if (rows.length <= 0) {
           updateLinea("l1", {
             producto_id: null,
             producto_label: "",
@@ -187,69 +242,57 @@ export default function CompraNuevaScreen() {
             image_path: null,
             image_uri: null,
           });
-          didLoadEditRef.current = editId;
-        } else {
-          // asegurar N líneas: reset deja 1 → agregar N-1
-          for (let i = 1; i < N; i++) addLinea();
-
-          // ✅ NO usar draft.lineas en setTimeout (closure viejo). En su lugar:
-          pendingHydrateRef.current = { editId, rows };
-          // didLoadEditRef se setea al terminar la hidratación (ver useEffect abajo)
+          lastLoadedEditIdRef.current = idToLoad;
+          return;
         }
+
+        // Hidratar de forma estable (espera líneas antes de setear productos)
+        hydrateWhenReady(idToLoad, rows);
       } catch (e: any) {
         Alert.alert("Error", e?.message ?? "No se pudo cargar la compra");
       } finally {
-        setLoadingEdit(false);
+        if (seq === loadSeqRef.current) setLoadingEdit(false);
       }
-    };
+    },
+    [
+      hydrateWhenReady,
+      reset,
+      setProveedor,
+      setNumeroFactura,
+      setTipoPago,
+      setFechaVenc,
+      setComentarios,
+      updateLinea,
+    ]
+  );
 
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEdit, editId]);
+  // ✅ Al enfocar:
+  // - si edit: recargar si cambió editId o si nunca se cargó
+  // - si no edit: reset para pantalla limpia, PERO NO cuando regresamos de selectores
+  useFocusEffect(
+    useCallback(() => {
+      if (isEdit && editId) {
+        if (lastLoadedEditIdRef.current !== editId) {
+          loadEdit(editId).catch(() => {});
+        }
+      } else {
+        if (skipResetOnFocusRef.current) {
+          // venimos de /select-proveedor o /select-producto
+          skipResetOnFocusRef.current = false;
+        } else {
+          // nueva compra limpia al entrar "de verdad"
+          ++loadSeqRef.current;
+          lastLoadedEditIdRef.current = null;
+          reset();
+        }
+      }
 
-  // ✅ Aplicar hidratación cuando ya existan N lineas en el draft (evita que solo se llene la primera)
-  useEffect(() => {
-    const pending = pendingHydrateRef.current;
-    if (!pending) return;
-    if (!isEdit || !editId) return;
-    if (pending.editId !== editId) return;
-
-    const rows = pending.rows ?? [];
-    const N = rows.length;
-    if (N <= 0) {
-      pendingHydrateRef.current = null;
-      didLoadEditRef.current = editId;
-      return;
-    }
-
-    if (draft.lineas.length < N) return;
-
-    const keys = draft.lineas.slice(0, N).map((l) => l.key);
-
-    rows.forEach((r: any, idx: number) => {
-      const k = keys[idx];
-      if (!k) return;
-
-      const nombre = r.productos?.nombre ?? "";
-      const marca = r.productos?.marca ?? "";
-      const label = `${nombre}${marca ? ` • ${marca}` : ""}`;
-
-      updateLinea(k, {
-        producto_id: Number(r.producto_id),
-        producto_label: label,
-        lote: r.producto_lotes?.lote ?? "",
-        fecha_exp: r.producto_lotes?.fecha_exp ?? null,
-        cantidad: String(r.cantidad ?? "1"),
-        precio: String(r.precio_compra_unit ?? "0"),
-        image_path: null,
-        image_uri: null,
-      });
-    });
-
-    pendingHydrateRef.current = null;
-    didLoadEditRef.current = editId;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft.lineas.length, isEdit, editId]);
+      return () => {
+        // al salir no hacemos reset (para no romper flow), solo invalidar cargas pendientes
+        ++loadSeqRef.current;
+      };
+    }, [isEdit, editId, loadEdit, reset])
+  );
 
   // ====== DATE PICKERS (iOS modal propio)
   const [iosDateOpen, setIosDateOpen] = useState(false);
@@ -325,7 +368,6 @@ export default function CompraNuevaScreen() {
       const asset = res.assets?.[0];
       if (!asset?.uri) return;
 
-      // preview local inmediato
       updateLinea(lineKey, { image_uri: asset.uri });
 
       const ext = extFromUri(asset.uri);
@@ -335,13 +377,13 @@ export default function CompraNuevaScreen() {
       const contentType =
         ext === "png" ? "image/png" : ext === "heic" ? "image/heic" : "image/jpeg";
 
-      const { error } = await supabase.storage
-        .from(BUCKET)
-        .upload(path, ab, { contentType, upsert: true });
+      const { error } = await supabase.storage.from(BUCKET).upload(path, ab, {
+        contentType,
+        upsert: true,
+      });
 
       if (error) throw error;
 
-      // guardar path final en la línea (esto es lo que se manda al RPC)
       updateLinea(lineKey, { image_path: path });
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo subir la imagen");
@@ -412,10 +454,7 @@ export default function CompraNuevaScreen() {
         if (error) throw error;
 
         Alert.alert("Listo", "Compra actualizada", [
-          {
-            text: "OK",
-            onPress: () => router.back(),
-          },
+          { text: "OK", onPress: () => router.back() },
         ]);
       } else {
         const { error } = await supabase.rpc("rpc_crear_compra", {
@@ -443,7 +482,13 @@ export default function CompraNuevaScreen() {
 
   const title = isEdit ? "Editar compra" : "Nueva compra";
   const saveLabel =
-    loadingEdit ? "Cargando..." : saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Guardar compra";
+    loadingEdit
+      ? "Cargando..."
+      : saving
+      ? "Guardando..."
+      : isEdit
+      ? "Guardar cambios"
+      : "Guardar compra";
 
   return (
     <>
@@ -474,7 +519,10 @@ export default function CompraNuevaScreen() {
           <Text style={[styles.label, { color: C.text }]}>Proveedor</Text>
 
           <Pressable
-            onPress={() => router.push("/select-proveedor")}
+            onPress={() => {
+              skipResetOnFocusRef.current = true;
+              router.push("/select-proveedor");
+            }}
             style={({ pressed }) => [
               styles.select,
               { borderColor: C.border, backgroundColor: C.card },
@@ -623,12 +671,13 @@ export default function CompraNuevaScreen() {
                 <Text style={[styles.label, { color: C.text }]}>Producto</Text>
 
                 <Pressable
-                  onPress={() =>
+                  onPress={() => {
+                    skipResetOnFocusRef.current = true;
                     router.push({
                       pathname: "/select-producto",
                       params: { lineKey: l.key },
-                    })
-                  }
+                    });
+                  }}
                   style={({ pressed }) => [
                     styles.select,
                     { borderColor: C.border, backgroundColor: C.card },
@@ -755,7 +804,7 @@ export default function CompraNuevaScreen() {
             );
           })}
 
-          {/* ✅ BOTÓN ABAJO DEL ÚLTIMO PRODUCTO */}
+          {/* ✅ Botón al final */}
           <Pressable
             onPress={addLinea}
             style={({ pressed }) => [
@@ -764,7 +813,9 @@ export default function CompraNuevaScreen() {
               pressed && { opacity: 0.85 },
             ]}
           >
-            <Text style={[styles.btnAddBottomText, { color: C.text }]}>+ Agregar otro producto</Text>
+            <Text style={[styles.btnAddBottomText, { color: C.text }]}>
+              + Agregar otro producto
+            </Text>
           </Pressable>
 
           <View style={[styles.totalCard, { borderColor: C.border, backgroundColor: C.card }]}>
@@ -841,7 +892,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   scroll: { flex: 1, paddingHorizontal: 16 },
 
-  h2: { fontSize: 18, fontWeight: "700" },
+  h2: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
 
   label: { marginTop: 10, marginBottom: 6, fontSize: 13, fontWeight: "600" },
   help: { marginTop: 6, fontSize: 12 },
@@ -875,11 +926,7 @@ const styles = StyleSheet.create({
 
   divider: { height: 1, marginVertical: 18 },
 
-  rowBetween: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
+  rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
 
   card: { marginTop: 12, borderWidth: 1, borderRadius: 16, padding: 14 },
   cardTitle: { fontSize: 16, fontWeight: "700" },
@@ -887,16 +934,6 @@ const styles = StyleSheet.create({
   linkDanger: { fontSize: 14, fontWeight: "600" },
 
   subtotal: { marginTop: 10, fontSize: 13, fontWeight: "600" },
-
-  btnAddBottom: {
-    marginTop: 12,
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingVertical: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  btnAddBottomText: { fontWeight: "700", fontSize: 15 },
 
   totalCard: {
     marginTop: 14,
@@ -909,6 +946,16 @@ const styles = StyleSheet.create({
   },
   totalLabel: { fontSize: 16, fontWeight: "700" },
   totalValue: { fontSize: 18, fontWeight: "700" },
+
+  btnAddBottom: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  btnAddBottomText: { fontWeight: "700", fontSize: 15 },
 
   saveBtn: {
     marginTop: 12,
@@ -940,6 +987,12 @@ const styles = StyleSheet.create({
   },
   dpTitle: { fontSize: 16, fontWeight: "700", marginBottom: 10, textAlign: "center" },
   dpBtns: { flexDirection: "row", justifyContent: "flex-end", gap: 10, marginTop: 10 },
-  dpBtn: { borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, minWidth: 110, alignItems: "center" },
+  dpBtn: {
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    minWidth: 110,
+    alignItems: "center",
+  },
   dpBtnText: { fontWeight: "700" },
 });
