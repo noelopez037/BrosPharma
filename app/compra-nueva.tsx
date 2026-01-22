@@ -9,6 +9,7 @@
 // ✅ FIX: si NO es edición, reset al enfocar (nueva compra limpia)
 // ✅ UI: botón “+ Agregar otro producto” al final de las líneas
 // ✅ FIX (ESTE CAMBIO): no resetear al regresar de /select-proveedor o /select-producto
+// ✅ FIX: expo-image-picker deprecación (MediaTypeOptions -> MediaType)
 
 import DateTimePicker, {
   DateTimePickerAndroid,
@@ -357,11 +358,12 @@ export default function CompraNuevaScreen() {
 
     try {
       const res = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.85,
-        allowsEditing: true,
-        aspect: [1, 1],
-      });
+  mediaTypes: ["images"],
+  quality: 0.85,
+  allowsEditing: true,
+  aspect: [1, 1],
+});
+
 
       if (res.canceled) return;
 
@@ -453,9 +455,7 @@ export default function CompraNuevaScreen() {
         });
         if (error) throw error;
 
-        Alert.alert("Listo", "Compra actualizada", [
-          { text: "OK", onPress: () => router.back() },
-        ]);
+        Alert.alert("Listo", "Compra actualizada", [{ text: "OK", onPress: () => router.back() }]);
       } else {
         const { error } = await supabase.rpc("rpc_crear_compra", {
           p_compra,
@@ -482,13 +482,7 @@ export default function CompraNuevaScreen() {
 
   const title = isEdit ? "Editar compra" : "Nueva compra";
   const saveLabel =
-    loadingEdit
-      ? "Cargando..."
-      : saving
-      ? "Guardando..."
-      : isEdit
-      ? "Guardar cambios"
-      : "Guardar compra";
+    loadingEdit ? "Cargando..." : saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Guardar compra";
 
   return (
     <>
@@ -642,12 +636,7 @@ export default function CompraNuevaScreen() {
             multiline
           />
 
-          <View
-            style={[
-              styles.divider,
-              { backgroundColor: isDark ? "rgba(255,255,255,0.10)" : "#eee" },
-            ]}
-          />
+          <View style={[styles.divider, { backgroundColor: isDark ? "rgba(255,255,255,0.10)" : "#eee" }]} />
 
           <Text style={[styles.h2, { color: C.text }]}>Productos</Text>
 
@@ -734,10 +723,7 @@ export default function CompraNuevaScreen() {
                       onChangeText={(t) => updateLinea(l.key, { lote: t })}
                       placeholder="Ej: A123"
                       placeholderTextColor={C.sub}
-                      style={[
-                        styles.input,
-                        { borderColor: C.border, color: C.text, backgroundColor: C.card },
-                      ]}
+                      style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.card }]}
                       autoCapitalize="characters"
                     />
                   </View>
@@ -748,9 +734,7 @@ export default function CompraNuevaScreen() {
                       onPress={() =>
                         openDatePicker({
                           title: "Expiración",
-                          initial: l.fecha_exp
-                            ? new Date(`${l.fecha_exp}T12:00:00`)
-                            : addDays(new Date(), 365),
+                          initial: l.fecha_exp ? new Date(`${l.fecha_exp}T12:00:00`) : addDays(new Date(), 365),
                           onConfirm: (d) => updateLinea(l.key, { fecha_exp: toYMD(d) }),
                         })
                       }
@@ -774,10 +758,7 @@ export default function CompraNuevaScreen() {
                       value={l.cantidad}
                       onChangeText={(t) => updateLinea(l.key, { cantidad: t })}
                       keyboardType="number-pad"
-                      style={[
-                        styles.input,
-                        { borderColor: C.border, color: C.text, backgroundColor: C.card },
-                      ]}
+                      style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.card }]}
                     />
                   </View>
 
@@ -787,10 +768,7 @@ export default function CompraNuevaScreen() {
                       value={l.precio}
                       onChangeText={(t) => updateLinea(l.key, { precio: t })}
                       keyboardType="decimal-pad"
-                      style={[
-                        styles.input,
-                        { borderColor: C.border, color: C.text, backgroundColor: C.card },
-                      ]}
+                      style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.card }]}
                       placeholder="0"
                       placeholderTextColor={C.sub}
                     />
@@ -813,9 +791,7 @@ export default function CompraNuevaScreen() {
               pressed && { opacity: 0.85 },
             ]}
           >
-            <Text style={[styles.btnAddBottomText, { color: C.text }]}>
-              + Agregar otro producto
-            </Text>
+            <Text style={[styles.btnAddBottomText, { color: C.text }]}>+ Agregar otro producto</Text>
           </Pressable>
 
           <View style={[styles.totalCard, { borderColor: C.border, backgroundColor: C.card }]}>

@@ -316,8 +316,12 @@ export default function ProductoModal() {
 
   const precioMin = headFromView?.precio_min_venta ?? null;
 
-  const lotes = rows.filter((r) => (r.stock_disponible_lote ?? 0) > 0);
-  const totalDisponible = lotes.reduce((acc, r) => acc + (r.stock_disponible_lote ?? 0), 0);
+  // ✅ FIX: no mostrar lotes vacíos (0 o null). También cubre si viene como string.
+  const lotes = rows.filter((r) => Number((r as any).stock_disponible_lote ?? 0) > 0);
+  const totalDisponible = lotes.reduce(
+    (acc, r) => acc + Number((r as any).stock_disponible_lote ?? 0),
+    0
+  );
 
   const onSavePhoto = useCallback(async () => {
     if (!imageUrl || savingPhoto) return;
