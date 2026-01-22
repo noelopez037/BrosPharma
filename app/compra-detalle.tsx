@@ -441,16 +441,6 @@ export default function CompraDetalleScreen() {
                           <Text style={[styles.miniV, { color: C.text }]}>{fmtQ(d.precio_compra_unit)}</Text>
                         </View>
 
-                        <View
-                          style={[
-                            styles.stockPill,
-                            { backgroundColor: C.mutedBg, borderColor: C.border },
-                          ]}
-                        >
-                          <Text style={[styles.stock, { color: C.sub }]} numberOfLines={1}>
-                            Stock lote: {d.stock_total ?? "—"} (reservado {d.stock_reservado ?? "—"})
-                          </Text>
-                        </View>
                       </View>
                     </View>
 
