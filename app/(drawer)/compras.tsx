@@ -31,8 +31,8 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { supabase } from "../lib/supabase";
-import { useThemePref } from "../lib/themePreference";
+import { supabase } from "../../lib/supabase";
+import { useThemePref } from "../../lib/themePreference";
 
 type CompraRow = {
   id: number;
