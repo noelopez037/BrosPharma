@@ -3,7 +3,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import * as FileSystem from "expo-file-system/legacy";
 import * as MediaLibrary from "expo-media-library";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -51,7 +51,6 @@ type LoteRow = {
 type ProductoHead = {
   id: number;
   nombre: string;
-  marca: string | null;
   marca_id: number | null;
   image_path: string | null;
   activo: boolean;
@@ -225,24 +224,14 @@ export default function ProductoModal() {
   }, []);
 
   const fetchProductoHead = useCallback(async () => {
-    let data: any = null;
-    let error: any = null;
-
-    ({ data, error } = await supabase
+    const { data, error } = await supabase
       .from("productos")
-      .select("id,nombre,marca,marca_id,image_path,activo,tiene_iva,requiere_receta,marcas(nombre)")
+      // NOTE: la columna legacy "marca" (texto) ya no existe; usamos marcas via FK
+      .select(
+        "id,nombre,marca_id,image_path,activo,tiene_iva,requiere_receta,marcas:marcas!productos_marca_id_fk(nombre)"
+      )
       .eq("id", productoId)
-      .maybeSingle());
-
-    if (error) {
-      ({ data, error } = await supabase
-        .from("productos")
-        .select(
-          "id,nombre,marca,marca_id,image_path,activo,tiene_iva,requiere_receta,marcas:marcas!productos_marca_id_fk(nombre)"
-        )
-        .eq("id", productoId)
-        .maybeSingle());
-    }
+      .maybeSingle();
 
     if (error || !data) {
       setHeadProd(null);
@@ -251,14 +240,13 @@ export default function ProductoModal() {
     }
 
     const marcaNorm =
-      (data?.marcas?.nombre as string | undefined) ??
-      (data?.marcas?.[0]?.nombre as string | undefined) ??
-      null;
+      (((data as any)?.marcas?.nombre as string | undefined) ??
+        ((data as any)?.marcas?.[0]?.nombre as string | undefined) ??
+        null);
 
     setHeadProd({
       id: data.id,
       nombre: data.nombre,
-      marca: data.marca ?? null,
       marca_id: data.marca_id ?? null,
       image_path: data.image_path ?? null,
       activo: !!data.activo,
@@ -309,10 +297,20 @@ export default function ProductoModal() {
   );
 
   const headFromView = rows[0] ?? null;
+  const headFromViewImagePath = (headFromView as any)?.image_path ?? null;
+
+  // Si el head falló (p.ej. por cambios de schema) pero la vista trae image_path,
+  // usarlo como fallback para que no se quede en "SIN FOTO".
+  useEffect(() => {
+    if (imageUrl) return;
+    const path = headProd?.image_path ?? headFromViewImagePath;
+    if (!path) return;
+    const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(path);
+    setImageUrl(pub.publicUrl ?? null);
+  }, [headProd?.image_path, headFromViewImagePath, imageUrl]);
 
   const displayNombre = headProd?.nombre ?? headFromView?.nombre ?? "";
-  const displayMarca =
-    headProd?.marca_normalizada ?? headFromView?.marca ?? headProd?.marca ?? null;
+  const displayMarca = headProd?.marca_normalizada ?? headFromView?.marca ?? null;
 
   const precioMin = headFromView?.precio_min_venta ?? null;
 
