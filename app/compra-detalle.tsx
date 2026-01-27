@@ -7,16 +7,18 @@
 // - Usa mimeType real del asset (y extensión acorde)
 // - Signed URL + probe + cache local para ver comprobante
 
+import { useFocusEffect, useTheme } from "@react-navigation/native";
 import * as FileSystem from "expo-file-system/legacy";
 import { Image as ExpoImage } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Keyboard, KeyboardAvoidingView, TouchableWithoutFeedback } from "react-native";
 
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -24,11 +26,13 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
+import { alphaColor } from "../lib/ui";
 
 const BUCKET_PRODUCTOS = "productos";
 const BUCKET_COMPROBANTES = "comprobantes";
@@ -248,18 +252,22 @@ export default function CompraDetalleScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const compraId = Number(id);
 
+  const { colors } = useTheme();
+
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
 
   const C = useMemo(
     () => ({
-      bg: isDark ? "#000" : Platform.OS === "ios" ? "#F2F2F7" : "#f4f4f5",
-      card: isDark ? "#0f0f10" : "#fff",
-      text: isDark ? "#fff" : "#111",
-      sub: isDark ? "rgba(255,255,255,0.65)" : "#6b7280",
-      border: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)",
+      bg: colors.background ?? (isDark ? "#000" : "#fff"),
+      card: colors.card ?? (isDark ? "#1C1C1E" : "#fff"),
+      text: colors.text ?? (isDark ? "#fff" : "#111"),
+      sub:
+        alphaColor(String(colors.text ?? (isDark ? "#ffffff" : "#000000")), 0.65) ||
+        (isDark ? "rgba(255,255,255,0.65)" : "#6b7280"),
+      border: colors.border ?? (isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)"),
 
-      primary: Platform.OS === "ios" ? "#007AFF" : "#1976D2",
+      primary: String(colors.primary ?? "#007AFF"),
       danger: Platform.OS === "ios" ? "#FF3B30" : "#D32F2F",
 
       ok: isDark ? "rgba(140,255,170,0.95)" : "#16a34a",
@@ -274,13 +282,16 @@ export default function CompraDetalleScreen() {
       overlay: isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.35)",
       inputBg: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.03)",
     }),
-    [isDark]
+    [isDark, colors.background, colors.border, colors.card, colors.primary, colors.text]
   );
 
   const [loading, setLoading] = useState(true);
   const [compra, setCompra] = useState<Compra | null>(null);
   const [lineas, setLineas] = useState<Linea[]>([]);
   const [pagos, setPagos] = useState<Pago[]>([]);
+  // Thumbs de comprobante (signed URLs) para mini-preview en la lista
+  const [thumbByPath, setThumbByPath] = useState<Record<string, string>>({});
+  const thumbByPathRef = useRef<Record<string, string>>({});
   const [deleting, setDeleting] = useState(false);
 
   // Modal: aplicar pago
@@ -299,6 +310,50 @@ export default function CompraDetalleScreen() {
   const [viewerUrl, setViewerUrl] = useState<string | null>(null); // local file://
   const [viewerRemoteUrl, setViewerRemoteUrl] = useState<string | null>(null); // signed url
   const viewerBusyRef = useRef(false);
+
+  useEffect(() => {
+    // Genera signed URLs para miniaturas de comprobantes (solo los que falten)
+    const raws = (pagos ?? []).map((p) => p.comprobante_path).filter(Boolean) as string[];
+    const norms = raws
+      .map((r) => normalizeComprobanteRef(r))
+      .filter((x): x is NonNullable<ReturnType<typeof normalizeComprobanteRef>> => x != null);
+
+    const paths = norms
+      .map((x) => x.path)
+      .filter((p): p is string => typeof p === "string" && p.length > 0);
+
+    const missing = Array.from(new Set(paths)).filter((p) => !thumbByPathRef.current[p]);
+    if (!missing.length) return;
+
+    let cancelled = false;
+
+    (async () => {
+      for (const p of missing) {
+        if (cancelled) return;
+        try {
+          const { data, error } = await supabase.storage
+            .from(BUCKET_COMPROBANTES)
+            .createSignedUrl(p, 60 * 10);
+          if (error) continue;
+          const url = data?.signedUrl;
+          if (!url) continue;
+
+          setThumbByPath((prev) => {
+            if (prev[p]) return prev;
+            const next = { ...prev, [p]: url };
+            thumbByPathRef.current = next;
+            return next;
+          });
+        } catch {
+          // ignore thumbs errors
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pagos]);
 
   const saldoNum = useMemo(
     () => safeNumber(compra?.saldo_pendiente),
@@ -430,9 +485,11 @@ export default function CompraDetalleScreen() {
     }
   }, [compraId]);
 
-  useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+  useFocusEffect(
+    useCallback(() => {
+      fetchAll();
+    }, [fetchAll])
+  );
 
   const eliminarCompra = async () => {
     if (!compra) return;
@@ -726,109 +783,6 @@ export default function CompraDetalleScreen() {
               </View>
             </View>
 
-            {/* Pagos */}
-            {normalizeUpper(compra.tipo_pago) === "CREDITO" ? (
-              <>
-                <Text style={[styles.sectionTitle, { color: C.text }]}>Pagos</Text>
-
-                <View
-                  style={[
-                    styles.cardBase,
-                    styles.shadowCard,
-                    { borderColor: C.border, backgroundColor: C.card, marginTop: 12 },
-                  ]}
-                >
-                  {pagos.length === 0 ? (
-                    <Text style={{ color: C.sub }}>Sin pagos registrados</Text>
-                  ) : (
-                    pagos.map((p, idx) => {
-                      const hasComprobante = !!p.comprobante_path;
-                      const showDivider = idx !== pagos.length - 1;
-                      return (
-                        <View key={String(p.id)} style={{ paddingVertical: 10 }}>
-                          <View style={styles.rowBetween}>
-                            <Text style={[styles.payTitle, { color: C.text }]} numberOfLines={1}>
-                              {fmtDate(p.fecha)} · {p.metodo ?? "—"}
-                            </Text>
-                            <Text style={[styles.payAmount, { color: C.text }]}>
-                              {fmtQ(p.monto)}
-                            </Text>
-                          </View>
-
-                          {!!p.referencia ? (
-                            <Text style={[styles.payMeta, { color: C.sub }]} numberOfLines={1}>
-                              Ref: {p.referencia}
-                            </Text>
-                          ) : null}
-
-                          {!!p.comentario ? (
-                            <Text style={[styles.payMeta, { color: C.sub }]} numberOfLines={2}>
-                              {p.comentario}
-                            </Text>
-                          ) : null}
-
-                          {hasComprobante ? (
-                            <Pressable
-                              onPress={() => abrirComprobante(p.comprobante_path!)}
-                              style={({ pressed }) => [
-                                styles.linkBtn,
-                                { borderColor: C.border, backgroundColor: C.mutedBg },
-                                pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
-                              ]}
-                            >
-                              <Text style={[styles.linkBtnText, { color: C.text }]}>
-                                Ver comprobante
-                              </Text>
-                            </Pressable>
-                          ) : null}
-
-                          {showDivider ? (
-                            <View style={[styles.divider, { backgroundColor: C.divider }]} />
-                          ) : null}
-                        </View>
-                      );
-                    })
-                  )}
-
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <Text style={[styles.k, { color: C.sub }]}>Saldo pendiente</Text>
-                    <Text style={[styles.v, { color: C.text }]}>
-                      {fmtQ(compra.saldo_pendiente)}
-                    </Text>
-                  </View>
-
-                  <Pressable
-                    onPress={abrirPagoModal}
-                    disabled={saldoNum <= 0}
-                    android_ripple={
-                      Platform.OS === "android"
-                        ? { color: "rgba(255,255,255,0.18)" }
-                        : undefined
-                    }
-                    style={({ pressed }) => [
-                      styles.primaryBtn,
-                      {
-                        backgroundColor: C.primary,
-                        marginTop: 12,
-                        opacity: saldoNum <= 0 ? 0.5 : 1,
-                      },
-                      pressed && Platform.OS === "ios" && saldoNum > 0 ? { opacity: 0.85 } : null,
-                    ]}
-                  >
-                    <Text style={styles.primaryBtnText}>
-                      {saldoNum <= 0 ? "Compra pagada" : "Aplicar pago"}
-                    </Text>
-                  </Pressable>
-                </View>
-              </>
-            ) : null}
-
             {/* Líneas */}
             <Text style={[styles.sectionTitle, { color: C.text }]}>Productos</Text>
 
@@ -918,7 +872,7 @@ export default function CompraDetalleScreen() {
                       </View>
                     </View>
 
-                    <View style={[styles.subtotalPill, { backgroundColor: C.mutedBg }]}>
+                    <View style={[styles.subtotalPill, { backgroundColor: C.mutedBg, borderColor: C.border }]}>
                       <Text style={[styles.subtotalText, { color: C.text }]}>
                         Subtotal:{" "}
                         {fmtQ(d.subtotal ?? Number(d.cantidad) * Number(d.precio_compra_unit))}
@@ -928,6 +882,132 @@ export default function CompraDetalleScreen() {
                 );
               })
             )}
+
+            {/* Pagos */}
+            {normalizeUpper(compra.tipo_pago) === "CREDITO" ? (
+              <>
+                <Text style={[styles.sectionTitle, { color: C.text }]}>Pagos</Text>
+
+                <View
+                  style={[
+                    styles.cardBase,
+                    styles.shadowCard,
+                    { borderColor: C.border, backgroundColor: C.card, marginTop: 12 },
+                  ]}
+                >
+                  {pagos.length === 0 ? (
+                    <Text style={{ color: C.sub }}>Sin pagos registrados</Text>
+                  ) : (
+                    pagos.map((p, idx) => {
+                      const hasComprobante = !!p.comprobante_path;
+                      const showDivider = idx !== pagos.length - 1;
+                      return (
+                        <View key={String(p.id)} style={{ paddingVertical: 10 }}>
+                          <View style={styles.rowBetween}>
+                            <Text style={[styles.payTitle, { color: C.text }]} numberOfLines={1}>
+                              {fmtDate(p.fecha)} · {p.metodo ?? "—"}
+                            </Text>
+                            <Text style={[styles.payAmount, { color: C.text }]}>
+                              {fmtQ(p.monto)}
+                            </Text>
+                          </View>
+
+                          {!!p.referencia ? (
+                            <Text style={[styles.payMeta, { color: C.sub }]} numberOfLines={1}>
+                              Ref: {p.referencia}
+                            </Text>
+                          ) : null}
+
+                          {!!p.comentario ? (
+                            <Text style={[styles.payMeta, { color: C.sub }]} numberOfLines={2}>
+                              {p.comentario}
+                            </Text>
+                          ) : null}
+
+                          {hasComprobante ? (() => {
+                            const norm = normalizeComprobanteRef(p.comprobante_path!);
+                            const thumbUrl =
+                              norm?.path ? thumbByPath[norm.path] ?? null : norm?.url ?? null;
+
+                            return (
+                              <Pressable
+                                onPress={() => abrirComprobante(p.comprobante_path!)}
+                                style={({ pressed }) => [
+                                  styles.receiptBtn,
+                                  { borderColor: C.border, backgroundColor: C.mutedBg },
+                                  pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
+                                ]}
+                              >
+                                {thumbUrl ? (
+                                  <ExpoImage
+                                    source={{ uri: thumbUrl }}
+                                    style={styles.receiptThumb}
+                                    contentFit="cover"
+                                    cachePolicy="disk"
+                                  />
+                                ) : (
+                                  <View
+                                    style={[
+                                      styles.receiptThumbPlaceholder,
+                                      { borderColor: C.border, backgroundColor: "rgba(0,0,0,0.06)" },
+                                    ]}
+                                  >
+                                    <Text style={[styles.receiptThumbText, { color: C.sub }]}>IMG</Text>
+                                  </View>
+                                )}
+
+                                <View style={{ flex: 1 }}>
+                                  <Text style={[styles.linkBtnText, { color: C.text }]}>
+                                    Comprobante
+                                  </Text>
+                                 
+                                </View>
+                              </Pressable>
+                            );
+                          })() : null}
+
+                          {showDivider ? (
+                            <View style={[styles.divider, { backgroundColor: C.divider }]} />
+                          ) : null}
+                        </View>
+                      );
+                    })
+                  )}
+
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    <Text style={[styles.k, { color: C.sub }]}>Saldo pendiente</Text>
+                    <Text style={[styles.v, { color: C.text }]}>{fmtQ(compra.saldo_pendiente)}</Text>
+                  </View>
+
+                  <Pressable
+                    onPress={abrirPagoModal}
+                    disabled={saldoNum <= 0}
+                    android_ripple={
+                      Platform.OS === "android" ? { color: "rgba(255,255,255,0.18)" } : undefined
+                    }
+                    style={({ pressed }) => [
+                      styles.primaryBtn,
+                      {
+                        backgroundColor: C.primary,
+                        marginTop: 12,
+                        opacity: saldoNum <= 0 ? 0.5 : 1,
+                      },
+                      pressed && Platform.OS === "ios" && saldoNum > 0 ? { opacity: 0.85 } : null,
+                    ]}
+                  >
+                    <Text style={styles.primaryBtnText}>
+                      {saldoNum <= 0 ? "Compra pagada" : "Aplicar pago"}
+                    </Text>
+                  </Pressable>
+                </View>
+              </>
+            ) : null}
 
             <View style={{ height: 12 }} />
           </ScrollView>
@@ -1239,10 +1319,10 @@ const styles = StyleSheet.create({
     gap: 10,
   },
 
-  h1: { fontSize: 20, fontWeight: "800", letterSpacing: -0.2 },
+  h1: { fontSize: 20, fontWeight: "700", letterSpacing: -0.2, lineHeight: 24 },
 
-  metaK: { fontSize: 12, fontWeight: "700" },
-  metaV: { marginTop: 2, fontSize: 14, fontWeight: "700" },
+  metaK: { fontSize: 12, fontWeight: "600" },
+  metaV: { marginTop: 2, fontSize: 14, fontWeight: "600", lineHeight: 18 },
 
   badgePill: {
     borderWidth: StyleSheet.hairlineWidth,
@@ -1251,22 +1331,22 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignSelf: "flex-start",
   },
-  badgeText: { fontSize: 12, fontWeight: "800", letterSpacing: 0.2 },
+  badgeText: { fontSize: 12, fontWeight: "700", letterSpacing: 0.2 },
 
   kvGrid: { flexDirection: "row", gap: 16, flexWrap: "wrap" },
   kv: { minWidth: 130 },
 
-  k: { fontSize: 12, fontWeight: "700" },
-  v: { marginTop: 3, fontSize: 14, fontWeight: "700" },
-  note: { marginTop: 6, fontSize: 14, fontWeight: "600", lineHeight: 19 },
+  k: { fontSize: 12, fontWeight: "600" },
+  v: { marginTop: 3, fontSize: 14, fontWeight: "600", lineHeight: 18 },
+  note: { marginTop: 6, fontSize: 14, fontWeight: "600", lineHeight: 20 },
 
-  divider: { height: StyleSheet.hairlineWidth, marginVertical: 12 },
+  divider: { height: StyleSheet.hairlineWidth, marginVertical: 10 },
 
   totalRow: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" },
-  total: { fontSize: 24, fontWeight: "800", marginTop: 4, letterSpacing: -0.3 },
-  totalSmall: { fontSize: 16, fontWeight: "800", marginTop: 4 },
+  total: { fontSize: 24, fontWeight: "700", marginTop: 4, letterSpacing: -0.3 },
+  totalSmall: { fontSize: 16, fontWeight: "700", marginTop: 4 },
 
-  sectionTitle: { marginTop: 16, fontSize: 18, fontWeight: "800", letterSpacing: -0.2 },
+  sectionTitle: { marginTop: 18, fontSize: 18, fontWeight: "700", letterSpacing: -0.2 },
 
   rowBetween: {
     flexDirection: "row",
@@ -1275,8 +1355,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
 
-  cardTitle: { fontSize: 16, fontWeight: "800", flex: 1, paddingRight: 10 },
-  brand: { fontSize: 13, fontWeight: "700" },
+  cardTitle: { fontSize: 16, fontWeight: "700", flex: 1, paddingRight: 10, lineHeight: 20 },
+  brand: { fontSize: 13, fontWeight: "600", lineHeight: 16 },
 
   productBody: { marginTop: 12, flexDirection: "row", gap: 12, alignItems: "flex-start" },
 
@@ -1291,16 +1371,17 @@ const styles = StyleSheet.create({
   },
 
   miniRow: { flexDirection: "row", justifyContent: "space-between", gap: 10, marginBottom: 6 },
-  miniK: { fontSize: 12, fontWeight: "700", minWidth: 56 },
-  miniV: { fontSize: 13, fontWeight: "700", flex: 1, textAlign: "right" },
+  miniK: { fontSize: 12, fontWeight: "600", minWidth: 56 },
+  miniV: { fontSize: 13, fontWeight: "600", flex: 1, textAlign: "right" },
 
   subtotalPill: {
     marginTop: 12,
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  subtotalText: { fontSize: 14, fontWeight: "800" },
+  subtotalText: { fontSize: 14, fontWeight: "700" },
 
   bottomBar: {
     position: "absolute",
@@ -1311,29 +1392,37 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
     gap: 10,
+    flexDirection: "row",
+    alignItems: "center",
   },
 
   primaryBtn: {
     borderRadius: 14,
     paddingVertical: Platform.select({ ios: 14, android: 12, default: 12 }),
+    paddingHorizontal: 14,
     alignItems: "center",
     justifyContent: "center",
+    flex: 1,
+    minHeight: 48,
   },
-  primaryBtnText: { color: "#fff", fontSize: 16, fontWeight: "800" },
+  primaryBtnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
 
   dangerBtn: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 14,
     paddingVertical: Platform.select({ ios: 14, android: 12, default: 12 }),
+    paddingHorizontal: 14,
     alignItems: "center",
     justifyContent: "center",
+    flex: 1,
+    minHeight: 48,
   },
-  dangerBtnText: { fontSize: 16, fontWeight: "800" },
+  dangerBtnText: { fontSize: 16, fontWeight: "700" },
 
   // Pagos
-  payTitle: { fontSize: 14, fontWeight: "800", flex: 1, paddingRight: 8 },
-  payAmount: { fontSize: 14, fontWeight: "900" },
-  payMeta: { marginTop: 4, fontSize: 12, fontWeight: "700" },
+  payTitle: { fontSize: 14, fontWeight: "700", flex: 1, paddingRight: 8 },
+  payAmount: { fontSize: 14, fontWeight: "800" },
+  payMeta: { marginTop: 4, fontSize: 12, fontWeight: "600" },
 
   linkBtn: {
     marginTop: 10,
@@ -1343,7 +1432,31 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 12,
   },
-  linkBtnText: { fontSize: 12, fontWeight: "800" },
+  linkBtnText: { fontSize: 12, fontWeight: "700" },
+
+  receiptBtn: {
+    marginTop: 10,
+    alignSelf: "flex-start",
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderRadius: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minWidth: 220,
+  },
+  receiptThumb: { width: 46, height: 46, borderRadius: 12 },
+  receiptThumbPlaceholder: {
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  receiptThumbText: { fontSize: 11, fontWeight: "800", letterSpacing: 0.2 },
+  receiptHint: { marginTop: 1, fontSize: 12, fontWeight: "600" },
 
   modalBg: { flex: 1, alignItems: "center", justifyContent: "center", padding: 18 },
   modalCard: {
@@ -1352,10 +1465,10 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 16,
   },
-  modalTitle: { fontSize: 18, fontWeight: "900", letterSpacing: -0.2 },
-  modalSub: { marginTop: 4, fontSize: 13, fontWeight: "700" },
+  modalTitle: { fontSize: 18, fontWeight: "800", letterSpacing: -0.2 },
+  modalSub: { marginTop: 4, fontSize: 13, fontWeight: "600" },
 
-  inputLabel: { fontSize: 12, fontWeight: "800" },
+  inputLabel: { fontSize: 12, fontWeight: "700" },
   input: {
     marginTop: 6,
     borderWidth: StyleSheet.hairlineWidth,
@@ -1363,7 +1476,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 12,
     fontSize: 15,
-    fontWeight: "700",
+    fontWeight: "600",
   },
 
   secondaryBtn: {
@@ -1388,7 +1501,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 12,
   },
-  linkBtnTextSmall: { fontSize: 12, fontWeight: "900" },
+  linkBtnTextSmall: { fontSize: 12, fontWeight: "800" },
 
   previewWrap: {
     marginTop: 10,

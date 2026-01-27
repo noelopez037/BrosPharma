@@ -24,18 +24,19 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
+import { alphaColor } from "../lib/ui";
 
 export default function LoginScreen() {
-  const { dark } = useTheme();
+  const { colors, dark } = useTheme();
   const isDark = !!dark;
 
   const C = {
-    bg: isDark ? "#000" : "#fff",
-    card: isDark ? "#0f0f10" : "#fff",
-    text: isDark ? "#fff" : "#111",
-    sub: isDark ? "rgba(255,255,255,0.65)" : "#666",
-    border: isDark ? "rgba(255,255,255,0.14)" : "#e5e5e5",
-    tint: "#007AFF", // iOS blue
+    bg: colors.background ?? (isDark ? "#000" : "#fff"),
+    card: colors.card ?? (isDark ? "#0f0f10" : "#fff"),
+    text: colors.text ?? (isDark ? "#fff" : "#111"),
+    sub: alphaColor(String(colors.text ?? (isDark ? "#ffffff" : "#000000")), 0.65) || (isDark ? "rgba(255,255,255,0.65)" : "#666"),
+    border: colors.border ?? (isDark ? "rgba(255,255,255,0.14)" : "#e5e5e5"),
+    tint: colors.primary ?? "#007AFF",
   } as const;
 
   const [email, setEmail] = useState("");

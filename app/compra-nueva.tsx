@@ -15,7 +15,7 @@ import DateTimePicker, {
   DateTimePickerAndroid,
   DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useTheme } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -37,6 +37,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useCompraDraft } from "../lib/compraDraft";
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
+import { alphaColor } from "../lib/ui";
 
 const BUCKET = "productos";
 
@@ -76,6 +77,8 @@ export default function CompraNuevaScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ editId?: string }>();
 
+  const { colors } = useTheme();
+
   const editIdRaw = params?.editId ? String(params.editId) : null;
   const editId =
     editIdRaw && Number.isFinite(Number(editIdRaw)) && Number(editIdRaw) > 0 ? editIdRaw : null;
@@ -87,17 +90,19 @@ export default function CompraNuevaScreen() {
 
   const C = useMemo(
     () => ({
-      bg: isDark ? "#000" : "#fff",
-      card: isDark ? "#0f0f10" : "#fff",
-      text: isDark ? "#fff" : "#111",
-      sub: isDark ? "rgba(255,255,255,0.65)" : "#666",
-      border: isDark ? "rgba(255,255,255,0.14)" : "#e5e5e5",
-      blue: "rgba(64, 156, 255, 0.85)",
-      blueText: isDark ? "rgba(120,190,255,1)" : "#2f6fed",
+      bg: colors.background ?? (isDark ? "#000" : "#fff"),
+      card: colors.card ?? (isDark ? "#1C1C1E" : "#fff"),
+      text: colors.text ?? (isDark ? "#fff" : "#111"),
+      sub:
+        alphaColor(String(colors.text ?? (isDark ? "#ffffff" : "#000000")), 0.65) ||
+        (isDark ? "rgba(255,255,255,0.65)" : "#666"),
+      border: colors.border ?? (isDark ? "rgba(255,255,255,0.14)" : "#e5e5e5"),
+      blueText: String(colors.primary ?? "#007AFF"),
+      blue: alphaColor(String(colors.primary ?? "#007AFF"), 0.18) || "rgba(64, 156, 255, 0.18)",
       backdrop: "rgba(0,0,0,0.35)",
       danger: isDark ? "rgba(255,120,120,0.95)" : "#d00",
     }),
-    [isDark]
+    [isDark, colors.background, colors.border, colors.card, colors.primary, colors.text]
   );
 
   const {
@@ -163,8 +168,8 @@ export default function CompraNuevaScreen() {
           if (!k) return;
 
           const nombre = r.productos?.nombre ?? "";
-          const marca = r.productos?.marca ?? "";
-          const label = `${nombre}${marca ? ` • ${marca}` : ""}`;
+          const marcaNombre = r.productos?.marcas?.nombre ?? "";
+          const label = `${nombre}${marcaNombre ? ` • ${marcaNombre}` : ""}`;
 
           updateLinea(k, {
             producto_id: Number(r.producto_id),
@@ -173,7 +178,8 @@ export default function CompraNuevaScreen() {
             fecha_exp: r.producto_lotes?.fecha_exp ?? null,
             cantidad: String(r.cantidad ?? "1"),
             precio: String(r.precio_compra_unit ?? "0"),
-            image_path: null,
+            // En edición: conserva la foto actual del producto (si existe)
+            image_path: r.productos?.image_path ?? null,
             image_uri: null,
           });
         });
@@ -208,7 +214,7 @@ export default function CompraNuevaScreen() {
         const { data: d, error: e2 } = await supabase
           .from("compras_detalle")
           .select(
-            "id,cantidad,precio_compra_unit,producto_id, productos(nombre,marca), producto_lotes(lote,fecha_exp)"
+            "id,cantidad,precio_compra_unit,producto_id, productos(nombre,image_path,marca_id,marcas(nombre)), producto_lotes(lote,fecha_exp)"
           )
           .eq("compra_id", Number(idToLoad))
           .order("id", { ascending: true });

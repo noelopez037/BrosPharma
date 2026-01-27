@@ -34,7 +34,6 @@ type Marca = { id: number; nombre: string };
 type ProductoRow = {
   id: number;
   nombre: string;
-  marca: string | null;
   marca_id: number | null;
   requiere_receta: boolean;
   tiene_iva: boolean;
@@ -148,7 +147,7 @@ export default function ProductoEdit() {
 
       const { data: prod, error: e1 } = await supabase
         .from("productos")
-        .select("id,nombre,marca,marca_id,requiere_receta,tiene_iva,activo")
+        .select("id,nombre,marca_id,requiere_receta,tiene_iva,activo")
         .eq("id", productoId)
         .single();
       if (e1) throw e1;
@@ -224,7 +223,6 @@ export default function ProductoEdit() {
         .update({
           nombre: cleanNombre,
           marca_id: marcaId,
-          marca: selectedMarcaNombre ?? null,
           requiere_receta: requiereReceta,
           tiene_iva: tieneIva,
           activo,
