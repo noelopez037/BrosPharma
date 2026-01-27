@@ -3,10 +3,8 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { Ionicons } from "@expo/vector-icons";
 import {
   DrawerContentScrollView,
-  DrawerItem,
-  DrawerItemList,
+  DrawerItemList
 } from "@react-navigation/drawer";
-import { router } from "expo-router";
 import { Drawer } from "expo-router/drawer";
 import React from "react";
 import { Platform, StyleSheet, Switch, Text, View } from "react-native";
@@ -58,14 +56,7 @@ export default function DrawerLayout() {
         <DrawerContentScrollView {...props} contentContainerStyle={{ paddingBottom: 12 }}>
           <DrawerItemList {...props} />
 
-          <DrawerItem
-            label="Compras"
-            labelStyle={labelStyle}
-            onPress={() => {
-              props.navigation.closeDrawer();
-              router.push("/compras");
-            }}
-          />
+        
 
           {/* Toggle Tema */}
           <View style={[styles.themeRow, { borderTopColor: isDark ? "#2C2C2E" : "#E5E5EA" }]}>
