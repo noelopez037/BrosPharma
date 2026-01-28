@@ -5,13 +5,13 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
-  Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
+import { AppButton } from "../components/ui/app-button";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 
@@ -159,26 +159,19 @@ export default function ClienteDetalle() {
             </View>
 
             {canEdit ? (
-              <Pressable
+              <AppButton
+                title="Editar"
                 onPress={() =>
                   router.push({
                     pathname: "/cliente-form" as any,
                     params: { id: String(row.id) },
                   })
                 }
-                style={({ pressed }) => [s.btnPrimary, pressed && { opacity: 0.85 }]}
-              >
-                <Text style={s.btnPrimaryText}>Editar</Text>
-              </Pressable>
+              />
             ) : null}
 
             {canDelete ? (
-              <Pressable
-                onPress={onDelete}
-                style={({ pressed }) => [s.btnDanger, pressed && { opacity: 0.85 }]}
-              >
-                <Text style={s.btnDangerText}>Eliminar</Text>
-              </Pressable>
+              <AppButton title="Eliminar" variant="danger" onPress={onDelete} />
             ) : null}
           </View>
         )}
@@ -231,25 +224,5 @@ const styles = (colors: any) =>
     k: { color: colors.text + "AA", fontSize: 12, fontWeight: "800" },
     v: { color: colors.text, fontSize: 16, fontWeight: "600", marginTop: 6 },
 
-    btnPrimary: {
-      borderRadius: 14,
-      paddingVertical: 12,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: Platform.OS === "ios" ? "#007AFF" : (colors.primary ?? "#007AFF"),
-      borderWidth: 1,
-      borderColor: Platform.OS === "ios" ? "#007AFF" : (colors.primary ?? "#007AFF"),
-    },
-    btnPrimaryText: { color: "#fff", fontSize: 16, fontWeight: "900" },
-
-    btnDanger: {
-      borderRadius: 14,
-      paddingVertical: 12,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: Platform.OS === "ios" ? "#FF3B30" : "#E53935",
-      borderWidth: 1,
-      borderColor: Platform.OS === "ios" ? "#FF3B30" : "#E53935",
-    },
-    btnDangerText: { color: "#fff", fontSize: 16, fontWeight: "900" },
+    // Buttons handled by AppButton
   });

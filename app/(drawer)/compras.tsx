@@ -33,6 +33,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
+import { AppButton } from "../../components/ui/app-button";
 
 type CompraRow = {
   id: number;
@@ -151,6 +152,13 @@ export default function ComprasScreen() {
         setProvOpen(false);
         setShowDesdeIOS(false);
         setShowHastaIOS(false);
+
+        // ✅ limpiar filtros al salir para que al regresar esté limpio
+        setFiltersOpen(false);
+        setFProveedorId(null);
+        setFDesde(null);
+        setFHasta(null);
+        setFPago("ALL");
       };
     }, [])
   );
@@ -626,16 +634,8 @@ export default function ComprasScreen() {
 
             {/* Acciones */}
             <View style={s.modalActions}>
-              <Pressable
-                onPress={limpiarFiltros}
-                style={[s.btnGhost, { borderColor: M.border, backgroundColor: M.fieldBg }]}
-              >
-                <Text style={[s.btnGhostTxt, { color: M.text }]}>Limpiar</Text>
-              </Pressable>
-
-              <Pressable onPress={aplicarFiltros} style={[s.btnPrimary, { backgroundColor: M.primary }]}>
-                <Text style={s.btnPrimaryTxt}>Aplicar</Text>
-              </Pressable>
+              <AppButton title="Limpiar" variant="ghost" size="sm" onPress={limpiarFiltros} />
+              <AppButton title="Aplicar" variant="primary" size="sm" onPress={aplicarFiltros} />
             </View>
           </View>
         </Modal>

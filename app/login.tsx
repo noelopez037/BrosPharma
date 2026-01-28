@@ -15,7 +15,6 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -25,6 +24,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import { alphaColor } from "../lib/ui";
+import { AppButton } from "../components/ui/app-button";
 
 export default function LoginScreen() {
   const { colors, dark } = useTheme();
@@ -136,18 +136,7 @@ export default function LoginScreen() {
             onSubmitEditing={onLogin}
           />
 
-          <Pressable
-            onPress={onLogin}
-            disabled={loading}
-            style={({ pressed }) => [
-              styles.button,
-              { backgroundColor: C.tint, opacity: loading ? 0.7 : pressed ? 0.85 : 1 },
-            ]}
-          >
-            <Text maxFontSizeMultiplier={1.2} style={styles.buttonText}>
-              {loading ? "Entrando..." : "Entrar"}
-            </Text>
-          </Pressable>
+          <AppButton title="Entrar" onPress={onLogin} loading={loading} />
 
           <View style={{ height: 24 }} />
         </ScrollView>
@@ -188,16 +177,5 @@ const styles = StyleSheet.create({
     minHeight: 46,
     fontSize: 16,
   },
-  button: {
-    marginTop: 12,
-    borderRadius: 14,
-    paddingVertical: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  buttonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "700",
-  },
+  // Button styles handled by AppButton
 });

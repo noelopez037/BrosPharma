@@ -33,6 +33,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
+import { AppButton } from "../components/ui/app-button";
 
 const BUCKET_PRODUCTOS = "productos";
 const BUCKET_COMPROBANTES = "comprobantes";
@@ -985,26 +986,19 @@ export default function CompraDetalleScreen() {
                     <Text style={[styles.v, { color: C.text }]}>{fmtQ(compra.saldo_pendiente)}</Text>
                   </View>
 
-                  <Pressable
+                  <AppButton
+                    title={saldoNum <= 0 ? "Compra pagada" : "Aplicar pago"}
                     onPress={abrirPagoModal}
                     disabled={saldoNum <= 0}
-                    android_ripple={
-                      Platform.OS === "android" ? { color: "rgba(255,255,255,0.18)" } : undefined
-                    }
-                    style={({ pressed }) => [
-                      styles.primaryBtn,
-                      {
-                        backgroundColor: C.primary,
-                        marginTop: 12,
-                        opacity: saldoNum <= 0 ? 0.5 : 1,
-                      },
-                      pressed && Platform.OS === "ios" && saldoNum > 0 ? { opacity: 0.85 } : null,
-                    ]}
-                  >
-                    <Text style={styles.primaryBtnText}>
-                      {saldoNum <= 0 ? "Compra pagada" : "Aplicar pago"}
-                    </Text>
-                  </Pressable>
+                    variant="primary"
+                    androidRipple={Platform.OS === "android" ? { color: "rgba(255,255,255,0.18)" } : undefined}
+                    style={{
+                      backgroundColor: C.primary,
+                      borderColor: C.primary,
+                      marginTop: 12,
+                      opacity: saldoNum <= 0 ? 0.5 : 1,
+                    } as any}
+                  />
                 </View>
               </>
             ) : null}
@@ -1025,41 +1019,27 @@ export default function CompraDetalleScreen() {
               },
             ]}
           >
-            <Pressable
+            <AppButton
+              title="Editar"
               onPress={() =>
                 router.push({
                   pathname: "/compra-nueva",
                   params: { editId: String(compra.id) },
                 })
               }
-              android_ripple={
-                Platform.OS === "android" ? { color: "rgba(255,255,255,0.18)" } : undefined
-              }
-              style={({ pressed }) => [
-                styles.primaryBtn,
-                { backgroundColor: C.primary },
-                pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
-              ]}
-            >
-              <Text style={styles.primaryBtnText}>Editar</Text>
-            </Pressable>
+              variant="primary"
+              androidRipple={Platform.OS === "android" ? { color: "rgba(255,255,255,0.18)" } : undefined}
+              style={{ flex: 1, minHeight: 48, backgroundColor: C.primary, borderColor: C.primary } as any}
+            />
 
-            <Pressable
+            <AppButton
+              title={deleting ? "Eliminando..." : "Eliminar"}
               onPress={eliminarCompra}
               disabled={deleting}
-              android_ripple={
-                Platform.OS === "android" ? { color: "rgba(140, 38, 38, 0.1)" } : undefined
-              }
-              style={({ pressed }) => [
-                styles.dangerBtn,
-                { backgroundColor: C.dangerBg, opacity: deleting ? 0.6 : 1 },
-                pressed && Platform.OS === "ios" && !deleting ? { opacity: 0.85 } : null,
-              ]}
-            >
-              <Text style={[styles.dangerBtnText, { color: C.danger }]}>
-                {deleting ? "Eliminando..." : "Eliminar"}
-              </Text>
-            </Pressable>
+              variant="danger"
+              androidRipple={Platform.OS === "android" ? { color: "rgba(140, 38, 38, 0.1)" } : undefined}
+              style={{ flex: 1, minHeight: 48 } as any}
+            />
           </View>
         ) : null}
 
@@ -1205,37 +1185,27 @@ export default function CompraDetalleScreen() {
                       </View>
 
                       <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
-                        <Pressable
+                        <AppButton
+                          title="Cancelar"
+                          variant="outline"
                           onPress={() => {
                             Keyboard.dismiss();
                             setPagoModal(false);
                           }}
                           disabled={savingPago}
-                          style={({ pressed }) => [
-                            styles.secondaryBtn,
-                            { borderColor: C.border, backgroundColor: "transparent", opacity: savingPago ? 0.6 : 1 },
-                            pressed && Platform.OS === "ios" && !savingPago ? { opacity: 0.85 } : null,
-                          ]}
-                        >
-                          <Text style={{ color: C.text, fontSize: 15, fontWeight: "800" }}>Cancelar</Text>
-                        </Pressable>
+                          style={{ flex: 1, minHeight: 48 } as any}
+                        />
 
-                        <Pressable
+                        <AppButton
+                          title="Guardar"
+                          variant="primary"
                           onPress={() => {
                             Keyboard.dismiss();
                             guardarPago();
                           }}
-                          disabled={savingPago}
-                          style={({ pressed }) => [
-                            styles.primaryBtn,
-                            { backgroundColor: C.primary, flex: 1, opacity: savingPago ? 0.75 : 1 },
-                            pressed && Platform.OS === "ios" && !savingPago ? { opacity: 0.85 } : null,
-                          ]}
-                        >
-                          <Text style={styles.primaryBtnText}>
-                            {savingPago ? "Guardando..." : "Guardar"}
-                          </Text>
-                        </Pressable>
+                          loading={savingPago}
+                          style={{ flex: 1, minHeight: 48, backgroundColor: C.primary, borderColor: C.primary } as any}
+                        />
                       </View>
                     </View>
                   </TouchableWithoutFeedback>
