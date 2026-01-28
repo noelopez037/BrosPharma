@@ -28,6 +28,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
+import { AppButton } from "../components/ui/app-button";
 
 type Marca = { id: number; nombre: string };
 
@@ -382,16 +383,7 @@ export default function ProductoEdit() {
               />
             </View>
 
-            <Pressable
-              onPress={onSave}
-              disabled={saving}
-              style={({ pressed }) => [
-                s.btnPrimary,
-                (pressed || saving) && { opacity: 0.85 },
-              ]}
-            >
-              <Text style={s.btnPrimaryText}>{saving ? "Guardando..." : "Guardar"}</Text>
-            </Pressable>
+            <AppButton title="Guardar" onPress={onSave} loading={saving} />
 
             <View style={{ height: 12 }} />
           </ScrollView>
@@ -604,20 +596,7 @@ const styles = (colors: any, PRIMARY: ColorValue) =>
       fontWeight: Platform.OS === "android" ? "600" : "600",
     },
 
-    btnPrimary: {
-      marginTop: 18,
-      borderRadius: 12,
-      paddingVertical: 14,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: PRIMARY as any,
-    },
-    btnPrimaryText: {
-      color: "#fff",
-      fontFamily: FONT_FAMILY,
-      fontWeight: Platform.OS === "android" ? "700" : "700",
-      fontSize: 16,
-    },
+    // Buttons handled by AppButton
 
     backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)" },
 

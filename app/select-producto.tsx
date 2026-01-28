@@ -17,6 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useCompraDraft } from "../lib/compraDraft";
 import { supabase } from "../lib/supabase";
 import { getPrimary, getSwitchColors } from "../lib/ui";
+import { AppButton } from "../components/ui/app-button";
 
 type Marca = { id: number; nombre: string };
 type ProductoRow = { id: number; nombre: string; marca_id: number | null; activo?: boolean };
@@ -146,7 +147,10 @@ export default function SelectProducto() {
                 placeholderTextColor={(colors?.text ?? '#000') + '66'}
                 style={[styles.inputSearch, { borderColor: colors?.border ?? '#ccc', backgroundColor: colors?.card ?? '#fff', color: colors?.text ?? '#000' }]}
               />
-              <Pressable
+              <AppButton
+                title={"+ Nuevo"}
+                variant="outline"
+                size="sm"
                 onPress={() => {
                   setMode("CREAR");
                   setNewNombre("");
@@ -155,10 +159,7 @@ export default function SelectProducto() {
                   setNewRequiereReceta(false);
                   setNewTieneIva(false);
                 }}
-                style={({ pressed }) => [styles.btnOutline, { borderColor: PRIMARY as any }, pressed && { opacity: 0.85 }]}
-              >
-                <Text style={[styles.btnOutlineText, { color: PRIMARY as any }]}>+ Nuevo</Text>
-              </Pressable>
+              />
             </View>
           ) : (
             <>
@@ -212,16 +213,8 @@ export default function SelectProducto() {
                 />
               </View>
               {/* La creacion de marca se hace dentro del modal */}
-              <Pressable
-                onPress={crear}
-                disabled={loading}
-                style={({ pressed }) => [styles.btnPrimary, { backgroundColor: PRIMARY as any, opacity: loading ? 0.75 : pressed ? 0.85 : 1 }]} 
-              >
-                <Text style={styles.btnPrimaryText}>{loading ? 'Guardando…' : 'Guardar producto'}</Text>
-              </Pressable>
-              <Pressable onPress={() => setMode("LISTA")} style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.7 }]}>
-                <Text style={[styles.linkText, { color: PRIMARY as any }]}>Cancelar</Text>
-              </Pressable>
+              <AppButton title="Guardar producto" onPress={crear} loading={loading} />
+              <AppButton title="Cancelar" variant="outline" size="sm" onPress={() => setMode("LISTA")} />
             </>
           )}
           {loading && mode === 'LISTA' && <ActivityIndicator />}
@@ -340,12 +333,7 @@ const styles = StyleSheet.create({
   label: { marginTop: 6, marginBottom: 6, fontSize: 13, fontWeight: "600" },
   inputSearch: { flex: 1, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, minHeight: 44, fontSize: 16 },
   input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, minHeight: 44, fontSize: 16 },
-  btnOutline: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, alignItems: "center", justifyContent: "center" },
-  btnOutlineText: { fontSize: 14, fontWeight: "600" },
-  btnPrimary: { marginTop: 8, borderRadius: 12, paddingVertical: 12, alignItems: "center", justifyContent: "center" },
-  btnPrimaryText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-  linkBtn: { paddingVertical: 8, alignItems: "center" },
-  linkText: { fontSize: 14, fontWeight: "600" },
+  // Buttons handled by AppButton
   rowItem: { paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1 },
   itemTitle: { fontSize: 16, fontWeight: "600" },
   itemSub: { marginTop: 4, fontSize: 13 },

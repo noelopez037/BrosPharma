@@ -18,6 +18,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
+import { AppButton } from "../components/ui/app-button";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 
@@ -363,13 +364,7 @@ export default function ClienteForm() {
               />
             </View>
 
-            <Pressable
-              onPress={onSave}
-              disabled={saving}
-              style={({ pressed }) => [s.btnPrimary, (pressed || saving) && { opacity: 0.85 }]}
-            >
-              <Text style={s.btnPrimaryText}>{saving ? "Guardando..." : "Guardar"}</Text>
-            </Pressable>
+            <AppButton title="Guardar" onPress={onSave} loading={saving} style={{ marginTop: 18 } as any} />
 
             <View style={{ height: 12 }} />
           </ScrollView>
@@ -515,15 +510,7 @@ const styles = (colors: any) =>
     },
     switchText: { color: colors.text, fontWeight: Platform.OS === "android" ? "500" : "600" },
 
-    btnPrimary: {
-      marginTop: 18,
-      borderRadius: 12,
-      paddingVertical: 14,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: Platform.OS === "ios" ? "#007AFF" : (colors.primary ?? "#007AFF"),
-    },
-    btnPrimaryText: { color: "#fff", fontWeight: Platform.OS === "android" ? "800" : "900", fontSize: 16 },
+    // Buttons handled by AppButton
 
     backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)" },
     modalCard: {

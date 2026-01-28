@@ -22,6 +22,7 @@ import ImageViewer from "react-native-image-zoom-viewer";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
+import { AppButton } from "../components/ui/app-button";
 
 const BUCKET = "productos";
 
@@ -381,17 +382,18 @@ export default function ProductoModal() {
                 </View>
 
                 {isAdmin ? (
-                  <Pressable
-                    style={({ pressed }) => [s.btn, pressed && { opacity: 0.75 }]}
+                  <AppButton
+                    title="Editar producto"
+                    variant="outline"
+                    size="sm"
                     onPress={() =>
                       router.replace({
                         pathname: "/producto-edit",
                         params: { id: String(productoId) },
                       })
                     }
-                  >
-                    <Text style={s.btnText}>Editar producto</Text>
-                  </Pressable>
+                    style={{ alignSelf: "flex-start" } as any}
+                  />
                 ) : null}
               </View>
 

@@ -38,6 +38,7 @@ import { useCompraDraft } from "../lib/compraDraft";
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
+import { AppButton } from "../components/ui/app-button";
 
 const BUCKET = "productos";
 
@@ -789,34 +790,24 @@ export default function CompraNuevaScreen() {
           })}
 
           {/* ✅ Botón al final */}
-          <Pressable
+          <AppButton
+            title={"+ Agregar otro producto"}
+            variant="ghost"
             onPress={addLinea}
-            style={({ pressed }) => [
-              styles.btnAddBottom,
-              { borderColor: C.border, backgroundColor: C.card },
-              pressed && { opacity: 0.85 },
-            ]}
-          >
-            <Text style={[styles.btnAddBottomText, { color: C.text }]}>+ Agregar otro producto</Text>
-          </Pressable>
+            style={[styles.btnAddBottom, { borderColor: C.border, backgroundColor: C.card }] as any}
+          />
 
           <View style={[styles.totalCard, { borderColor: C.border, backgroundColor: C.card }]}>
             <Text style={[styles.totalLabel, { color: C.text }]}>Total</Text>
             <Text style={[styles.totalValue, { color: C.text }]}>Q {total.toFixed(2)}</Text>
           </View>
 
-          <Pressable
+          <AppButton
+            title={saveLabel}
             onPress={guardar}
-            disabled={saving || loadingEdit}
-            style={({ pressed }) => [
-              styles.saveBtn,
-              { backgroundColor: C.blue },
-              (pressed || saving || loadingEdit) && { opacity: 0.85 },
-              { marginBottom: 10 + insets.bottom },
-            ]}
-          >
-            <Text style={styles.saveBtnText}>{saveLabel}</Text>
-          </Pressable>
+            loading={saving || loadingEdit}
+            style={[styles.saveBtn, { backgroundColor: C.blue, marginBottom: 10 + insets.bottom }] as any}
+          />
         </ScrollView>
 
         {/* iOS Date Picker Modal */}
@@ -843,25 +834,28 @@ export default function CompraNuevaScreen() {
             />
 
             <View style={styles.dpBtns}>
-              <Pressable
+              <AppButton
+                title="Cancelar"
+                variant="ghost"
+                size="sm"
                 onPress={() => setIosDateOpen(false)}
                 style={[
                   styles.dpBtn,
                   { backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "#f2f2f2" },
-                ]}
-              >
-                <Text style={[styles.dpBtnText, { color: C.text }]}>Cancelar</Text>
-              </Pressable>
+                  { flex: 1 },
+                ] as any}
+              />
 
-              <Pressable
+              <AppButton
+                title="Listo"
+                variant="primary"
+                size="sm"
                 onPress={() => {
                   iosDateOnConfirm(iosTempRef.current);
                   setIosDateOpen(false);
                 }}
-                style={[styles.dpBtn, { backgroundColor: C.blueText }]}
-              >
-                <Text style={[styles.dpBtnText, { color: "#fff" }]}>Listo</Text>
-              </Pressable>
+                style={[styles.dpBtn, { backgroundColor: C.blueText }, { flex: 1 }] as any}
+              />
             </View>
           </View>
         </Modal>

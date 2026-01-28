@@ -16,6 +16,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Proveedor, useCompraDraft } from "../lib/compraDraft";
 import { supabase } from "../lib/supabase";
+import { AppButton } from "../components/ui/app-button";
 
 function alpha(hexOrRgb: string, a: number) {
   if (!hexOrRgb?.startsWith("#") || hexOrRgb.length !== 7) return hexOrRgb;
@@ -157,20 +158,16 @@ export default function SelectProveedor() {
                 ]}
               />
 
-              <Pressable
+              <AppButton
+                title={"+ Nuevo"}
+                variant="outline"
+                size="sm"
                 onPress={() => {
                   setMode("CREAR");
                   setNewNombre(q.trim());
                   setNewTel("");
                 }}
-                style={({ pressed }) => [
-                  styles.btnOutline,
-                  { borderColor: C.tint as any },
-                  pressed && { opacity: 0.85 },
-                ]}
-              >
-                <Text style={[styles.btnOutlineText, { color: C.tint as any }]}>+ Nuevo</Text>
-              </Pressable>
+              />
             </View>
           ) : (
             <>
@@ -211,23 +208,9 @@ export default function SelectProveedor() {
                 ]}
               />
 
-              <Pressable
-                onPress={crear}
-                disabled={loading}
-                style={({ pressed }) => [
-                  styles.btnPrimary,
-                  { backgroundColor: C.tint as any, opacity: loading ? 0.75 : pressed ? 0.85 : 1 },
-                ]}
-              >
-                <Text style={styles.btnPrimaryText}>{loading ? "Guardando…" : "Guardar proveedor"}</Text>
-              </Pressable>
+              <AppButton title="Guardar proveedor" onPress={crear} loading={loading} />
 
-              <Pressable
-                onPress={() => setMode("LISTA")}
-                style={({ pressed }) => [styles.linkBtn, pressed && { opacity: 0.7 }]}
-              >
-                <Text style={[styles.linkText, { color: C.tint as any }]}>Cancelar</Text>
-              </Pressable>
+              <AppButton title="Cancelar" variant="outline" size="sm" onPress={() => setMode("LISTA")} />
             </>
           )}
 
@@ -281,27 +264,7 @@ const styles = StyleSheet.create({
   // ✅ solo para el buscador en la fila
   inputFlex: { flex: 1 },
 
-  btnOutline: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  btnOutlineText: { fontSize: 14, fontWeight: "600" },
-
-  btnPrimary: {
-    marginTop: 8,
-    borderRadius: 14,
-    paddingVertical: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  btnPrimaryText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-
-  linkBtn: { paddingVertical: 8, alignItems: "center" },
-  linkText: { fontSize: 14, fontWeight: "600" },
+  // Buttons handled by AppButton
 
   rowItem: {
     paddingHorizontal: 16,
