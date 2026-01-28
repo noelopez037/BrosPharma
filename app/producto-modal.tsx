@@ -326,10 +326,8 @@ export default function ProductoModal() {
     setSavingPhoto(true);
     try {
       await saveImageToPhotos(imageUrl);
-      // eslint-disable-next-line no-alert
       alert("Imagen guardada en Fotos");
     } catch (e: any) {
-      // eslint-disable-next-line no-alert
       alert(e?.message ?? "No se pudo guardar la imagen");
     } finally {
       setSavingPhoto(false);

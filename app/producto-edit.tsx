@@ -215,9 +215,6 @@ export default function ProductoEdit() {
 
     setSaving(true);
     try {
-      const selectedMarcaNombre =
-        marcaId != null ? marcas.find((m) => m.id === marcaId)?.nombre ?? null : null;
-
       const { error: e1 } = await supabase
         .from("productos")
         .update({
