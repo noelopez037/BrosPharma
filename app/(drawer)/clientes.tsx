@@ -16,7 +16,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 
-type Role = "ADMIN" | "BODEGA" | "VENDEDOR" | "FACTURACION" | "";
+type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 
 type ClienteRow = {
   id: number;
@@ -59,7 +59,7 @@ export default function ClientesScreen() {
 
   const [role, setRole] = useState<Role>("");
   const isAdmin = role === "ADMIN";
-  const canCreate = role === "ADMIN" || role === "VENDEDOR";
+  const canCreate = role === "ADMIN" || role === "VENTAS";
 
   const [q, setQ] = useState("");
   const dq = useDebouncedValue(q.trim(), 250);
