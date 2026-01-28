@@ -39,6 +39,7 @@ export default function DrawerLayout() {
 
   const isTabsRoute = pathname === "/" || pathname === "/ventas" || pathname === "/inventario";
   const isComprasRoute = pathname === "/compras" || pathname.startsWith("/compras/");
+  const isClientesRoute = pathname.startsWith("/cliente");
 
   useEffect(() => {
     let alive = true;
@@ -203,7 +204,20 @@ export default function DrawerLayout() {
                   <Text style={[styles.menuLabel, { color: isComprasRoute ? text : muted }]}>Compras</Text>
                 </Pressable>
               )}
-               
+
+              <Pressable
+                onPress={() => router.push("/clientes" as any)}
+                style={({ pressed }) => [
+                  styles.menuItem,
+                  { backgroundColor: isClientesRoute ? activeBg : "transparent" },
+                  pressed && { opacity: 0.85 },
+                ]}
+                accessibilityRole="button"
+              >
+                <Ionicons name="people-outline" size={22} color={isClientesRoute ? IOS_BLUE : muted} />
+                <Text style={[styles.menuLabel, { color: isClientesRoute ? text : muted }]}>Clientes</Text>
+              </Pressable>
+                
             </View>
 
             {/* Toggle Tema */}
@@ -257,6 +271,14 @@ export default function DrawerLayout() {
           title: "Inicio",
           headerShown: false,
           drawerIcon: ({ color, size }: any) => <Ionicons name="home-outline" size={size} color={color} />,
+        }}
+      />
+
+      <Drawer.Screen
+        name="clientes"
+        options={{
+          title: "Clientes",
+          drawerIcon: ({ color, size }: any) => <Ionicons name="people-outline" size={size} color={color} />,
         }}
       />
     </Drawer>

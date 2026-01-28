@@ -1,0 +1,363 @@
+import { useFocusEffect, useTheme } from "@react-navigation/native";
+import { Stack, router } from "expo-router";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View,
+  FlatList,
+} from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { supabase } from "../../lib/supabase";
+
+type Role = "ADMIN" | "BODEGA" | "VENDEDOR" | "FACTURACION" | "";
+
+type ClienteRow = {
+  id: number;
+  nombre: string;
+  nit: string | null;
+  telefono: string | null;
+  direccion: string | null;
+  activo: boolean;
+  vendedor_id: string | null;
+  vendedor?: {
+    id: string;
+    full_name: string | null;
+    role: string;
+  } | null;
+};
+
+function normalizeUpper(v: any) {
+  return String(v ?? "").trim().toUpperCase();
+}
+
+function useDebouncedValue<T>(value: T, delayMs: number) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(t);
+  }, [value, delayMs]);
+  return debounced;
+}
+
+function displayNit(nit: string | null | undefined) {
+  const t = String(nit ?? "").trim();
+  return t ? t : "CF";
+}
+
+export default function ClientesScreen() {
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+
+  const s = useMemo(() => styles(colors), [colors]);
+
+  const [role, setRole] = useState<Role>("");
+  const isAdmin = role === "ADMIN";
+  const canCreate = role === "ADMIN" || role === "VENDEDOR";
+
+  const [q, setQ] = useState("");
+  const dq = useDebouncedValue(q.trim(), 250);
+
+  const [showInactive, setShowInactive] = useState(false);
+
+  const [rows, setRows] = useState<ClienteRow[]>([]);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadRole = useCallback(async () => {
+    const { data: auth } = await supabase.auth.getUser();
+    const uid = auth.user?.id;
+    if (!uid) {
+      setRole("");
+      setShowInactive(false);
+      return;
+    }
+
+    const { data } = await supabase.from("profiles").select("role").eq("id", uid).maybeSingle();
+    const r = normalizeUpper(data?.role) as Role;
+    setRole(r);
+    if (r !== "ADMIN") setShowInactive(false);
+  }, []);
+
+  const fetchClientes = useCallback(async () => {
+    let req = supabase
+      .from("clientes")
+      .select("id,nombre,nit,telefono,direccion,activo,vendedor_id,vendedor:profiles!clientes_vendedor_id_fkey(id,full_name,role)")
+      .order("nombre", { ascending: true })
+      .limit(500);
+
+    if (!showInactive) req = req.eq("activo", true);
+
+    if (dq) {
+      req = req.or(`nombre.ilike.%${dq}%,nit.ilike.%${dq}%,telefono.ilike.%${dq}%`);
+    }
+
+    const { data } = await req;
+    setRows((data ?? []) as any);
+  }, [dq, showInactive]);
+
+  useEffect(() => {
+    loadRole().catch(() => {});
+  }, [loadRole]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      (async () => {
+        try {
+          if (alive) setInitialLoading(true);
+          await fetchClientes();
+        } finally {
+          if (alive) setInitialLoading(false);
+        }
+      })();
+
+      return () => {
+        alive = false;
+      };
+    }, [fetchClientes])
+  );
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadRole();
+      await fetchClientes();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchClientes, loadRole]);
+
+  const renderItem = ({ item }: { item: ClienteRow }) => {
+    const vendedorNombre = (item.vendedor?.full_name ?? "").trim();
+    const vendedorRole = normalizeUpper(item.vendedor?.role);
+    const vendedorLabel = vendedorNombre || (item.vendedor_id ? item.vendedor_id : "Sin asignar");
+
+    return (
+      <Pressable
+        style={({ pressed }) => [s.card, pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null]}
+        onPress={() =>
+          router.push({
+            pathname: "/cliente-detalle" as any,
+            params: { id: String(item.id) },
+          })
+        }
+      >
+        <View style={s.row}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.title} numberOfLines={1}>
+              {item.nombre}
+            </Text>
+
+            <Text style={s.sub} numberOfLines={1}>
+              NIT: {displayNit(item.nit)}
+            </Text>
+
+            <Text style={s.sub} numberOfLines={1}>
+              Tel: {item.telefono ?? "—"}
+            </Text>
+
+            <Text style={s.sub} numberOfLines={1}>
+              Dir: {item.direccion ?? "—"}
+            </Text>
+
+            <Text style={s.sub} numberOfLines={1}>
+              Vendedor: {vendedorLabel}
+              {vendedorRole ? ` • ${vendedorRole}` : ""}
+            </Text>
+          </View>
+
+          {!item.activo ? <Text style={s.badgeOff}>INACTIVO</Text> : null}
+        </View>
+      </Pressable>
+    );
+  };
+
+  const fabBg = Platform.OS === "ios" ? "#007AFF" : (colors.primary ?? "#007AFF");
+
+  return (
+    <>
+      <Stack.Screen options={{ title: "Clientes", headerShown: true, headerBackTitle: "Atras" }} />
+
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
+        <FlatList
+          style={{ backgroundColor: colors.background }}
+          data={rows}
+          keyExtractor={(it) => String(it.id)}
+          renderItem={renderItem}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          contentContainerStyle={{
+            paddingHorizontal: 12,
+            paddingTop: 12,
+            paddingBottom: 16 + insets.bottom,
+          }}
+          ListHeaderComponent={
+            <>
+              <View style={s.searchWrap}>
+                <TextInput
+                  value={q}
+                  onChangeText={setQ}
+                  placeholder="Buscar por nombre, NIT o teléfono..."
+                  placeholderTextColor={colors.text + "66"}
+                  style={s.searchInput}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="search"
+                />
+                {q.trim().length > 0 ? (
+                  <Pressable
+                    onPress={() => setQ("")}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel="Borrar búsqueda"
+                    style={s.clearBtn}
+                  >
+                    <Text style={s.clearTxt}>×</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+
+              {isAdmin ? (
+                <View style={s.inactiveRow}>
+                  <Text style={s.inactiveLabel}>Mostrar inactivos</Text>
+                  <Switch
+                    value={showInactive}
+                    onValueChange={setShowInactive}
+                    trackColor={{ false: colors.border, true: "#34C759" }}
+                    thumbColor={Platform.OS === "android" ? "#FFFFFF" : undefined}
+                    style={Platform.OS === "android" ? { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] } : undefined}
+                  />
+                </View>
+              ) : null}
+
+              {initialLoading ? (
+                <View style={{ paddingVertical: 10 }}>
+                  <ActivityIndicator />
+                </View>
+              ) : null}
+
+              {!initialLoading && rows.length === 0 ? (
+                <View style={{ paddingVertical: 8 }}>
+                  <Text style={s.empty}>Sin clientes</Text>
+                </View>
+              ) : null}
+            </>
+          }
+        />
+
+        {canCreate ? (
+          <Pressable
+            style={[s.fab, { backgroundColor: fabBg }]}
+            onPress={() => router.push("/cliente-form" as any)}
+            accessibilityRole="button"
+            accessibilityLabel="Nuevo cliente"
+          >
+            <Text style={s.fabText}>＋</Text>
+          </Pressable>
+        ) : null}
+      </SafeAreaView>
+    </>
+  );
+}
+
+const styles = (colors: any) =>
+  StyleSheet.create({
+    searchWrap: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      flexDirection: "row",
+      alignItems: "center",
+      marginBottom: 10,
+    },
+    searchInput: {
+      flex: 1,
+      color: colors.text,
+      paddingVertical: 10,
+      fontSize: 16,
+    },
+    clearBtn: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    clearTxt: {
+      color: colors.text + "88",
+      fontSize: 22,
+      fontWeight: "900",
+      lineHeight: 22,
+      marginTop: -1,
+    },
+
+    inactiveRow: {
+      marginBottom: 10,
+      paddingHorizontal: 12,
+      paddingVertical: Platform.OS === "android" ? 8 : 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+      borderRadius: 12,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    inactiveLabel: {
+      color: colors.text,
+      fontWeight: "700",
+      fontSize: Platform.OS === "android" ? 15 : 16,
+    },
+
+    empty: { color: colors.text + "AA", fontWeight: "700" },
+
+    card: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+      padding: 12,
+      borderRadius: 14,
+      marginBottom: 10,
+    },
+    row: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
+    title: { color: colors.text, fontSize: 16, fontWeight: "800" },
+    sub: { color: colors.text + "AA", marginTop: 6, fontSize: 12 },
+    badgeOff: {
+      color: colors.text + "AA",
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 999,
+      fontSize: 12,
+      fontWeight: "900",
+      overflow: "hidden",
+    },
+
+    fab: {
+      position: "absolute",
+      right: 18,
+      bottom: 18,
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      alignItems: "center",
+      justifyContent: "center",
+      shadowColor: "#000",
+      shadowOpacity: 0.25,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 3 },
+      elevation: 6,
+    },
+    fabText: { color: "#fff", fontSize: 30, fontWeight: "900", marginTop: -2 },
+  });
