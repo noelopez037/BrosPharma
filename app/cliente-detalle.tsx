@@ -13,7 +13,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 
-type Role = "ADMIN" | "BODEGA" | "VENDEDOR" | "FACTURACION" | "";
+type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 
 type ClienteRow = {
   id: number;
@@ -47,7 +47,7 @@ export default function ClienteDetalle() {
   const clienteId = Number(id);
 
   const [role, setRole] = useState<Role>("");
-  const canEdit = role === "ADMIN" || role === "VENDEDOR";
+  const canEdit = role === "ADMIN" || role === "VENTAS";
   const canDelete = role === "ADMIN";
 
   const [loading, setLoading] = useState(true);

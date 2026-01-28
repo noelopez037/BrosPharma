@@ -19,7 +19,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 
-type Role = "ADMIN" | "BODEGA" | "VENDEDOR" | "FACTURACION" | "";
+type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 
 type ClienteRow = {
   id: number;
@@ -67,8 +67,8 @@ export default function ClienteForm() {
   const [role, setRole] = useState<Role>("");
 
   const isAdmin = role === "ADMIN";
-  const isVendedor = role === "VENDEDOR";
-  const canEdit = role === "ADMIN" || role === "VENDEDOR";
+  const isVendedor = role === "VENTAS";
+  const canEdit = role === "ADMIN" || role === "VENTAS";
 
   const [nombre, setNombre] = useState("");
   const [nit, setNit] = useState("CF");
@@ -124,7 +124,7 @@ export default function ClienteForm() {
     const { data, error } = await supabase
       .from("profiles")
       .select("id,full_name,role")
-      .in("role", ["ADMIN", "VENDEDOR"])
+      .in("role", ["ADMIN", "VENTAS"])
       .order("full_name", { ascending: true })
       .limit(400);
 
