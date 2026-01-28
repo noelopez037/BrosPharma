@@ -5,9 +5,11 @@ import React, { memo, useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  Platform,
   Pressable,
   RefreshControl,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -88,6 +90,9 @@ export default function InventarioScreen() {
   const [q, setQ] = useState("");
   const debouncedQ = useDebouncedValue(normalizeQuery(q), 300);
 
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
+
   const [rows, setRows] = useState<Row[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -100,6 +105,45 @@ export default function InventarioScreen() {
 
   const loadingMoreRef = useRef(false);
   const requestSeq = useRef(0);
+
+  // Roles: toggle de inactivos SOLO para admin
+  useFocusEffect(
+    useCallback(() => {
+      let mounted = true;
+
+      const loadRole = async () => {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        const uid = session?.user?.id ?? null;
+        if (!uid) {
+          if (!mounted) return;
+          setIsAdmin(false);
+          setShowInactive(false);
+          return;
+        }
+
+        const { data: prof } = await supabase.from("profiles").select("role").eq("id", uid).maybeSingle();
+        const admin = String(prof?.role ?? "")
+          .trim()
+          .toUpperCase() === "ADMIN";
+
+        if (!mounted) return;
+        setIsAdmin(admin);
+        if (!admin) setShowInactive(false);
+      };
+
+      loadRole().catch(() => {
+        if (!mounted) return;
+        setIsAdmin(false);
+        setShowInactive(false);
+      });
+
+      return () => {
+        mounted = false;
+      };
+    }, [])
+  );
 
   // ✅ Limpiar buscador al SALIR de la pantalla (cuando pierde foco)
   useFocusEffect(
@@ -125,6 +169,11 @@ export default function InventarioScreen() {
         .order("nombre", { ascending: true })
         .range(from, to);
 
+      // Default: solo activos. Admin puede incluir inactivos con el toggle.
+      if (!showInactive) {
+        req = req.eq("activo", true);
+      }
+
       if (debouncedQ) {
         req = req.or(`nombre.ilike.%${debouncedQ}%,marca.ilike.%${debouncedQ}%`);
       }
@@ -140,7 +189,7 @@ export default function InventarioScreen() {
       setHasMore(list.length === PAGE_SIZE);
       setRows((prev) => (replace ? list : [...prev, ...list]));
     },
-    [debouncedQ]
+    [debouncedQ, showInactive]
   );
 
   const loadFirst = useCallback(async () => {
@@ -167,7 +216,7 @@ export default function InventarioScreen() {
     useCallback(() => {
       loadFirst();
       return () => {};
-    }, [loadFirst, debouncedQ])
+    }, [loadFirst])
   );
 
   const onRefresh = useCallback(async () => {
@@ -239,6 +288,19 @@ export default function InventarioScreen() {
               </Pressable>
             ) : null}
           </View>
+
+          {isAdmin ? (
+            <View style={s.inactiveRow}>
+              <Text style={s.inactiveLabel}>Mostrar inactivos</Text>
+              <Switch
+                value={showInactive}
+                onValueChange={setShowInactive}
+                trackColor={{ false: colors.border, true: "#34C759" }}
+                thumbColor={Platform.OS === "android" ? "#FFFFFF" : undefined}
+                style={Platform.OS === "android" ? { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] } : undefined}
+              />
+            </View>
+          ) : null}
 
           {errorMsg ? (
             <Pressable onPress={loadFirst} style={s.retry}>
@@ -343,6 +405,24 @@ const styles = (colors: any) =>
     },
     retryText: { color: colors.text, fontWeight: "800" },
     retrySub: { color: colors.text + "AA", marginTop: 6, fontSize: 12 },
+
+    inactiveRow: {
+      marginTop: 10,
+      paddingHorizontal: 12,
+      paddingVertical: Platform.OS === "android" ? 8 : 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+      borderRadius: 12,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    inactiveLabel: {
+      color: colors.text,
+      fontWeight: "700",
+      fontSize: Platform.OS === "android" ? 15 : 16,
+    },
 
     center: { flex: 1, alignItems: "center", justifyContent: "center" },
     empty: { color: colors.text },
