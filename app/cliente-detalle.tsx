@@ -2,7 +2,6 @@ import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Platform,
   StyleSheet,
@@ -138,7 +137,7 @@ export default function ClienteDetalle() {
       <SafeAreaView style={[s.safe, { backgroundColor: colors.background }]} edges={["bottom"]}>
         {loading ? (
           <View style={s.center}>
-            <ActivityIndicator />
+            <Text style={[s.text, { opacity: 0.7 }]}>Cargando...</Text>
           </View>
         ) : !row ? (
           <View style={s.center}>

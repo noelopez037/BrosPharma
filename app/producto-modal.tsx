@@ -5,7 +5,6 @@ import * as MediaLibrary from "expo-media-library";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Animated,
   ColorValue,
   FlatList,
@@ -354,7 +353,7 @@ export default function ProductoModal() {
 
         {loading ? (
           <View style={s.center}>
-            <ActivityIndicator />
+            <Text style={[s.text, { opacity: 0.7 }]}>Cargando...</Text>
           </View>
         ) : !headFromView && !headProd ? (
           <View style={s.center}>
@@ -419,6 +418,7 @@ export default function ProductoModal() {
               data={lotes}
               keyExtractor={(it) => String(it.lote_id ?? `${it.producto_id}-${it.lote}`)}
               contentContainerStyle={{ paddingBottom: 8 }}
+              automaticallyAdjustKeyboardInsets
               renderItem={({ item }) => (
                 <View style={s.loteCard}>
                   <View style={{ flex: 1 }}>

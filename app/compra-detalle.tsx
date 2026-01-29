@@ -15,7 +15,6 @@ import { Stack, router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  ActivityIndicator,
   Alert,
   Keyboard,
   KeyboardAvoidingView,
@@ -34,6 +33,7 @@ import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
 import { AppButton } from "../components/ui/app-button";
+import { DoneAccessory } from "../components/ui/done-accessory";
 
 const BUCKET_PRODUCTOS = "productos";
 const BUCKET_COMPROBANTES = "comprobantes";
@@ -249,6 +249,7 @@ async function uriToBytes(uri: string) {
 }
 
 export default function CompraDetalleScreen() {
+  const DONE_ID = "doneAccessory";
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const compraId = Number(id);
@@ -686,7 +687,7 @@ export default function CompraDetalleScreen() {
       <SafeAreaView style={[styles.safe, { backgroundColor: C.bg }]} edges={["bottom"]}>
         {loading ? (
           <View style={[styles.center, { paddingTop: 18 }]}>
-            <ActivityIndicator />
+            <Text style={{ color: C.sub, fontWeight: "700" }}>Cargando...</Text>
           </View>
         ) : !compra ? (
           <View style={styles.center}>
@@ -701,6 +702,9 @@ export default function CompraDetalleScreen() {
               paddingHorizontal: 16,
               paddingBottom: 12 + insets.bottom + 104,
             }}
+            keyboardDismissMode="on-drag"
+            keyboardShouldPersistTaps="handled"
+            automaticallyAdjustKeyboardInsets
           >
             {/* Cabecera */}
             <View
@@ -1059,8 +1063,10 @@ export default function CompraDetalleScreen() {
               >
                 <ScrollView
                   keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="on-drag"
                   contentContainerStyle={{ paddingBottom: 12 }}
                   showsVerticalScrollIndicator={false}
+                  automaticallyAdjustKeyboardInsets
                 >
                   <TouchableWithoutFeedback onPress={() => { }} accessible={false}>
                     <View
@@ -1082,6 +1088,7 @@ export default function CompraDetalleScreen() {
                         placeholder="0.00"
                         placeholderTextColor={C.sub}
                         keyboardType="decimal-pad"
+                        inputAccessoryViewID={Platform.OS === "ios" ? DONE_ID : undefined}
                         returnKeyType="next"
                         blurOnSubmit={false}
                         style={[
@@ -1234,7 +1241,7 @@ export default function CompraDetalleScreen() {
 
               {!(viewerUrl || viewerRemoteUrl) ? (
                 <View style={[styles.center, { paddingTop: 18 }]}>
-                  <ActivityIndicator />
+                  <Text style={{ color: "rgba(255,255,255,0.85)", fontWeight: "700" }}>Cargando...</Text>
                 </View>
               ) : (
                 <ExpoImage
@@ -1254,6 +1261,8 @@ export default function CompraDetalleScreen() {
             </View>
           </View>
         </Modal>
+
+        <DoneAccessory nativeID={DONE_ID} />
       </SafeAreaView>
     </>
   );

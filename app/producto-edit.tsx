@@ -10,12 +10,10 @@ import { useTheme } from "@react-navigation/native";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   ColorValue,
   FlatList,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   PlatformColor,
   Pressable,
@@ -29,6 +27,9 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import { AppButton } from "../components/ui/app-button";
+import { KeyboardAwareModal } from "../components/ui/keyboard-aware-modal";
+import { DoneAccessory } from "../components/ui/done-accessory";
+import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
 
 type Marca = { id: number; nombre: string };
 
@@ -62,6 +63,8 @@ function alpha(hexColor: string, a: number) {
 export default function ProductoEdit() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const DONE_ID = "doneAccessory";
+  const { scrollRef, handleFocus } = useKeyboardAutoScroll(110);
 
   // Colores “nativos”/correctos por plataforma:
   // iOS: systemBlue
@@ -264,7 +267,7 @@ export default function ProductoEdit() {
     return (
       <SafeAreaView style={s.safe} edges={["bottom"]}>
         <View style={s.center}>
-          <ActivityIndicator />
+          <Text style={{ color: String(colors.text ?? "#000") + "88", fontWeight: "700" }}>Cargando...</Text>
         </View>
       </SafeAreaView>
     );
@@ -295,11 +298,18 @@ export default function ProductoEdit() {
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
         >
-          <ScrollView contentContainerStyle={s.container} keyboardShouldPersistTaps="handled">
+          <ScrollView
+            ref={scrollRef}
+            contentContainerStyle={s.container}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets
+          >
             <Text style={s.label}>Nombre</Text>
             <TextInput
               value={nombre}
               onChangeText={setNombre}
+              onFocus={handleFocus}
               style={s.input}
               placeholder="Nombre"
               placeholderTextColor={colors.text + "66"}
@@ -335,10 +345,12 @@ export default function ProductoEdit() {
             <TextInput
               value={precioCompra}
               onChangeText={setPrecioCompra}
+              onFocus={handleFocus}
               style={s.input}
               placeholder="(vacío = usar última compra)"
               placeholderTextColor={colors.text + "66"}
               keyboardType="decimal-pad"
+              inputAccessoryViewID={Platform.OS === "ios" ? DONE_ID : undefined}
             />
 
             <View style={s.switchRow}>
@@ -390,111 +402,100 @@ export default function ProductoEdit() {
         </KeyboardAvoidingView>
 
         {/* Modal: Seleccionar marca */}
-        <Modal
+        <KeyboardAwareModal
           visible={marcaModalOpen}
-          transparent
-          animationType="fade"
-          onRequestClose={() => {
+          onClose={() => {
             setMarcaModalOpen(false);
             setMarcaQuery("");
           }}
+          cardStyle={{ backgroundColor: colors.card, borderColor: colors.border }}
+          backdropOpacity={0.35}
         >
+          <Text style={s.modalTitle}>Seleccionar marca</Text>
+
+          <TextInput
+            value={marcaQuery}
+            onChangeText={setMarcaQuery}
+            style={s.input}
+            placeholder="Buscar marca…"
+            placeholderTextColor={colors.text + "66"}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
           <Pressable
-            style={s.backdrop}
+            style={s.modalItem}
             onPress={() => {
+              setMarcaId(null);
               setMarcaModalOpen(false);
               setMarcaQuery("");
             }}
+          >
+            <Text style={s.modalItemText}>Sin marca</Text>
+          </Pressable>
+
+          <FlatList
+            data={marcasFiltradas}
+            keyExtractor={(it) => String(it.id)}
+            style={{ maxHeight: 340 }}
+            keyboardShouldPersistTaps="handled"
+            automaticallyAdjustKeyboardInsets
+            renderItem={({ item }) => (
+              <Pressable
+                style={s.modalItem}
+                onPress={() => {
+                  setMarcaId(item.id);
+                  setMarcaModalOpen(false);
+                  setMarcaQuery("");
+                }}
+              >
+                <Text style={s.modalItemText}>{item.nombre}</Text>
+              </Pressable>
+            )}
+            ListEmptyComponent={<Text style={[s.helper, { marginTop: 8 }]}>Sin resultados</Text>}
           />
-
-          <View style={s.modalCard}>
-            <Text style={s.modalTitle}>Seleccionar marca</Text>
-
-            <TextInput
-              value={marcaQuery}
-              onChangeText={setMarcaQuery}
-              style={s.input}
-              placeholder="Buscar marca…"
-              placeholderTextColor={colors.text + "66"}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-
-            <Pressable
-              style={s.modalItem}
-              onPress={() => {
-                setMarcaId(null);
-                setMarcaModalOpen(false);
-                setMarcaQuery("");
-              }}
-            >
-              <Text style={s.modalItemText}>Sin marca</Text>
-            </Pressable>
-
-            <FlatList
-              data={marcasFiltradas}
-              keyExtractor={(it) => String(it.id)}
-              style={{ maxHeight: 340 }}
-              keyboardShouldPersistTaps="handled"
-              renderItem={({ item }) => (
-                <Pressable
-                  style={s.modalItem}
-                  onPress={() => {
-                    setMarcaId(item.id);
-                    setMarcaModalOpen(false);
-                    setMarcaQuery("");
-                  }}
-                >
-                  <Text style={s.modalItemText}>{item.nombre}</Text>
-                </Pressable>
-              )}
-              ListEmptyComponent={<Text style={[s.helper, { marginTop: 8 }]}>Sin resultados</Text>}
-            />
-          </View>
-        </Modal>
+        </KeyboardAwareModal>
 
         {/* Modal: Nueva marca */}
-        <Modal
+        <KeyboardAwareModal
           visible={nuevaMarcaOpen}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setNuevaMarcaOpen(false)}
+          onClose={() => setNuevaMarcaOpen(false)}
+          cardStyle={{ backgroundColor: colors.card, borderColor: colors.border }}
+          backdropOpacity={0.35}
         >
-          <Pressable style={s.backdrop} onPress={() => setNuevaMarcaOpen(false)} />
+          <Text style={s.modalTitle}>Nueva marca</Text>
 
-          <View style={s.modalCard}>
-            <Text style={s.modalTitle}>Nueva marca</Text>
+          <TextInput
+            value={nuevaMarcaNombre}
+            onChangeText={setNuevaMarcaNombre}
+            style={s.input}
+            placeholder="Ej: Bayer"
+            placeholderTextColor={colors.text + "66"}
+            autoCapitalize="words"
+          />
 
-            <TextInput
-              value={nuevaMarcaNombre}
-              onChangeText={setNuevaMarcaNombre}
-              style={s.input}
-              placeholder="Ej: Bayer"
-              placeholderTextColor={colors.text + "66"}
-              autoCapitalize="words"
-            />
+          <View style={s.modalBtns}>
+            <Pressable
+              style={({ pressed }) => [s.modalBtnNeutral, pressed && { opacity: 0.75 }]}
+              onPress={() => setNuevaMarcaOpen(false)}
+            >
+              <Text style={s.modalBtnNeutralText}>Cancelar</Text>
+            </Pressable>
 
-            <View style={s.modalBtns}>
-              <Pressable
-                style={({ pressed }) => [s.modalBtnNeutral, pressed && { opacity: 0.75 }]}
-                onPress={() => setNuevaMarcaOpen(false)}
-              >
-                <Text style={s.modalBtnNeutralText}>Cancelar</Text>
-              </Pressable>
-
-              <Pressable
-                style={({ pressed }) => [
-                  s.modalBtnPrimary,
-                  (pressed || !nuevaMarcaNombre.trim()) && { opacity: 0.75 },
-                ]}
-                onPress={crearMarca}
-                disabled={!nuevaMarcaNombre.trim()}
-              >
-                <Text style={s.modalBtnPrimaryText}>Crear</Text>
-              </Pressable>
-            </View>
+            <Pressable
+              style={({ pressed }) => [
+                s.modalBtnPrimary,
+                (pressed || !nuevaMarcaNombre.trim()) && { opacity: 0.75 },
+              ]}
+              onPress={crearMarca}
+              disabled={!nuevaMarcaNombre.trim()}
+            >
+              <Text style={s.modalBtnPrimaryText}>Crear</Text>
+            </Pressable>
           </View>
-        </Modal>
+        </KeyboardAwareModal>
+
+        <DoneAccessory nativeID={DONE_ID} />
       </SafeAreaView>
     </>
   );
@@ -597,20 +598,6 @@ const styles = (colors: any, PRIMARY: ColorValue) =>
     },
 
     // Buttons handled by AppButton
-
-    backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)" },
-
-    modalCard: {
-      position: "absolute",
-      left: 16,
-      right: 16,
-      top: "14%",
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.card,
-      borderRadius: 16,
-      padding: 14,
-    },
 
     modalTitle: {
       color: colors.text,

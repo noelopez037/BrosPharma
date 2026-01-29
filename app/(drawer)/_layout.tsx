@@ -9,6 +9,7 @@ import { Platform, Pressable, StyleSheet, Switch, Text, View } from "react-nativ
 
 import { router, usePathname } from "expo-router";
 import { supabase } from "../../lib/supabase";
+import { onSolicitudesChanged } from "../../lib/solicitudesEvents";
 import { useThemePref } from "../../lib/themePreference";
 import { alphaColor } from "../../lib/ui";
 
@@ -24,6 +25,8 @@ export default function DrawerLayout() {
 
   const [userName, setUserName] = useState<string>("");
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [role, setRole] = useState<string>("");
+  const [solicitudesCount, setSolicitudesCount] = useState<number>(0);
 
   const background = isDark ? "#000000" : "#FFFFFF";
   const text = isDark ? "#FFFFFF" : "#000000";
@@ -40,6 +43,8 @@ export default function DrawerLayout() {
   const isTabsRoute = pathname === "/" || pathname === "/ventas" || pathname === "/inventario";
   const isComprasRoute = pathname === "/compras" || pathname.startsWith("/compras/");
   const isClientesRoute = pathname.startsWith("/cliente");
+  const isSolicitudesRoute = pathname === "/ventas-solicitudes" || pathname.startsWith("/ventas-solicitudes");
+  const isAnuladasRoute = pathname === "/ventas-anuladas" || pathname.startsWith("/ventas-anuladas");
 
   useEffect(() => {
     let alive = true;
@@ -93,16 +98,20 @@ export default function DrawerLayout() {
           .maybeSingle();
         const n = pickNameFromProfile(prof) || pickNameFromUser(u);
         if (alive) setUserName(n);
-        if (alive) setIsAdmin(normalizeUpper(prof?.role) === "ADMIN");
+        const r = normalizeUpper(prof?.role);
+        if (alive) setRole(r);
+        if (alive) setIsAdmin(r === "ADMIN");
       } catch {
         if (!alive) return;
         try {
           const { data } = await supabase.auth.getUser();
           setUserName(pickNameFromUser(data?.user));
           setIsAdmin(false);
+          setRole("");
         } catch {
           setUserName("");
           setIsAdmin(false);
+          setRole("");
         }
       }
     };
@@ -118,6 +127,48 @@ export default function DrawerLayout() {
       sub?.subscription?.unsubscribe();
     };
   }, []);
+
+  const showSolicitudes = role === "ADMIN" || role === "VENTAS";
+  const showAnuladas = role === "ADMIN" || role === "BODEGA" || role === "FACTURADOR" || role === "VENTAS";
+
+  useEffect(() => {
+    let alive = true;
+    let timer: any = null;
+
+    const loadCount = async () => {
+      if (!showSolicitudes) {
+        if (alive) setSolicitudesCount(0);
+        return;
+      }
+
+      try {
+        const { count, error } = await supabase
+          .from("vw_ventas_solicitudes_pendientes_admin")
+          .select("venta_id", { head: true, count: "exact" });
+        if (error) throw error;
+        if (alive) setSolicitudesCount(Number(count ?? 0));
+      } catch {
+        if (alive) setSolicitudesCount(0);
+      }
+    };
+
+    loadCount().catch(() => {});
+
+    const unsub = onSolicitudesChanged(() => {
+      loadCount().catch(() => {});
+    });
+
+    // refresco liviano para que el badge no se quede stale
+    timer = setInterval(() => {
+      loadCount().catch(() => {});
+    }, 30000);
+
+    return () => {
+      alive = false;
+      unsub();
+      if (timer) clearInterval(timer);
+    };
+  }, [showSolicitudes, pathname]);
 
   const headerSub = useMemo(() => {
     const n = (userName ?? "").trim();
@@ -217,7 +268,54 @@ export default function DrawerLayout() {
                 <Ionicons name="people-outline" size={22} color={isClientesRoute ? IOS_BLUE : muted} />
                 <Text style={[styles.menuLabel, { color: isClientesRoute ? text : muted }]}>Clientes</Text>
               </Pressable>
-                
+
+              {!showSolicitudes ? null : (
+                <Pressable
+                  onPress={() => router.push("/ventas-solicitudes" as any)}
+                  style={({ pressed }) => [
+                    styles.menuItem,
+                    { backgroundColor: isSolicitudesRoute ? activeBg : "transparent" },
+                    pressed && { opacity: 0.85 },
+                  ]}
+                  accessibilityRole="button"
+                >
+                  <Ionicons
+                    name="alert-circle-outline"
+                    size={22}
+                    color={isSolicitudesRoute ? IOS_BLUE : muted}
+                  />
+                  <Text
+                    style={[styles.menuLabel, { color: isSolicitudesRoute ? text : muted, flexShrink: 1 }]}
+                    numberOfLines={1}
+                  >
+                    Solicitudes
+                  </Text>
+                  <View style={{ flex: 1 }} />
+                  {solicitudesCount > 0 ? (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText} numberOfLines={1}>
+                        {solicitudesCount > 99 ? "99+" : String(solicitudesCount)}
+                      </Text>
+                    </View>
+                  ) : null}
+                </Pressable>
+              )}
+
+              {!showAnuladas ? null : (
+                <Pressable
+                  onPress={() => router.push("/ventas-anuladas" as any)}
+                  style={({ pressed }) => [
+                    styles.menuItem,
+                    { backgroundColor: isAnuladasRoute ? activeBg : "transparent" },
+                    pressed && { opacity: 0.85 },
+                  ]}
+                  accessibilityRole="button"
+                >
+                  <Ionicons name="ban-outline" size={22} color={isAnuladasRoute ? IOS_BLUE : muted} />
+                  <Text style={[styles.menuLabel, { color: isAnuladasRoute ? text : muted }]}>Anuladas</Text>
+                </Pressable>
+              )}
+                 
             </View>
 
             {/* Toggle Tema */}
@@ -367,5 +465,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginLeft: 12,
     fontWeight: Platform.OS === "ios" ? "600" : "500",
+  },
+
+  badge: {
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 6,
+    borderRadius: 10,
+    backgroundColor: "#e53935",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  badgeText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "800",
+    includeFontPadding: false,
   },
 });
