@@ -9,6 +9,7 @@ import "react-native-reanimated";
 import { enableScreens } from "react-native-screens";
 
 import { CompraDraftProvider } from "../lib/compraDraft";
+import { VentaDraftProvider } from "../lib/ventaDraft";
 import { ThemePrefProvider, useThemePref } from "../lib/themePreference";
 import { makeNativeTheme } from "../src/theme/navigationTheme";
 
@@ -23,29 +24,31 @@ function AppShell() {
   return (
     <ThemeProvider value={theme}>
       <CompraDraftProvider>
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="login" />
-          <Stack.Screen name="(drawer)" />
+        <VentaDraftProvider>
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="login" />
+            <Stack.Screen name="(drawer)" />
 
-          {/* Modal tipo sheet (se ve inventario detrás) */}
-          <Stack.Screen
-            name="producto-modal"
-            options={{
-              presentation: "transparentModal",
-              animation: "slide_from_bottom",
-              contentStyle: { backgroundColor: "transparent" },
-            }}
-          />
+            {/* Modal tipo sheet (se ve inventario detrás) */}
+            <Stack.Screen
+              name="producto-modal"
+              options={{
+                presentation: "transparentModal",
+                animation: "slide_from_bottom",
+                contentStyle: { backgroundColor: "transparent" },
+              }}
+            />
 
-          {/* Editar como página normal */}
-          <Stack.Screen
-            name="producto-edit"
-            options={{
-              presentation: "card",
-              animation: "default",
-            }}
-          />
-        </Stack>
+            {/* Editar como página normal */}
+            <Stack.Screen
+              name="producto-edit"
+              options={{
+                presentation: "card",
+                animation: "default",
+              }}
+            />
+          </Stack>
+        </VentaDraftProvider>
       </CompraDraftProvider>
 
       <StatusBar style={isDark ? "light" : "dark"} />

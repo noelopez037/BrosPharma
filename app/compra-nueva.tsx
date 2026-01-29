@@ -20,10 +20,10 @@ import * as ImagePicker from "expo-image-picker";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Image,
   Keyboard,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -39,6 +39,8 @@ import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
 import { AppButton } from "../components/ui/app-button";
+import { DoneAccessory } from "../components/ui/done-accessory";
+import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
 
 const BUCKET = "productos";
 
@@ -75,6 +77,8 @@ async function uriToArrayBuffer(uri: string): Promise<ArrayBuffer> {
 }
 
 export default function CompraNuevaScreen() {
+  const DONE_ID = "doneAccessory";
+  const { scrollRef, handleFocus } = useKeyboardAutoScroll(110);
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ editId?: string }>();
 
@@ -502,18 +506,26 @@ export default function CompraNuevaScreen() {
       />
 
       <SafeAreaView style={[styles.safe, { backgroundColor: C.bg }]} edges={["bottom"]}>
-        <ScrollView
-          style={[styles.scroll, { backgroundColor: C.bg }]}
-          contentInsetAdjustmentBehavior="never"
-          contentContainerStyle={{
-            paddingTop: 12,
-            paddingBottom: 12 + insets.bottom,
-          }}
-          keyboardShouldPersistTaps="handled"
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
         >
+          <ScrollView
+            ref={scrollRef}
+            style={[styles.scroll, { backgroundColor: C.bg }]}
+            contentInsetAdjustmentBehavior="never"
+            contentContainerStyle={{
+              paddingTop: 12,
+              paddingBottom: 12 + insets.bottom,
+            }}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets
+          >
           {loadingEdit ? (
             <View style={{ paddingVertical: 10 }}>
-              <ActivityIndicator />
+              <Text style={{ color: C.sub, fontWeight: "700" }}>Cargando...</Text>
             </View>
           ) : null}
 
@@ -540,6 +552,7 @@ export default function CompraNuevaScreen() {
           <TextInput
             value={numeroFactura}
             onChangeText={setNumeroFactura}
+            onFocus={handleFocus}
             placeholder="Ej: F-001"
             placeholderTextColor={C.sub}
             style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.card }]}
@@ -628,6 +641,7 @@ export default function CompraNuevaScreen() {
           <TextInput
             value={comentarios}
             onChangeText={setComentarios}
+            onFocus={handleFocus}
             placeholder="Notas..."
             placeholderTextColor={C.sub}
             style={[
@@ -728,6 +742,7 @@ export default function CompraNuevaScreen() {
                     <TextInput
                       value={l.lote}
                       onChangeText={(t) => updateLinea(l.key, { lote: t })}
+                      onFocus={handleFocus}
                       placeholder="Ej: A123"
                       placeholderTextColor={C.sub}
                       style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.card }]}
@@ -765,6 +780,8 @@ export default function CompraNuevaScreen() {
                       value={l.cantidad}
                       onChangeText={(t) => updateLinea(l.key, { cantidad: t })}
                       keyboardType="number-pad"
+                      inputAccessoryViewID={Platform.OS === "ios" ? DONE_ID : undefined}
+                      onFocus={handleFocus}
                       style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.card }]}
                     />
                   </View>
@@ -775,6 +792,8 @@ export default function CompraNuevaScreen() {
                       value={l.precio}
                       onChangeText={(t) => updateLinea(l.key, { precio: t })}
                       keyboardType="decimal-pad"
+                      inputAccessoryViewID={Platform.OS === "ios" ? DONE_ID : undefined}
+                      onFocus={handleFocus}
                       style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.card }]}
                       placeholder="0"
                       placeholderTextColor={C.sub}
@@ -808,7 +827,8 @@ export default function CompraNuevaScreen() {
             loading={saving || loadingEdit}
             style={[styles.saveBtn, { backgroundColor: C.blue, marginBottom: 10 + insets.bottom }] as any}
           />
-        </ScrollView>
+          </ScrollView>
+        </KeyboardAvoidingView>
 
         {/* iOS Date Picker Modal */}
         <Modal visible={iosDateOpen} transparent animationType="fade">
@@ -859,6 +879,8 @@ export default function CompraNuevaScreen() {
             </View>
           </View>
         </Modal>
+
+        <DoneAccessory nativeID={DONE_ID} />
       </SafeAreaView>
     </>
   );

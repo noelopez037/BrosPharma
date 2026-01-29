@@ -1,11 +1,10 @@
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { HeaderBackButton } from "@react-navigation/elements";
 import {
-  ActivityIndicator,
   Platform,
   Pressable,
-  RefreshControl,
   StyleSheet,
   Switch,
   Text,
@@ -15,6 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
+import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 
@@ -68,7 +68,12 @@ export default function ClientesScreen() {
 
   const [rows, setRows] = useState<ClienteRow[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+
+  const hasLoadedOnceRef = useRef(false);
+  const hasAnyRowsRef = useRef(false);
+  useEffect(() => {
+    hasAnyRowsRef.current = rows.length > 0;
+  }, [rows.length]);
 
   const loadRole = useCallback(async () => {
     const { data: auth } = await supabase.auth.getUser();
@@ -106,15 +111,20 @@ export default function ClientesScreen() {
     loadRole().catch(() => {});
   }, [loadRole]);
 
+  // UX: swipe-back / back siempre regresa a Inicio.
+  useGoHomeOnBack(true, "/(drawer)/(tabs)");
+
   useFocusEffect(
     useCallback(() => {
       let alive = true;
       (async () => {
+        const showLoading = !hasLoadedOnceRef.current && !hasAnyRowsRef.current;
         try {
-          if (alive) setInitialLoading(true);
+          if (showLoading && alive) setInitialLoading(true);
           await fetchClientes();
+          hasLoadedOnceRef.current = true;
         } finally {
-          if (alive) setInitialLoading(false);
+          if (showLoading && alive) setInitialLoading(false);
         }
       })();
 
@@ -123,16 +133,6 @@ export default function ClientesScreen() {
       };
     }, [fetchClientes])
   );
-
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await loadRole();
-      await fetchClientes();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [fetchClientes, loadRole]);
 
   const renderItem = ({ item }: { item: ClienteRow }) => {
     const vendedorNombre = (item.vendedor?.full_name ?? "").trim();
@@ -183,7 +183,17 @@ export default function ClientesScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: "Clientes", headerShown: true, headerBackTitle: "Atras" }} />
+      <Stack.Screen
+        options={{
+          title: "Clientes",
+          headerShown: true,
+          headerBackTitle: "Atras",
+          gestureEnabled: false,
+          headerBackVisible: false,
+          headerBackButtonMenuEnabled: false,
+          headerLeft: () => <HeaderBackButton onPress={() => router.replace("/(drawer)/(tabs)" as any)} />,
+        }}
+      />
 
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
         <FlatList
@@ -193,7 +203,7 @@ export default function ClientesScreen() {
           renderItem={renderItem}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          automaticallyAdjustKeyboardInsets
           contentContainerStyle={{
             paddingHorizontal: 12,
             paddingTop: 12,
@@ -240,7 +250,7 @@ export default function ClientesScreen() {
 
               {initialLoading ? (
                 <View style={{ paddingVertical: 10 }}>
-                  <ActivityIndicator />
+                  <Text style={[s.empty, { paddingTop: 0 }]}>Cargando...</Text>
                 </View>
               ) : null}
 

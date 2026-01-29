@@ -2,11 +2,9 @@ import { useTheme } from "@react-navigation/native";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   FlatList,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -19,6 +17,9 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import { AppButton } from "../components/ui/app-button";
+import { KeyboardAwareModal } from "../components/ui/keyboard-aware-modal";
+import { DoneAccessory } from "../components/ui/done-accessory";
+import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 
@@ -55,6 +56,8 @@ function nitToSave(input: string): string | null {
 export default function ClienteForm() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const DONE_ID = "doneAccessory";
+  const { scrollRef, handleFocus } = useKeyboardAutoScroll(110);
   const s = useMemo(() => styles(colors), [colors]);
 
   const { id } = useLocalSearchParams<{ id?: string }>();
@@ -281,7 +284,7 @@ export default function ClienteForm() {
       <SafeAreaView style={[s.safe, { backgroundColor: colors.background }]} edges={["bottom"]}>
         <Stack.Screen options={{ title, headerShown: true, headerBackTitle: "Atras" }} />
         <View style={s.center}>
-          <ActivityIndicator />
+          <Text style={{ color: colors.text + "88", fontWeight: "700" }}>Cargando...</Text>
         </View>
       </SafeAreaView>
     );
@@ -297,11 +300,18 @@ export default function ClienteForm() {
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
         >
-          <ScrollView contentContainerStyle={s.container} keyboardShouldPersistTaps="handled">
+          <ScrollView
+            ref={scrollRef}
+            contentContainerStyle={s.container}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets
+          >
             <Text style={s.label}>Nombre</Text>
             <TextInput
               value={nombre}
               onChangeText={setNombre}
+              onFocus={handleFocus}
               style={s.input}
               placeholder="Nombre del cliente"
               placeholderTextColor={colors.text + "66"}
@@ -312,6 +322,7 @@ export default function ClienteForm() {
             <TextInput
               value={nit}
               onChangeText={setNit}
+              onFocus={handleFocus}
               style={s.input}
               placeholder="CF / Consumidor Final o NIT"
               placeholderTextColor={colors.text + "66"}
@@ -323,16 +334,19 @@ export default function ClienteForm() {
             <TextInput
               value={telefono}
               onChangeText={setTelefono}
+              onFocus={handleFocus}
               style={s.input}
               placeholder="Ej: 5555-5555"
               placeholderTextColor={colors.text + "66"}
               keyboardType="phone-pad"
+              inputAccessoryViewID={Platform.OS === "ios" ? DONE_ID : undefined}
             />
 
             <Text style={s.label}>Dirección</Text>
             <TextInput
               value={direccion}
               onChangeText={setDireccion}
+              onFocus={handleFocus}
               style={s.input}
               placeholder="Dirección"
               placeholderTextColor={colors.text + "66"}
@@ -371,78 +385,71 @@ export default function ClienteForm() {
         </KeyboardAvoidingView>
 
         {/* Modal: seleccionar vendedor */}
-        <Modal
+        <KeyboardAwareModal
           visible={vendModalOpen}
-          transparent
-          animationType="fade"
-          onRequestClose={() => {
+          onClose={() => {
             setVendModalOpen(false);
             setVendQuery("");
           }}
+          cardStyle={{ backgroundColor: colors.card, borderColor: colors.border }}
+          backdropOpacity={0.35}
         >
+          <Text style={s.modalTitle}>Asignar vendedor</Text>
+
+          <TextInput
+            value={vendQuery}
+            onChangeText={setVendQuery}
+            style={s.input}
+            placeholder="Buscar vendedor…"
+            placeholderTextColor={colors.text + "66"}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
           <Pressable
-            style={s.backdrop}
+            style={s.modalItem}
             onPress={() => {
+              setVendedorId(null);
               setVendModalOpen(false);
               setVendQuery("");
             }}
+          >
+            <Text style={s.modalItemText}>Sin asignar</Text>
+          </Pressable>
+
+          <FlatList
+            data={vendedoresFiltrados}
+            keyExtractor={(it) => it.id}
+            style={{ maxHeight: 340 }}
+            keyboardShouldPersistTaps="handled"
+            automaticallyAdjustKeyboardInsets
+            renderItem={({ item }) => {
+              const name = String(item.full_name ?? "").trim();
+              const r = normalizeUpper(item.role);
+              const label = name ? `${name}${r ? ` • ${r}` : ""}` : item.id;
+              const selected = vendedorId === item.id;
+              return (
+                <Pressable
+                  style={({ pressed }) => [
+                    s.modalItem,
+                    selected ? s.modalItemSelected : null,
+                    pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
+                  ]}
+                  onPress={() => {
+                    setVendedorId(item.id);
+                    setVendModalOpen(false);
+                    setVendQuery("");
+                  }}
+                >
+                  <Text style={[s.modalItemText, selected ? s.modalItemTextSelected : null]}>{label}</Text>
+                </Pressable>
+              );
+            }}
+            ListEmptyComponent={<Text style={[s.helper, { marginTop: 8 }]}>Sin resultados</Text>}
           />
+        </KeyboardAwareModal>
 
-          <View style={s.modalCard}>
-            <Text style={s.modalTitle}>Asignar vendedor</Text>
-
-            <TextInput
-              value={vendQuery}
-              onChangeText={setVendQuery}
-              style={s.input}
-              placeholder="Buscar vendedor…"
-              placeholderTextColor={colors.text + "66"}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-
-            <Pressable
-              style={s.modalItem}
-              onPress={() => {
-                setVendedorId(null);
-                setVendModalOpen(false);
-                setVendQuery("");
-              }}
-            >
-              <Text style={s.modalItemText}>Sin asignar</Text>
-            </Pressable>
-
-            <FlatList
-              data={vendedoresFiltrados}
-              keyExtractor={(it) => it.id}
-              style={{ maxHeight: 340 }}
-              keyboardShouldPersistTaps="handled"
-              renderItem={({ item }) => {
-                const name = String(item.full_name ?? "").trim();
-                const r = normalizeUpper(item.role);
-                const label = name ? `${name}${r ? ` • ${r}` : ""}` : item.id;
-                const selected = vendedorId === item.id;
-                return (
-                  <Pressable
-                    style={({ pressed }) => [
-                      s.modalItem,
-                      selected ? s.modalItemSelected : null,
-                      pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
-                    ]}
-                    onPress={() => {
-                      setVendedorId(item.id);
-                      setVendModalOpen(false);
-                      setVendQuery("");
-                    }}
-                  >
-                    <Text style={[s.modalItemText, selected ? s.modalItemTextSelected : null]}>{label}</Text>
-                  </Pressable>
-                );
-              }}
-              ListEmptyComponent={<Text style={[s.helper, { marginTop: 8 }]}>Sin resultados</Text>}
-            />
-          </View>
-        </Modal>
+        <DoneAccessory nativeID={DONE_ID} />
       </SafeAreaView>
     </>
   );
@@ -512,18 +519,6 @@ const styles = (colors: any) =>
 
     // Buttons handled by AppButton
 
-    backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)" },
-    modalCard: {
-      position: "absolute",
-      left: 16,
-      right: 16,
-      top: 90,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.card,
-      borderRadius: 16,
-      padding: 14,
-    },
     modalTitle: { color: colors.text, fontWeight: "800", fontSize: 16, marginBottom: 10 },
     modalItem: {
       borderWidth: 1,

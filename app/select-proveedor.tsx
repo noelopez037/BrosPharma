@@ -3,11 +3,12 @@ import { useTheme } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   FlatList,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -17,6 +18,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Proveedor, useCompraDraft } from "../lib/compraDraft";
 import { supabase } from "../lib/supabase";
 import { AppButton } from "../components/ui/app-button";
+import { DoneAccessory } from "../components/ui/done-accessory";
+import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
 
 function alpha(hexOrRgb: string, a: number) {
   if (!hexOrRgb?.startsWith("#") || hexOrRgb.length !== 7) return hexOrRgb;
@@ -30,6 +33,8 @@ function alpha(hexOrRgb: string, a: number) {
 export default function SelectProveedor() {
   const { colors, dark } = useTheme();
   const { setProveedor } = useCompraDraft();
+  const DONE_ID = "doneAccessory";
+  const { scrollRef, handleFocus } = useKeyboardAutoScroll(110);
 
   const C = useMemo(() => {
     const tint = colors.primary ?? "#007AFF";
@@ -137,44 +142,83 @@ export default function SelectProveedor() {
       />
 
       <SafeAreaView style={[styles.safe, { backgroundColor: C.bg }]} edges={["bottom"]}>
-        <View style={styles.content}>
-          {mode === "LISTA" ? (
-            <View style={styles.row}>
-              <TextInput
-                value={q}
-                onChangeText={setQ}
-                placeholder="Buscar proveedor..."
-                placeholderTextColor={C.sub}
-                selectionColor={C.tint as any}
-                cursorColor={C.tint as any}
-                style={[
-                  styles.input,
-                  styles.inputFlex, // ✅ SOLO aquí
-                  {
-                    borderColor: C.border,
-                    backgroundColor: C.card,
-                    color: C.text,
-                  },
-                ]}
-              />
+        {mode === "LISTA" ? (
+          <>
+            <View style={styles.content}>
+              <View style={styles.row}>
+                <TextInput
+                  value={q}
+                  onChangeText={setQ}
+                  placeholder="Buscar proveedor..."
+                  placeholderTextColor={C.sub}
+                  selectionColor={C.tint as any}
+                  cursorColor={C.tint as any}
+                  style={[
+                    styles.input,
+                    styles.inputFlex,
+                    {
+                      borderColor: C.border,
+                      backgroundColor: C.card,
+                      color: C.text,
+                    },
+                  ]}
+                />
 
-              <AppButton
-                title={"+ Nuevo"}
-                variant="outline"
-                size="sm"
-                onPress={() => {
-                  setMode("CREAR");
-                  setNewNombre(q.trim());
-                  setNewTel("");
-                }}
-              />
+                <AppButton
+                  title={"+ Nuevo"}
+                  variant="outline"
+                  size="sm"
+                  onPress={() => {
+                    setMode("CREAR");
+                    setNewNombre(q.trim());
+                    setNewTel("");
+                  }}
+                />
+              </View>
+
+              {loading ? <Text style={{ marginTop: 10, color: C.sub, fontWeight: "700" }}>Cargando...</Text> : null}
             </View>
-          ) : (
-            <>
+
+            <FlatList
+              data={items}
+              keyExtractor={(it) => String(it.id)}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              automaticallyAdjustKeyboardInsets
+              contentContainerStyle={{ paddingBottom: 24 }}
+              renderItem={({ item }) => (
+                <Pressable
+                  onPress={() => pick(item)}
+                  style={({ pressed }) => [
+                    styles.rowItem,
+                    { borderTopColor: C.border },
+                    pressed && { opacity: 0.8 },
+                  ]}
+                >
+                  <Text style={[styles.itemTitle, { color: C.text }]}>{item.nombre}</Text>
+                  {!!item.telefono && <Text style={[styles.itemSub, { color: C.sub }]}>{item.telefono}</Text>}
+                </Pressable>
+              )}
+            />
+          </>
+        ) : (
+          <KeyboardAvoidingView
+            style={{ flex: 1 }}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+          >
+            <ScrollView
+              ref={scrollRef}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              contentContainerStyle={[styles.content, { paddingBottom: 20 }]}
+              automaticallyAdjustKeyboardInsets
+            >
               <Text style={[styles.label, { color: C.text }]}>Nombre</Text>
               <TextInput
                 value={newNombre}
                 onChangeText={setNewNombre}
+                onFocus={handleFocus}
                 placeholder="Ej: Proveedor demo"
                 placeholderTextColor={C.sub}
                 selectionColor={C.tint as any}
@@ -193,9 +237,11 @@ export default function SelectProveedor() {
               <TextInput
                 value={newTel}
                 onChangeText={setNewTel}
+                onFocus={handleFocus}
                 placeholder="Ej: 5555-5555"
                 placeholderTextColor={C.sub}
                 keyboardType="phone-pad"
+                inputAccessoryViewID={Platform.OS === "ios" ? DONE_ID : undefined}
                 selectionColor={C.tint as any}
                 cursorColor={C.tint as any}
                 style={[
@@ -209,36 +255,12 @@ export default function SelectProveedor() {
               />
 
               <AppButton title="Guardar proveedor" onPress={crear} loading={loading} />
-
               <AppButton title="Cancelar" variant="outline" size="sm" onPress={() => setMode("LISTA")} />
-            </>
-          )}
-
-          {loading && mode === "LISTA" && <ActivityIndicator />}
-        </View>
-
-        {mode === "LISTA" && (
-          <FlatList
-            data={items}
-            keyExtractor={(it) => String(it.id)}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-            contentContainerStyle={{ paddingBottom: 24 }}
-            renderItem={({ item }) => (
-              <Pressable
-                onPress={() => pick(item)}
-                style={({ pressed }) => [
-                  styles.rowItem,
-                  { borderTopColor: C.border },
-                  pressed && { opacity: 0.8 },
-                ]}
-              >
-                <Text style={[styles.itemTitle, { color: C.text }]}>{item.nombre}</Text>
-                {!!item.telefono && <Text style={[styles.itemSub, { color: C.sub }]}>{item.telefono}</Text>}
-              </Pressable>
-            )}
-          />
+            </ScrollView>
+          </KeyboardAvoidingView>
         )}
+
+        <DoneAccessory nativeID={DONE_ID} />
       </SafeAreaView>
     </>
   );

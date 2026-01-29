@@ -15,15 +15,14 @@
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { HeaderBackButton } from "@react-navigation/elements";
 import {
-  ActivityIndicator,
   FlatList,
   Modal,
   Platform,
   PlatformColor,
   Pressable,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -34,6 +33,10 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { AppButton } from "../../components/ui/app-button";
+import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
+
+
+// Carga silenciosa: evitar spinners y evitar doble fetch en mount.
 
 type CompraRow = {
   id: number;
@@ -108,6 +111,9 @@ export default function ComprasScreen() {
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
 
+  // UX: swipe-back / back siempre regresa a Inicio.
+  useGoHomeOnBack(true, "/(drawer)/(tabs)");
+
   const M = useMemo(
     () => ({
       card: isDark ? "#121214" : "#ffffff",
@@ -127,7 +133,12 @@ export default function ComprasScreen() {
 
   const [rowsRaw, setRowsRaw] = useState<CompraRow[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+
+  const hasLoadedOnceRef = useRef(false);
+  const hasAnyRowsRef = useRef(false);
+  useEffect(() => {
+    hasAnyRowsRef.current = rowsRaw.length > 0;
+  }, [rowsRaw.length]);
   const [canManage, setCanManage] = useState(false);
 
   // filtros
@@ -224,35 +235,27 @@ export default function ComprasScreen() {
     setRowsRaw((data ?? []) as CompraRow[]);
   }, [dq, fProveedorId, fDesde, fHasta]);
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        if (alive) setInitialLoading(true);
-        await fetchCompras();
-      } finally {
-        if (alive) setInitialLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [fetchCompras]);
-
   useFocusEffect(
     useCallback(() => {
-      fetchCompras().catch(() => {});
+      let alive = true;
+      const showLoading = !hasLoadedOnceRef.current && !hasAnyRowsRef.current;
+      (async () => {
+        try {
+          if (showLoading && alive) setInitialLoading(true);
+          await fetchCompras();
+          hasLoadedOnceRef.current = true;
+        } finally {
+          if (showLoading && alive) setInitialLoading(false);
+        }
+      })().catch(() => {
+        if (showLoading && alive) setInitialLoading(false);
+      });
+
+      return () => {
+        alive = false;
+      };
     }, [fetchCompras])
   );
-
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await fetchCompras();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [fetchCompras]);
 
   const badge = (c: CompraRow) => {
     const estado = normalizeUpper(c.estado);
@@ -408,6 +411,10 @@ export default function ComprasScreen() {
           headerShown: true,
           title: "Compras",
           headerBackTitle: "Atrás",
+          gestureEnabled: false,
+          headerBackVisible: false,
+          headerBackButtonMenuEnabled: false,
+          headerLeft: () => <HeaderBackButton onPress={() => router.replace("/(drawer)/(tabs)" as any)} />,
         }}
       />
 
@@ -419,7 +426,7 @@ export default function ComprasScreen() {
           renderItem={renderItem}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          automaticallyAdjustKeyboardInsets
           contentContainerStyle={{
             paddingHorizontal: 12,
             paddingTop: 12,
@@ -465,7 +472,7 @@ export default function ComprasScreen() {
 
               {initialLoading ? (
                 <View style={{ paddingVertical: 10 }}>
-                  <ActivityIndicator />
+                  <Text style={[s.empty, { paddingTop: 0 }]}>Cargando...</Text>
                 </View>
               ) : null}
             </>

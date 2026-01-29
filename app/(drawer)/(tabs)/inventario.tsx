@@ -3,11 +3,9 @@ import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
 import React, { memo, useCallback, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   Platform,
   Pressable,
-  RefreshControl,
   StyleSheet,
   Switch,
   Text,
@@ -95,7 +93,6 @@ export default function InventarioScreen() {
 
   const [rows, setRows] = useState<Row[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
 
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
@@ -219,22 +216,8 @@ export default function InventarioScreen() {
     }, [loadFirst])
   );
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await fetchPage(0, true);
-      setPage(0);
-      setHasMore(true);
-      setErrorMsg(null);
-    } catch (e: any) {
-      setErrorMsg(e?.message ?? "No se pudo actualizar");
-    } finally {
-      setRefreshing(false);
-    }
-  }, [fetchPage]);
-
   const loadMore = useCallback(async () => {
-    if (!hasMore || loadingMoreRef.current || initialLoading || refreshing) return;
+    if (!hasMore || loadingMoreRef.current || initialLoading) return;
     loadingMoreRef.current = true;
     setLoadingMore(true);
     try {
@@ -247,7 +230,7 @@ export default function InventarioScreen() {
       setLoadingMore(false);
       loadingMoreRef.current = false;
     }
-  }, [fetchPage, hasMore, page, initialLoading, refreshing]);
+  }, [fetchPage, hasMore, page, initialLoading]);
 
   const onPressItem = useCallback((id: number) => {
     router.push({ pathname: "/producto-modal", params: { id: String(id) } });
@@ -316,7 +299,7 @@ export default function InventarioScreen() {
           renderItem={renderItem}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          automaticallyAdjustKeyboardInsets
           onEndReachedThreshold={0.4}
           onEndReached={loadMore}
           initialNumToRender={10}
@@ -333,7 +316,7 @@ export default function InventarioScreen() {
           ListEmptyComponent={
             initialLoading ? (
               <View style={s.center}>
-                <ActivityIndicator />
+                <Text style={s.empty}>Cargando...</Text>
               </View>
             ) : (
               <View style={s.center}>
@@ -344,7 +327,7 @@ export default function InventarioScreen() {
           ListFooterComponent={
             loadingMore ? (
               <View style={{ paddingVertical: 12 }}>
-                <ActivityIndicator />
+                <Text style={[s.empty, { fontSize: 12 }]}>Cargando...</Text>
               </View>
             ) : null
           }
