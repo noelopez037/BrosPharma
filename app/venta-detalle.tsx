@@ -32,6 +32,7 @@ import { supabase } from "../lib/supabase";
 import { emitSolicitudesChanged } from "../lib/solicitudesEvents";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
+import { goBackSafe } from "../lib/goBackSafe";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURADOR" | "";
 
@@ -1005,7 +1006,7 @@ export default function VentaDetalleScreen() {
       });
       if (ae) throw ae;
 
-      Alert.alert("Listo", "Venta anulada.", [{ text: "OK", onPress: () => router.back() }]);
+      Alert.alert("Listo", "Venta anulada.", [{ text: "OK", onPress: () => goBackSafe("/(drawer)/(tabs)/ventas") }]);
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo anular");
     } finally {
@@ -1175,17 +1176,11 @@ export default function VentaDetalleScreen() {
         options={{
           headerShown: true,
           title,
-          headerBackTitle: "Atras",
+          headerBackTitle: "Atrás",
           headerLeft: () => (
             <Pressable
               onPress={() => {
-                try {
-                  const can = typeof (router as any)?.canGoBack === "function" ? (router as any).canGoBack() : false;
-                  if (can) router.back();
-                  else router.replace("/(drawer)/(tabs)/ventas" as any);
-                } catch {
-                  router.replace("/(drawer)/(tabs)/ventas" as any);
-                }
+                goBackSafe("/(drawer)/(tabs)/ventas");
               }}
               hitSlop={10}
               style={({ pressed }) => [
@@ -1193,11 +1188,11 @@ export default function VentaDetalleScreen() {
                 pressed ? { opacity: 0.7 } : null,
               ]}
               accessibilityRole="button"
-              accessibilityLabel="Atras"
+              accessibilityLabel="Atrás"
             >
               <Ionicons name={Platform.OS === "ios" ? "chevron-back" : "arrow-back"} size={24} color={headerTint} />
               {Platform.OS === "ios" ? (
-                <Text style={{ color: headerTint, fontSize: 16, fontWeight: "600", marginLeft: 2 }}>Atras</Text>
+                <Text style={{ color: headerTint, fontSize: 16, fontWeight: "600", marginLeft: 2 }}>Atrás</Text>
               ) : null}
             </Pressable>
           ),
@@ -1224,7 +1219,7 @@ export default function VentaDetalleScreen() {
             <View style={[styles.card, { borderColor: C.border, backgroundColor: C.card }]}>
               <Text style={[styles.title, { color: C.text }]}>Venta invalida</Text>
               <Text style={[styles.sub, { color: C.sub }]}>No se encontro el ID de la venta.</Text>
-              <AppButton title="Volver" onPress={() => router.back()} />
+              <AppButton title="Volver" onPress={() => goBackSafe("/(drawer)/(tabs)/ventas")} />
             </View>
           ) : null}
 

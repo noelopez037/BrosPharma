@@ -20,6 +20,7 @@ import { AppButton } from "../components/ui/app-button";
 import { KeyboardAwareModal } from "../components/ui/keyboard-aware-modal";
 import { DoneAccessory } from "../components/ui/done-accessory";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
+import { goBackSafe } from "../lib/goBackSafe";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 
@@ -59,6 +60,7 @@ export default function ClienteForm() {
   const DONE_ID = "doneAccessory";
   const { scrollRef, handleFocus } = useKeyboardAutoScroll(110);
   const s = useMemo(() => styles(colors), [colors]);
+  const dangerColor = Platform.OS === "ios" ? "#FF3B30" : "#E53935";
 
   const { id } = useLocalSearchParams<{ id?: string }>();
   const editingId = id && Number.isFinite(Number(id)) ? Number(id) : null;
@@ -75,7 +77,7 @@ export default function ClienteForm() {
   const canEdit = role === "ADMIN" || role === "VENTAS";
 
   const [nombre, setNombre] = useState("");
-  const [nit, setNit] = useState("CF");
+  const [nit, setNit] = useState("");
   const [telefono, setTelefono] = useState("");
   const [direccion, setDireccion] = useState("");
   const [activo, setActivo] = useState(true);
@@ -94,6 +96,10 @@ export default function ClienteForm() {
       return name.includes(q) || v.id.toLowerCase().includes(q);
     });
   }, [vendQuery, vendedores]);
+
+  const isFormValid = useMemo(() => {
+    return !!(String(nombre ?? "").trim() && String(nit ?? "").trim() && String(telefono ?? "").trim() && String(direccion ?? "").trim());
+  }, [nombre, nit, telefono, direccion]);
 
   const vendedorLabel = useMemo(() => {
     if (!isAdmin) return "—";
@@ -150,7 +156,7 @@ export default function ClienteForm() {
     if (!c) return;
 
     setNombre(c.nombre ?? "");
-    setNit(String(c.nit ?? "CF"));
+    setNit(String(c.nit ?? ""));
     setTelefono(String(c.telefono ?? ""));
     setDireccion(String(c.direccion ?? ""));
     setActivo(!!c.activo);
@@ -178,7 +184,7 @@ export default function ClienteForm() {
     // Si no puede editar, salimos
     if (!canEdit) {
       Alert.alert("Sin permiso", "No tienes permiso para crear o editar clientes");
-      router.back();
+      goBackSafe("/(drawer)/clientes");
       return;
     }
 
@@ -212,8 +218,10 @@ export default function ClienteForm() {
     const cleanNombre = nombre.trim();
     const cleanTel = telefono.trim();
     const cleanDir = direccion.trim();
+    const cleanNit = String(nit ?? "").trim();
 
     if (!cleanNombre) return Alert.alert("Faltan datos", "Nombre es obligatorio");
+    if (!cleanNit) return Alert.alert("Faltan datos", "NIT es obligatorio");
     if (!cleanTel) return Alert.alert("Faltan datos", "Teléfono es obligatorio");
     if (!cleanDir) return Alert.alert("Faltan datos", "Dirección es obligatoria");
 
@@ -244,7 +252,7 @@ export default function ClienteForm() {
         if (newId) {
           router.replace({ pathname: "/cliente-detalle" as any, params: { id: String(newId) } } as any);
         } else {
-          router.back();
+          goBackSafe("/(drawer)/clientes");
         }
         return;
       }
@@ -264,7 +272,7 @@ export default function ClienteForm() {
       if (error) throw error;
 
       Alert.alert("Listo", "Cliente actualizado");
-      router.back();
+      goBackSafe({ pathname: "/cliente-detalle" as any, params: { id: String(editingId) } } as any);
     } catch (e: any) {
       const msg = String(e?.message ?? "No se pudo guardar");
       if (msg.toLowerCase().includes("ux_clientes_nit")) {
@@ -282,7 +290,7 @@ export default function ClienteForm() {
   if (loading) {
     return (
       <SafeAreaView style={[s.safe, { backgroundColor: colors.background }]} edges={["bottom"]}>
-        <Stack.Screen options={{ title, headerShown: true, headerBackTitle: "Atras" }} />
+        <Stack.Screen options={{ title, headerShown: true, headerBackTitle: "Atrás" }} />
         <View style={s.center}>
           <Text style={{ color: colors.text + "88", fontWeight: "700" }}>Cargando...</Text>
         </View>
@@ -292,7 +300,7 @@ export default function ClienteForm() {
 
   return (
     <>
-      <Stack.Screen options={{ title, headerShown: true, headerBackTitle: "Atras" }} />
+      <Stack.Screen options={{ title, headerShown: true, headerBackTitle: "Atrás" }} />
 
       <SafeAreaView style={[s.safe, { paddingBottom: insets.bottom }]} edges={["bottom"]}>
         <KeyboardAvoidingView
@@ -307,7 +315,9 @@ export default function ClienteForm() {
             keyboardDismissMode="on-drag"
             automaticallyAdjustKeyboardInsets
           >
-            <Text style={s.label}>Nombre</Text>
+            <Text style={s.label}>
+              Nombre <Text style={{ color: dangerColor }}>*</Text>
+            </Text>
             <TextInput
               value={nombre}
               onChangeText={setNombre}
@@ -318,7 +328,9 @@ export default function ClienteForm() {
               autoCapitalize="words"
             />
 
-            <Text style={s.label}>NIT</Text>
+            <Text style={s.label}>
+              NIT <Text style={{ color: dangerColor }}>*</Text>
+            </Text>
             <TextInput
               value={nit}
               onChangeText={setNit}
@@ -330,7 +342,9 @@ export default function ClienteForm() {
               autoCorrect={false}
             />
 
-            <Text style={s.label}>Teléfono</Text>
+            <Text style={s.label}>
+              Teléfono <Text style={{ color: dangerColor }}>*</Text>
+            </Text>
             <TextInput
               value={telefono}
               onChangeText={setTelefono}
@@ -342,7 +356,9 @@ export default function ClienteForm() {
               inputAccessoryViewID={Platform.OS === "ios" ? DONE_ID : undefined}
             />
 
-            <Text style={s.label}>Dirección</Text>
+            <Text style={s.label}>
+              Dirección <Text style={{ color: dangerColor }}>*</Text>
+            </Text>
             <TextInput
               value={direccion}
               onChangeText={setDireccion}
@@ -378,7 +394,7 @@ export default function ClienteForm() {
               />
             </View>
 
-            <AppButton title="Guardar" onPress={onSave} loading={saving} style={{ marginTop: 18 } as any} />
+            <AppButton title="Guardar" onPress={onSave} loading={saving} disabled={!isFormValid} style={{ marginTop: 18 } as any} />
 
             <View style={{ height: 12 }} />
           </ScrollView>

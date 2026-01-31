@@ -1,6 +1,7 @@
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router, useLocalSearchParams } from "expo-router";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
+import { HeaderBackButton } from "@react-navigation/elements";
 import {
   Alert,
   Platform,
@@ -41,6 +42,22 @@ function displayNit(nit: string | null | undefined) {
 export default function ClienteDetalle() {
   const { colors } = useTheme();
   const s = useMemo(() => styles(colors), [colors]);
+
+  const navigatingRef = useRef(false);
+  const goBackSafe = useCallback(() => {
+    if (navigatingRef.current) return;
+    navigatingRef.current = true;
+    setTimeout(() => {
+      navigatingRef.current = false;
+    }, 800);
+    try {
+      const can = typeof (router as any)?.canGoBack === "function" ? (router as any).canGoBack() : false;
+      if (can) router.back();
+      else router.replace("/(drawer)/clientes" as any);
+    } catch {
+      router.replace("/(drawer)/clientes" as any);
+    }
+  }, []);
 
   const { id } = useLocalSearchParams<{ id: string }>();
   const clienteId = Number(id);
@@ -113,18 +130,18 @@ export default function ClienteDetalle() {
           style: "destructive",
           onPress: async () => {
             try {
-              const { error } = await supabase.from("clientes").delete().eq("id", row.id);
-              if (error) throw error;
-              Alert.alert("Listo", "Cliente eliminado");
-              router.back();
-            } catch (e: any) {
-              Alert.alert("Error", e?.message ?? "No se pudo eliminar");
-            }
-          },
-        },
-      ]
-    );
-  }, [canDelete, row]);
+               const { error } = await supabase.from("clientes").delete().eq("id", row.id);
+               if (error) throw error;
+               Alert.alert("Listo", "Cliente eliminado");
+               goBackSafe();
+             } catch (e: any) {
+               Alert.alert("Error", e?.message ?? "No se pudo eliminar");
+             }
+           },
+         },
+       ]
+     );
+  }, [canDelete, row, goBackSafe]);
 
   const vendedorNombre = (row?.vendedor?.full_name ?? "").trim();
   const vendedorRole = normalizeUpper(row?.vendedor?.role);
@@ -132,7 +149,16 @@ export default function ClienteDetalle() {
 
   return (
     <>
-      <Stack.Screen options={{ title: "Cliente", headerShown: true, headerBackTitle: "Atras" }} />
+      <Stack.Screen
+        options={{
+          title: "Cliente",
+          headerShown: true,
+          headerBackTitle: "Atrás",
+          headerBackVisible: false,
+          headerBackButtonMenuEnabled: false,
+          headerLeft: () => <HeaderBackButton onPress={goBackSafe} />,
+        }}
+      />
 
       <SafeAreaView style={[s.safe, { backgroundColor: colors.background }]} edges={["bottom"]}>
         {loading ? (

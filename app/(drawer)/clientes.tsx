@@ -15,6 +15,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
+import { goBackSafe } from "../../lib/goBackSafe";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 
@@ -187,11 +188,11 @@ export default function ClientesScreen() {
         options={{
           title: "Clientes",
           headerShown: true,
-          headerBackTitle: "Atras",
+          headerBackTitle: "Atrás",
           gestureEnabled: false,
           headerBackVisible: false,
           headerBackButtonMenuEnabled: false,
-          headerLeft: () => <HeaderBackButton onPress={() => router.replace("/(drawer)/(tabs)" as any)} />,
+          headerLeft: () => <HeaderBackButton onPress={() => goBackSafe("/(drawer)/(tabs)")} />,
         }}
       />
 

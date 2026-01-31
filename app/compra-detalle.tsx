@@ -34,6 +34,7 @@ import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
 import { AppButton } from "../components/ui/app-button";
 import { DoneAccessory } from "../components/ui/done-accessory";
+import { goBackSafe } from "../lib/goBackSafe";
 
 const BUCKET_PRODUCTOS = "productos";
 const BUCKET_COMPROBANTES = "comprobantes";
@@ -511,7 +512,7 @@ export default function CompraDetalleScreen() {
             if (error) throw error;
 
             Alert.alert("Listo", "Compra eliminada", [
-              { text: "OK", onPress: () => router.back() },
+              { text: "OK", onPress: () => goBackSafe("/compras") },
             ]);
           } catch (e: any) {
             Alert.alert("Error", e?.message ?? "No se pudo eliminar");
@@ -698,6 +699,8 @@ export default function CompraDetalleScreen() {
             style={{ flex: 1, backgroundColor: C.bg }}
             contentInsetAdjustmentBehavior="never"
             contentContainerStyle={{
+              width: "100%",
+              alignItems: "stretch",
               paddingTop: 12,
               paddingHorizontal: 16,
               paddingBottom: 12 + insets.bottom + 104,
@@ -1273,6 +1276,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
 
   cardBase: {
+    width: "100%",
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 18,
     padding: 16,

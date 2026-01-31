@@ -1,14 +1,16 @@
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState, useEffect, useRef } from "react";
 import { HeaderBackButton } from "@react-navigation/elements";
-import { Alert, FlatList, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, FlatList, Platform, Pressable, StyleSheet, Text, TextInput, View, Modal, ScrollView } from "react-native";
+import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
 import { useGoHomeOnBack } from "../lib/useGoHomeOnBack";
+import { goBackSafe } from "../lib/goBackSafe";
 
 type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURADOR" | "";
 
@@ -36,6 +38,17 @@ function shortUid(u: string | null | undefined) {
   return s.slice(0, 8);
 }
 
+function startOfDay(d: Date) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+function endOfDay(d: Date) {
+  const x = new Date(d);
+  x.setHours(23, 59, 59, 999);
+  return x;
+}
+
 export default function VentasAnuladasScreen() {
   const { colors } = useTheme();
   const { resolved } = useThemePref();
@@ -61,6 +74,16 @@ export default function VentasAnuladasScreen() {
 
   const [role, setRole] = useState<Role>("");
   const [q, setQ] = useState("");
+  // filtros estilo CxC
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [clientes, setClientes] = useState<{ id: number; nombre: string }[]>([]);
+  const [clienteOpen, setClienteOpen] = useState(false);
+  const [fClienteId, setFClienteId] = useState<number | null>(null);
+  const [fClienteQ, setFClienteQ] = useState("");
+  const [fDesde, setFDesde] = useState<Date | null>(null);
+  const [fHasta, setFHasta] = useState<Date | null>(null);
+  const [showDesdeIOS, setShowDesdeIOS] = useState(false);
+  const [showHastaIOS, setShowHastaIOS] = useState(false);
   const [rowsRaw, setRowsRaw] = useState<VentaRow[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
 
@@ -138,19 +161,98 @@ export default function VentasAnuladasScreen() {
   React.useEffect(() => {
     if (!role) return;
     if (canView) return;
-    Alert.alert("Sin permiso", "Tu rol no puede ver anuladas.", [{ text: "OK", onPress: () => router.back() }]);
+    Alert.alert("Sin permiso", "Tu rol no puede ver anuladas.", [
+      { text: "OK", onPress: () => goBackSafe("/(drawer)/(tabs)") },
+    ]);
   }, [canView, role]);
+
+  // load clientes for filter dropdown
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const { data } = await supabase.from("clientes").select("id,nombre").order("nombre", { ascending: true });
+        if (alive && data) setClientes((data as any) as { id: number; nombre: string }[]);
+      } catch {
+        if (alive) setClientes([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const filteredClientes = useMemo(() => {
+    const q = (fClienteQ ?? "").trim().toLowerCase();
+    if (!q) return clientes;
+    return (clientes ?? []).filter((c) => String(c.nombre ?? "").toLowerCase().includes(q) || String(c.id ?? "").includes(q));
+  }, [clientes, fClienteQ]);
+
+  const openDesdePicker = () => {
+    setClienteOpen(false);
+    if (Platform.OS === "android") {
+      DateTimePickerAndroid.open({ value: fDesde ?? new Date(), mode: "date", onChange: (_ev, date) => { if (date) setFDesde(date); } });
+    } else {
+      setShowDesdeIOS(true);
+      setShowHastaIOS(false);
+    }
+  };
+
+  const openHastaPicker = () => {
+    setClienteOpen(false);
+    if (Platform.OS === "android") {
+      DateTimePickerAndroid.open({ value: fHasta ?? new Date(), mode: "date", onChange: (_ev, date) => { if (date) setFHasta(date); } });
+    } else {
+      setShowHastaIOS(true);
+      setShowDesdeIOS(false);
+    }
+  };
+
+  const limpiarFiltros = () => {
+    setFClienteId(null);
+    setFDesde(null);
+    setFHasta(null);
+    setClienteOpen(false);
+    setShowDesdeIOS(false);
+    setShowHastaIOS(false);
+  };
 
   const rows = useMemo(() => {
     const search = q.trim().toLowerCase();
-    if (!search) return rowsRaw;
+    const hasSearch = Boolean(search);
+
     return rowsRaw.filter((r) => {
       const id = String(r.id);
       const cliente = String(r.cliente_nombre ?? "").toLowerCase();
       const vcode = String(r.vendedor_codigo ?? "").toLowerCase();
-      return id.includes(search) || cliente.includes(search) || vcode.includes(search);
+
+      // basic text search (id, cliente, vendedor) - optional
+      const textMatch = hasSearch ? id.includes(search) || cliente.includes(search) || vcode.includes(search) : true;
+      if (!textMatch) return false;
+
+      // cliente dropdown filter (compare by name)
+      if (fClienteId) {
+        const c = clientes.find((c) => c.id === fClienteId);
+        if (c) {
+          if (!String(r.cliente_nombre ?? "").toLowerCase().includes(String(c.nombre ?? "").toLowerCase())) return false;
+        }
+      }
+
+      // fecha range filter using Date objects
+      const fechaIso = String(r.fecha ?? "").slice(0, 10);
+      const fechaMs = fechaIso ? new Date(`${fechaIso}T12:00:00`).getTime() : null;
+      if (fDesde) {
+        const desdeMs = startOfDay(fDesde).getTime();
+        if (!fechaMs || fechaMs < desdeMs) return false;
+      }
+      if (fHasta) {
+        const hastaMs = endOfDay(fHasta).getTime();
+        if (!fechaMs || fechaMs > hastaMs) return false;
+      }
+
+      return true;
     });
-  }, [q, rowsRaw]);
+  }, [q, rowsRaw, fClienteId, fDesde, fHasta, clientes]);
 
   return (
     <>
@@ -158,26 +260,32 @@ export default function VentasAnuladasScreen() {
         options={{
           headerShown: true,
           title: "Anuladas",
-          headerBackTitle: "Atras",
+          headerBackTitle: "Atrás",
           gestureEnabled: false,
           headerBackVisible: false,
           headerBackButtonMenuEnabled: false,
-          headerLeft: () => <HeaderBackButton onPress={() => router.replace("/(drawer)/(tabs)" as any)} />,
+          headerLeft: () => <HeaderBackButton onPress={() => goBackSafe("/(drawer)/(tabs)")} />,
         }}
       />
 
       <SafeAreaView style={[styles.safe, { backgroundColor: C.bg }]} edges={["bottom"]}>
         <View style={[styles.content, { backgroundColor: C.bg }]}
         >
-          <TextInput
-            value={q}
-            onChangeText={setQ}
-            placeholder="Buscar (cliente, id, vendedor)..."
-            placeholderTextColor={C.sub}
-            style={[styles.search, { borderColor: C.border, backgroundColor: C.card, color: C.text }]}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
+          <View style={styles.headerRow}>
+            <TextInput
+              value={q}
+              onChangeText={setQ}
+              placeholder="Buscar (cliente, id, vendedor)..."
+              placeholderTextColor={C.sub}
+              style={[styles.search, { borderColor: C.border, backgroundColor: C.card, color: C.text, flex: 1 }]}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+
+            <Pressable onPress={() => setFiltersOpen(true)} style={({ pressed }) => [styles.filterBtn, pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null]}>
+              <Text style={styles.filterTxt}>Filtros</Text>
+            </Pressable>
+          </View>
         </View>
 
         <FlatList
@@ -224,6 +332,88 @@ export default function VentasAnuladasScreen() {
             </Text>
           }
         />
+
+        {/* Modal filtros */}
+        <Modal visible={filtersOpen} transparent animationType="fade" onRequestClose={() => setFiltersOpen(false)}>
+          <Pressable style={[styles.modalBackdrop]} onPress={() => setFiltersOpen(false)} />
+
+          <View style={[styles.modalCard, { backgroundColor: C.card, borderColor: C.border }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: C.text }]}>Filtros</Text>
+              <Pressable onPress={() => setFiltersOpen(false)} hitSlop={10}><Text style={[styles.modalClose, { color: C.sub }]}>Cerrar</Text></Pressable>
+            </View>
+
+            <Text style={[styles.sectionLabel, { color: C.text }]}>Cliente</Text>
+            <Pressable
+              onPress={() => { setClienteOpen((v) => !v); setShowDesdeIOS(false); setShowHastaIOS(false); }}
+              style={[styles.dropdownInput, { borderColor: C.border, backgroundColor: C.card }]}
+            >
+              <Text style={[styles.dropdownText, { color: C.text }]} numberOfLines={1}>{fClienteId ? (clientes.find(c => c.id === fClienteId)?.nombre ?? "Todos") : "Todos"}</Text>
+              <Text style={[styles.dropdownCaret, { color: C.sub }]}>{clienteOpen ? "▲" : "▼"}</Text>
+            </Pressable>
+            {clienteOpen ? (
+              <View style={[styles.dropdownPanel, { borderColor: C.border, backgroundColor: C.card }]}>
+                  <ScrollView style={{ maxHeight: 180 }} keyboardShouldPersistTaps="handled">
+                    <View style={{ paddingHorizontal: 12, paddingVertical: 8 }}>
+                      <TextInput
+                        value={fClienteQ}
+                        onChangeText={setFClienteQ}
+                        placeholder="Buscar cliente..."
+                        placeholderTextColor={C.sub}
+                        style={[styles.clientSearchInput, { color: C.text }]}
+                        autoCapitalize="none"
+                        returnKeyType="search"
+                      />
+                    </View>
+                    <Pressable onPress={() => { setFClienteId(null); setClienteOpen(false); setFClienteQ(""); }} style={styles.ddRow}><Text style={{ fontSize: 16, fontWeight: "600", color: C.text }}>Todos</Text></Pressable>
+                    {filteredClientes.map((c) => (
+                      <Pressable key={String(c.id)} onPress={() => { setFClienteId(c.id); setClienteOpen(false); setFClienteQ(""); }} style={styles.ddRow}>
+                        <Text style={{ fontSize: 16, fontWeight: "600", color: C.text }}>{c.nombre}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+              </View>
+            ) : null}
+
+            <View style={{ height: 10 }} />
+
+            <View style={styles.twoCols}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.sectionLabel, { color: C.text }]}>Desde</Text>
+                <Pressable onPress={openDesdePicker} style={[styles.dateBox, { borderColor: C.border, backgroundColor: C.card }]}>
+                  <Text style={[styles.dateTxt, { color: C.text }]}>{fDesde ? fmtDate(fDesde.toISOString()) : "—"}</Text>
+                </Pressable>
+              </View>
+
+              <View style={{ width: 12 }} />
+
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.sectionLabel, { color: C.text }]}>Hasta</Text>
+                <Pressable onPress={openHastaPicker} style={[styles.dateBox, { borderColor: C.border, backgroundColor: C.card }]}>
+                  <Text style={[styles.dateTxt, { color: C.text }]}>{fHasta ? fmtDate(fHasta.toISOString()) : "—"}</Text>
+                </Pressable>
+              </View>
+            </View>
+
+            {Platform.OS === "ios" && showDesdeIOS ? (
+              <View style={[styles.iosPickerWrap, { borderColor: C.border, backgroundColor: C.card }]}>
+                <DateTimePicker value={fDesde ?? new Date()} mode="date" display="inline" themeVariant={isDark ? "dark" : "light"} onChange={(_ev, date) => { if (date) { setFDesde(date); setShowDesdeIOS(false); } }} />
+              </View>
+            ) : null}
+
+            {Platform.OS === "ios" && showHastaIOS ? (
+              <View style={[styles.iosPickerWrap, { borderColor: C.border, backgroundColor: C.card }]}>
+                <DateTimePicker value={fHasta ?? new Date()} mode="date" display="inline" themeVariant={isDark ? "dark" : "light"} onChange={(_ev, date) => { if (date) { setFHasta(date); setShowHastaIOS(false); } }} />
+              </View>
+            ) : null}
+
+            <View style={{ height: 10 }} />
+            <View style={styles.modalActions}>
+              <Pressable onPress={limpiarFiltros} style={styles.actionBtn}><Text style={styles.actionBtnText}>Limpiar</Text></Pressable>
+              <Pressable onPress={() => { setFiltersOpen(false); setClienteOpen(false); setShowDesdeIOS(false); setShowHastaIOS(false); }} style={[styles.actionBtn, { backgroundColor: C.card }]}><Text style={styles.actionBtnText}>Aplicar</Text></Pressable>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     </>
   );
@@ -239,6 +429,45 @@ const styles = StyleSheet.create({
     paddingVertical: Platform.select({ ios: 12, android: 10, default: 10 }),
     fontSize: 16,
   },
+  headerRow: { flexDirection: "row", gap: 10, alignItems: "center", marginBottom: 8 },
+  filterBtn: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginLeft: 8 },
+  filterTxt: { fontWeight: "800" },
+  smallInput: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: Platform.select({ ios: 10, android: 8, default: 8 }),
+    fontSize: 14,
+    marginTop: 8,
+  },
+  dateRow: { flexDirection: "row", justifyContent: "space-between", gap: 8, marginTop: 8 },
+  dateInput: {
+    width: "48%",
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: Platform.select({ ios: 10, android: 8, default: 8 }),
+    fontSize: 14,
+  },
+  modalBackdrop: { ...StyleSheet.absoluteFillObject },
+  modalCard: { position: "absolute", left: 14, right: 14, top: 90, borderRadius: 18, padding: 16, borderWidth: 1 },
+  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  modalTitle: { fontSize: 20, fontWeight: "800" },
+  modalClose: { fontSize: 15, fontWeight: "700" },
+  sectionLabel: { marginTop: 12, fontSize: 15, fontWeight: "800" },
+  dropdownInput: { marginTop: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  dropdownText: { fontSize: 16, fontWeight: "600", flex: 1, paddingRight: 10 },
+  dropdownCaret: { fontSize: 14, fontWeight: "900" },
+  dropdownPanel: { marginTop: 10, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
+  ddRow: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "rgba(0,0,0,0.08)" },
+  twoCols: { flexDirection: "row", marginTop: 8 },
+  dateBox: { marginTop: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12 },
+  dateTxt: { fontSize: 16, fontWeight: "700" },
+  iosPickerWrap: { marginTop: 10, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
+  clientSearchInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 },
+  modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 12, marginTop: 16 },
+  actionBtn: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginLeft: 8 },
+  actionBtnText: { fontWeight: "800" },
   card: { marginHorizontal: 16, marginTop: 10, borderWidth: 1, borderRadius: 16, padding: 14 },
   title: { fontSize: 16, fontWeight: "900" },
   sub: { marginTop: 6, fontSize: 13, fontWeight: "700" },

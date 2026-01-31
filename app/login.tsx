@@ -21,14 +21,18 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import { alphaColor } from "../lib/ui";
 import { AppButton } from "../components/ui/app-button";
+// Use static requires at module top so Metro bundles the assets and load is immediate
+const logoDark = require("../assets/images/logo-dark.png");
+const logoLight = require("../assets/images/logo-light.png");
 
 export default function LoginScreen() {
   const { colors, dark } = useTheme();
   const isDark = !!dark;
+  const insets = useSafeAreaInsets();
 
   const C = {
     bg: colors.background ?? (isDark ? "#000" : "#fff"),
@@ -81,65 +85,62 @@ export default function LoginScreen() {
         behavior={Platform.select({ ios: "padding", android: undefined })}
         keyboardVerticalOffset={Platform.select({ ios: 10, android: 0 })}
       >
-        <ScrollView
-          contentContainerStyle={styles.container}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
-          automaticallyAdjustKeyboardInsets
-        >
-          <Image
-            source={require("../assets/images/logo.png")}
-            style={[styles.logo, { tintColor: C.text }]}
-            resizeMode="contain"
-          />
+        <View style={{ flex: 1 }}>
+          <ScrollView
+            contentContainerStyle={[styles.container, { paddingBottom: 24 }]}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            automaticallyAdjustKeyboardInsets
+          >
+            <Image
+              source={isDark ? logoLight : logoDark}
+              style={[styles.logo, isDark ? styles.logoTintDark : styles.logoTintLight]}
+              resizeMode="contain"
+              fadeDuration={0}
+            />
 
-          <Text maxFontSizeMultiplier={1.2} style={[styles.title, { color: C.text }]}>
-            Iniciar sesión
-          </Text>
+            <Text maxFontSizeMultiplier={1.2} style={[styles.title, { color: C.text }]}>Iniciar sesión</Text>
 
-          <Text maxFontSizeMultiplier={1.2} style={[styles.label, { color: C.text }]}>
-            Correo
-          </Text>
-          <TextInput
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="email-address"
-            textContentType="username"
-            placeholder="correo@ejemplo.com"
-            placeholderTextColor={C.sub}
-            style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.card }]}
-            selectionColor={C.tint}
-            cursorColor={C.tint}
-            keyboardAppearance={isDark ? "dark" : "light"}
-            returnKeyType="next"
-            onSubmitEditing={() => passRef.current?.focus()}
-          />
+            <Text maxFontSizeMultiplier={1.2} style={[styles.label, { color: C.text }]}>Correo</Text>
+            <TextInput
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+              textContentType="username"
+              placeholder="correo@ejemplo.com"
+              placeholderTextColor={C.sub}
+              style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.card }]}
+              selectionColor={C.tint}
+              cursorColor={C.tint}
+              keyboardAppearance={isDark ? "dark" : "light"}
+              returnKeyType="next"
+              onSubmitEditing={() => passRef.current?.focus()}
+            />
 
-          <Text maxFontSizeMultiplier={1.2} style={[styles.label, { color: C.text }]}>
-            Contraseña
-          </Text>
-          <TextInput
-            ref={passRef}
-            value={pass}
-            onChangeText={setPass}
-            secureTextEntry
-            textContentType="password"
-            placeholder="••••••••"
-            placeholderTextColor={C.sub}
-            style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.card }]}
-            selectionColor={C.tint}
-            cursorColor={C.tint}
-            keyboardAppearance={isDark ? "dark" : "light"}
-            returnKeyType="done"
-            onSubmitEditing={onLogin}
-          />
+            <Text maxFontSizeMultiplier={1.2} style={[styles.label, { color: C.text }]}>Contraseña</Text>
+            <TextInput
+              ref={passRef}
+              value={pass}
+              onChangeText={setPass}
+              secureTextEntry
+              textContentType="password"
+              placeholder="••••••••"
+              placeholderTextColor={C.sub}
+              style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.card }]}
+              selectionColor={C.tint}
+              cursorColor={C.tint}
+              keyboardAppearance={isDark ? "dark" : "light"}
+              returnKeyType="done"
+              onSubmitEditing={onLogin}
+            />
+          </ScrollView>
 
-          <AppButton title="Entrar" onPress={onLogin} loading={loading} />
-
-          <View style={{ height: 24 }} />
-        </ScrollView>
+          <View style={[styles.footer, { backgroundColor: C.bg, paddingBottom: Math.max(insets.bottom, 12) }]}>
+            <AppButton title="Entrar" onPress={onLogin} loading={loading} style={{ minHeight: 50 } as any} />
+          </View>
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -157,6 +158,12 @@ const styles = StyleSheet.create({
     height: 160,
     alignSelf: "center",
     marginBottom: 10,
+  },
+  logoTintDark: {
+    tintColor: "#ffffff",
+  },
+  logoTintLight: {
+    tintColor: "#111111",
   },
   title: {
     fontSize: 26,
@@ -176,6 +183,10 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     minHeight: 46,
     fontSize: 16,
+  },
+  footer: {
+    paddingHorizontal: 20,
+    paddingTop: 10,
   },
   // Button styles handled by AppButton
 });

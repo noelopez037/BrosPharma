@@ -1,6 +1,6 @@
 // app/select-proveedor.tsx
 import { useTheme } from "@react-navigation/native";
-import { Stack, router } from "expo-router";
+import { Stack } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -20,6 +20,7 @@ import { supabase } from "../lib/supabase";
 import { AppButton } from "../components/ui/app-button";
 import { DoneAccessory } from "../components/ui/done-accessory";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
+import { goBackSafe } from "../lib/goBackSafe";
 
 function alpha(hexOrRgb: string, a: number) {
   if (!hexOrRgb?.startsWith("#") || hexOrRgb.length !== 7) return hexOrRgb;
@@ -95,7 +96,7 @@ export default function SelectProveedor() {
       telefono: p.telefono ?? null,
       activo: p.activo,
     });
-    router.back();
+    goBackSafe("/compra-nueva");
   };
 
   const crear = async () => {
@@ -129,7 +130,7 @@ export default function SelectProveedor() {
         options={{
           headerShown: true,
           title,
-          headerBackTitle: "Atras",
+          headerBackTitle: "Atrás",
           // En iOS deja el header nativo. En Android sí forzamos colores del theme (toggle)
           ...(Platform.OS === "android"
             ? {

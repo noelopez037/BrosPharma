@@ -1,5 +1,5 @@
 import { useTheme } from "@react-navigation/native";
-import { Stack, router, useLocalSearchParams } from "expo-router";
+import { Stack, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   Alert,
@@ -22,6 +22,7 @@ import { getPrimary, getSwitchColors } from "../lib/ui";
 import { AppButton } from "../components/ui/app-button";
 import { KeyboardAwareModal } from "../components/ui/keyboard-aware-modal";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
+import { goBackSafe } from "../lib/goBackSafe";
 
 type Marca = { id: number; nombre: string };
 type ProductoRow = { id: number; nombre: string; marca_id: number | null; activo?: boolean };
@@ -121,7 +122,7 @@ function SelectProductoCompra({ lineKey }: { lineKey: string }) {
     if (!lineKey) return;
     const label = labelForItem(p);
     setProductoEnLinea(lineKey, p.id, label);
-    router.back();
+    goBackSafe("/compra-nueva");
   };
 
   const crear = async () => {
@@ -482,7 +483,7 @@ function SelectProductoVenta({ lineKey }: { lineKey: string }) {
       tiene_iva: !!p.tiene_iva,
       requiere_receta: !!p.requiere_receta,
     });
-    router.back();
+    goBackSafe("/venta-nueva");
   };
 
   const title = "Producto";
