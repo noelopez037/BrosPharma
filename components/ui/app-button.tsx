@@ -37,6 +37,13 @@ export function AppButton({
   const isDisabled = !!disabled || !!loading;
 
   const base = [S.btn, size === "sm" ? S.btnSm : S.btnMd];
+
+  // Make the "outline" variant use a different color when the button label
+  // indicates a cancellation action. Many places use title="Cancelar" with
+  // variant="outline"; treat that case as a danger/negative outline (red).
+  const isCancelLabel = String(title ?? "").trim().toLowerCase() === "cancelar" || String(title ?? "").trim().toLowerCase() === "cancel";
+  const outlineColor = isCancelLabel ? DANGER : PRIMARY;
+
   const variantStyle =
     variant === "primary"
       ? S.primary
@@ -54,6 +61,8 @@ export function AppButton({
     variant === "danger" ? S.txtOnDanger : null,
     variant === "ghost" ? S.txtOnGhost : null,
     textStyle,
+    // dynamic color override for outline text when label is a cancel action
+    variant === "outline" ? { color: outlineColor } : null,
   ];
 
   return (
@@ -63,7 +72,15 @@ export function AppButton({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? title}
       android_ripple={androidRipple}
-      style={({ pressed }) => [base, variantStyle, style, pressed && !isDisabled ? S.pressed : null, isDisabled ? S.disabled : null]}
+      style={({ pressed }) => [
+        base,
+        variantStyle,
+        // override outline border color for cancel buttons
+        variant === "outline" ? { borderColor: outlineColor } : null,
+        style,
+        pressed && !isDisabled ? S.pressed : null,
+        isDisabled ? S.disabled : null,
+      ]}
     >
       {loading ? <ActivityIndicator color={variant === "primary" || variant === "danger" ? "#fff" : (PRIMARY as any)} /> : <Text style={txt}>{title}</Text>}
     </Pressable>
@@ -77,17 +94,18 @@ const makeStyles = (colors: any, PRIMARY: string, DANGER: string) =>
       justifyContent: "center",
       borderWidth: 1,
       borderRadius: 14,
+      flexShrink: 0,
     },
 
-    btnSm: { paddingHorizontal: 12, paddingVertical: 10 },
-    btnMd: { paddingHorizontal: 16, paddingVertical: 14 },
+    btnSm: { paddingHorizontal: 12, paddingVertical: 10, minHeight: 40 },
+    btnMd: { paddingHorizontal: 16, paddingVertical: 14, minHeight: 50 },
 
     primary: { backgroundColor: PRIMARY, borderColor: PRIMARY },
     outline: { backgroundColor: "transparent", borderColor: PRIMARY },
     danger: { backgroundColor: DANGER, borderColor: DANGER },
     ghost: { backgroundColor: colors.card, borderColor: colors.border },
 
-    txt: { fontSize: 16, fontWeight: Platform.OS === "android" ? "800" : "900" },
+    txt: { fontSize: 16, fontWeight: Platform.OS === "android" ? "700" : "600" },
     txtSm: { fontSize: 14 },
     txtMd: { fontSize: 16 },
 

@@ -25,24 +25,29 @@ function AppShell() {
     <ThemeProvider value={theme}>
       <CompraDraftProvider>
         <VentaDraftProvider>
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="login" />
-            <Stack.Screen name="(drawer)" />
+          <Stack>
+            {/* Login debe ocultar header */}
+            <Stack.Screen name="login" options={{ headerShown: false }} />
 
-            {/* Modal tipo sheet (se ve inventario detrás) */}
+            {/* Drawer principal: el Drawer layout controla su propio header */}
+            <Stack.Screen name="(drawer)" options={{ headerShown: false }} />
+
+            {/* Modal tipo sheet (se ve inventario detrás) - seguir ocultando header */}
             <Stack.Screen
               name="producto-modal"
               options={{
+                headerShown: false,
                 presentation: "transparentModal",
                 animation: "slide_from_bottom",
                 contentStyle: { backgroundColor: "transparent" },
               }}
             />
 
-            {/* Editar como página normal */}
+            {/* Editar como página normal - conservar comportamiento previo (sin header) */}
             <Stack.Screen
               name="producto-edit"
               options={{
+                headerShown: false,
                 presentation: "card",
                 animation: "default",
               }}

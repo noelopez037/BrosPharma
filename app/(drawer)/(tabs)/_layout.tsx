@@ -1,6 +1,5 @@
 // app/(drawer)/(tabs)/_layout.tsx
 import { Ionicons } from "@expo/vector-icons";
-import { DrawerToggleButton } from "@react-navigation/drawer";
 import { Tabs } from "expo-router";
 import { Platform } from "react-native";
 
@@ -19,19 +18,17 @@ export default function TabLayout() {
   const text = isDark ? "#FFFFFF" : "#000000";
 
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: true,
-        headerTitleAlign: "center",
-        headerStyle: { backgroundColor: background },
-        headerTitleStyle: {
-          color: text,
-          fontWeight: Platform.OS === "ios" ? "600" : "500",
-        },
-        headerTintColor: IOS_BLUE,
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          headerTitleAlign: "center",
+          headerStyle: { backgroundColor: background },
+          headerTitleStyle: {
+            color: text,
+            fontWeight: Platform.OS === "ios" ? "600" : "500",
+          },
+          headerTintColor: IOS_BLUE,
 
-        // hamburguesa
-        headerLeft: () => <DrawerToggleButton tintColor={IOS_BLUE} />,
 
         tabBarActiveTintColor: IOS_BLUE,
         tabBarInactiveTintColor: MUTED,

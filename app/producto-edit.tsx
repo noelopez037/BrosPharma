@@ -7,7 +7,7 @@
 // - Pesos de fuente más moderados en Android (600/700 se ve muy “pesado” en muchos dispositivos)
 
 import { useTheme } from "@react-navigation/native";
-import { router, Stack, useLocalSearchParams } from "expo-router";
+import { Stack, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -30,6 +30,7 @@ import { AppButton } from "../components/ui/app-button";
 import { KeyboardAwareModal } from "../components/ui/keyboard-aware-modal";
 import { DoneAccessory } from "../components/ui/done-accessory";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
+import { goBackSafe } from "../lib/goBackSafe";
 
 type Marca = { id: number; nombre: string };
 
@@ -133,7 +134,7 @@ export default function ProductoEdit() {
       const uid = session?.user?.id ?? null;
       if (!uid) {
         Alert.alert("Sin sesión", "Debes iniciar sesión");
-        router.back();
+        goBackSafe("/(drawer)/(tabs)/inventario");
         return;
       }
 
@@ -143,7 +144,7 @@ export default function ProductoEdit() {
 
       if (!admin) {
         Alert.alert("Sin permiso", "Solo ADMIN puede editar productos");
-        router.back();
+        goBackSafe("/(drawer)/(tabs)/inventario");
         return;
       }
 
@@ -255,7 +256,7 @@ export default function ProductoEdit() {
       }
 
       Alert.alert("Listo", "Producto actualizado");
-      router.back();
+      goBackSafe("/(drawer)/(tabs)/inventario");
     } catch (err: any) {
       Alert.alert("Error", err?.message ?? "No se pudo guardar");
     } finally {
@@ -290,7 +291,7 @@ export default function ProductoEdit() {
 
   return (
     <>
-      <Stack.Screen options={{ title: "Editar producto", headerShown: true, headerBackTitle: "Atras" }} />
+      <Stack.Screen options={{ title: "Editar producto", headerShown: true, headerBackTitle: "Atrás" }} />
 
       <SafeAreaView style={[s.safe, { paddingBottom: insets.bottom }]} edges={["bottom"]}>
         <KeyboardAvoidingView

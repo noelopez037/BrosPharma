@@ -1,6 +1,6 @@
 // app/select-cliente.tsx
 import { useTheme } from "@react-navigation/native";
-import { Stack, router } from "expo-router";
+import { Stack } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -20,6 +20,7 @@ import { DoneAccessory } from "../components/ui/done-accessory";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
 import { useVentaDraft, type Cliente } from "../lib/ventaDraft";
 import { supabase } from "../lib/supabase";
+import { goBackSafe } from "../lib/goBackSafe";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 
@@ -157,7 +158,7 @@ export default function SelectCliente() {
       direccion: c.direccion ?? null,
     };
     setCliente(payload);
-    router.back();
+    goBackSafe("/venta-nueva");
   };
 
   const canCreateCliente = role === "ADMIN" || role === "VENTAS";
@@ -223,7 +224,7 @@ export default function SelectCliente() {
         options={{
           headerShown: true,
           title: mode === "LISTA" ? "Cliente" : "Nuevo cliente",
-          headerBackTitle: "Atras",
+          headerBackTitle: "Atrás",
           ...(Platform.OS === "android"
             ? {
                 headerStyle: { backgroundColor: C.bg as any },

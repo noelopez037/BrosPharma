@@ -26,6 +26,7 @@ import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
 import { useVentaDraft } from "../lib/ventaDraft";
+import { goBackSafe } from "../lib/goBackSafe";
 
 const BUCKET_VENTAS_DOCS = "Ventas-Docs";
 
@@ -292,7 +293,7 @@ export default function VentaNuevaScreen() {
           }
         })().catch((e: any) => {
           Alert.alert("No se puede editar", e?.message ?? "No se pudo cargar la venta", [
-            { text: "OK", onPress: () => router.back() },
+            { text: "OK", onPress: () => goBackSafe("/(drawer)/(tabs)/ventas") },
           ]);
           setLoadingEdit(false);
         });
@@ -310,7 +311,9 @@ export default function VentaNuevaScreen() {
   React.useEffect(() => {
     if (!role) return;
     if (canCreate) return;
-    Alert.alert("Sin permiso", "Tu rol no puede crear ventas.", [{ text: "OK", onPress: () => router.back() }]);
+    Alert.alert("Sin permiso", "Tu rol no puede crear ventas.", [
+      { text: "OK", onPress: () => goBackSafe("/(drawer)/(tabs)/ventas") },
+    ]);
   }, [role, canCreate]);
 
   const lineValidation = useCallback(
@@ -451,7 +454,7 @@ export default function VentaNuevaScreen() {
                 setRecetaUri(null);
                 if (isEdit) {
                   // Volver al detalle existente (evita duplicar pantallas de detalle en el stack).
-                  router.back();
+                  goBackSafe({ pathname: "/venta-detalle" as any, params: { id: String(editId) } } as any);
                 } else {
                   router.replace("/ventas" as any);
                 }
@@ -476,7 +479,7 @@ export default function VentaNuevaScreen() {
         options={{
           headerShown: true,
           title: loadingEdit ? "Cargando..." : isEdit ? "Editar venta" : "Nueva venta",
-          headerBackTitle: "Atras",
+          headerBackTitle: "Atrás",
         }}
       />
 

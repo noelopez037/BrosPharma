@@ -38,6 +38,7 @@ import { useCompraDraft } from "../lib/compraDraft";
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
+import { goBackSafe } from "../lib/goBackSafe";
 import { AppButton } from "../components/ui/app-button";
 import { DoneAccessory } from "../components/ui/done-accessory";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
@@ -466,7 +467,12 @@ export default function CompraNuevaScreen() {
         });
         if (error) throw error;
 
-        Alert.alert("Listo", "Compra actualizada", [{ text: "OK", onPress: () => router.back() }]);
+        Alert.alert("Listo", "Compra actualizada", [
+          {
+            text: "OK",
+            onPress: () => goBackSafe({ pathname: "/compra-detalle" as any, params: { id: String(editId) } } as any),
+          },
+        ]);
       } else {
         const { error } = await supabase.rpc("rpc_crear_compra", {
           p_compra,
@@ -479,7 +485,7 @@ export default function CompraNuevaScreen() {
             text: "OK",
             onPress: () => {
               reset();
-              router.back();
+              goBackSafe("/compras");
             },
           },
         ]);

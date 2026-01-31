@@ -8,6 +8,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Platform, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 
 import { router, usePathname } from "expo-router";
+import { getFocusedRouteNameFromRoute } from "@react-navigation/native";
 import { supabase } from "../../lib/supabase";
 import { onSolicitudesChanged } from "../../lib/solicitudesEvents";
 import { useThemePref } from "../../lib/themePreference";
@@ -128,8 +129,11 @@ export default function DrawerLayout() {
     };
   }, []);
 
-  const showSolicitudes = role === "ADMIN" || role === "VENTAS";
+  // Mostrar "Solicitudes" solo a administradores.
+  // Antes se mostraba también a VENTAS; cambiar para que solo ADMIN lo vea.
+  const showSolicitudes = role === "ADMIN";
   const showAnuladas = role === "ADMIN" || role === "BODEGA" || role === "FACTURADOR" || role === "VENTAS";
+  const showCuentasPorCobrar = role === "ADMIN" || role === "VENTAS";
 
   useEffect(() => {
     let alive = true;
@@ -301,7 +305,7 @@ export default function DrawerLayout() {
                 </Pressable>
               )}
 
-              {!showAnuladas ? null : (
+               {!showAnuladas ? null : (
                 <Pressable
                   onPress={() => router.push("/ventas-anuladas" as any)}
                   style={({ pressed }) => [
@@ -313,6 +317,21 @@ export default function DrawerLayout() {
                 >
                   <Ionicons name="ban-outline" size={22} color={isAnuladasRoute ? IOS_BLUE : muted} />
                   <Text style={[styles.menuLabel, { color: isAnuladasRoute ? text : muted }]}>Anuladas</Text>
+                </Pressable>
+              )}
+
+              {!showCuentasPorCobrar ? null : (
+                <Pressable
+                  onPress={() => router.push("/cxc" as any)}
+                  style={({ pressed }) => [
+                    styles.menuItem,
+                    { backgroundColor: pathname === "/cxc" ? activeBg : "transparent" },
+                    pressed && { opacity: 0.85 },
+                  ]}
+                  accessibilityRole="button"
+                >
+                  <Ionicons name="receipt-outline" size={22} color={pathname === "/cxc" ? IOS_BLUE : muted} />
+                  <Text style={[styles.menuLabel, { color: pathname === "/cxc" ? text : muted }]}>Cuentas por cobrar</Text>
                 </Pressable>
               )}
                  
@@ -365,10 +384,14 @@ export default function DrawerLayout() {
     >
       <Drawer.Screen
         name="(tabs)"
-        options={{
-          title: "Inicio",
-          headerShown: false,
-          drawerIcon: ({ color, size }: any) => <Ionicons name="home-outline" size={size} color={color} />,
+        options={({ route }: any) => {
+          // Determinar el tab activo dentro de (tabs) y ajustar el título del header
+          const focused = getFocusedRouteNameFromRoute(route) ?? "index";
+          const title = focused === "ventas" ? "Ventas" : focused === "inventario" ? "Inventario" : "Inicio";
+          return {
+            title,
+            drawerIcon: ({ color, size }: any) => <Ionicons name="home-outline" size={size} color={color} />,
+          };
         }}
       />
 

@@ -1,5 +1,5 @@
 import { useFocusEffect, useTheme } from "@react-navigation/native";
-import { Stack, router } from "expo-router";
+import { Stack } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { HeaderBackButton } from "@react-navigation/elements";
 import {
@@ -19,6 +19,7 @@ import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
 import { useGoHomeOnBack } from "../lib/useGoHomeOnBack";
+import { goBackSafe } from "../lib/goBackSafe";
 
 type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURADOR" | "";
 
@@ -51,6 +52,18 @@ function actionLabel(a: SolicitudRow["solicitud_accion"]) {
   if (a === "ANULACION") return "Anulacion";
   if (a === "EDICION") return "Edicion";
   return "Solicitud";
+}
+
+function isPaymentEditRequest(row: SolicitudRow | null | undefined) {
+  if (!row) return false;
+  const acc = normalizeUpper(row.solicitud_accion);
+  const note = String(row.solicitud_nota ?? "").toUpperCase();
+  const tag = String(row.solicitud_tag ?? "").toUpperCase();
+
+  // Prefer explicit tag/note containing PAGO
+  if (tag.includes("PAGO") || note.includes("PAGO") || note.startsWith("PAGO:") || note.includes("EDITAR PAGO")) return true;
+  // fallback: accion EDICION might be general; prefer note/tag-based detection
+  return false;
 }
 
 function actionTone(a: SolicitudRow["solicitud_accion"]) {
@@ -135,7 +148,9 @@ export default function VentasSolicitudesScreen() {
   useEffect(() => {
     if (!role) return;
     if (!canView) {
-      Alert.alert("Sin permiso", "Tu rol no puede ver solicitudes.", [{ text: "OK", onPress: () => router.back() }]);
+      Alert.alert("Sin permiso", "Tu rol no puede ver solicitudes.", [
+        { text: "OK", onPress: () => goBackSafe("/(drawer)/(tabs)") },
+      ]);
       return;
     }
 
@@ -219,6 +234,26 @@ export default function VentasSolicitudesScreen() {
           p_decision: decision,
         });
         if (error) throw error;
+        // If approved and the request is for payment edit, grant edit permission to the vendedor
+        if (decision === "APROBAR") {
+          try {
+            const sol = rowsRaw.find((r) => Number(r.venta_id) === Number(ventaId));
+            if (isPaymentEditRequest(sol) && sol?.vendedor_id) {
+              const { error: grantErr } = await supabase.rpc("rpc_admin_otorgar_edicion_pago", {
+                p_venta_id: Number(ventaId),
+                p_otorgado_a: String(sol.vendedor_id),
+                p_horas: 48,
+              });
+              if (grantErr) {
+                // non-blocking: warn admin
+                Alert.alert("Aviso", `Solicitud aprobada pero no se pudo otorgar permiso: ${grantErr.message || grantErr}`);
+              }
+            }
+          } catch (e: any) {
+            // ignore grant errors
+            console.warn("grant permiso error", e?.message ?? e);
+          }
+        }
         await fetchSolicitudes();
         emitSolicitudesChanged();
       } catch (e: any) {
@@ -258,11 +293,11 @@ export default function VentasSolicitudesScreen() {
         options={{
           headerShown: true,
           title: "Solicitudes",
-          headerBackTitle: "Atras",
+          headerBackTitle: "Atrás",
           gestureEnabled: false,
           headerBackVisible: false,
           headerBackButtonMenuEnabled: false,
-          headerLeft: () => <HeaderBackButton onPress={() => router.replace("/(drawer)/(tabs)" as any)} />,
+          headerLeft: () => <HeaderBackButton onPress={() => goBackSafe("/(drawer)/(tabs)")} />,
         }}
       />
 
