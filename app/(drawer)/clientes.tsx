@@ -180,7 +180,7 @@ export default function ClientesScreen() {
     );
   };
 
-  const fabBg = Platform.OS === "ios" ? "#007AFF" : (colors.primary ?? "#007AFF");
+  const fabBg = String(colors.primary ?? "#153c9e");
 
   return (
     <>

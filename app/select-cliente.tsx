@@ -21,6 +21,7 @@ import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll"
 import { useVentaDraft, type Cliente } from "../lib/ventaDraft";
 import { supabase } from "../lib/supabase";
 import { goBackSafe } from "../lib/goBackSafe";
+import { getHeaderColors } from "../src/theme/headerColors";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 
@@ -64,12 +65,13 @@ function displayNit(nit: string | null | undefined) {
 
 export default function SelectCliente() {
   const { colors, dark } = useTheme();
+  const header = useMemo(() => getHeaderColors(!!dark), [dark]);
   const { setCliente } = useVentaDraft();
   const DONE_ID = "doneAccessory";
   const { scrollRef, handleFocus } = useKeyboardAutoScroll(110);
 
   const C = useMemo(() => {
-    const tint = colors.primary ?? "#007AFF";
+    const tint = colors.primary ?? "#153c9e";
     const text = colors.text ?? (dark ? "#fff" : "#111");
     const bg = colors.background ?? (dark ? "#000" : "#fff");
     const card = colors.card ?? (dark ? "#0f0f10" : "#fff");
@@ -227,9 +229,9 @@ export default function SelectCliente() {
           headerBackTitle: "Atrás",
           ...(Platform.OS === "android"
             ? {
-                headerStyle: { backgroundColor: C.bg as any },
-                headerTitleStyle: { color: C.text as any },
-                headerTintColor: C.text as any,
+                headerStyle: { backgroundColor: header.bg as any },
+                headerTitleStyle: { color: header.fg as any },
+                headerTintColor: header.fg as any,
               }
             : {}),
         }}

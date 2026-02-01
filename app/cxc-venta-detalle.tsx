@@ -203,7 +203,7 @@ export default function CxcVentaDetalle() {
       text: colors.text ?? (isDark ? "#fff" : "#111"),
       sub: alphaColor(String(colors.text ?? (isDark ? "#ffffff" : "#000000")), 0.65) || (isDark ? "rgba(255,255,255,0.65)" : "#6b7280"),
       border: colors.border ?? (isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)"),
-      primary: String(colors.primary ?? "#007AFF"),
+      primary: String(colors.primary ?? "#153c9e"),
 
       ok: isDark ? "rgba(140,255,170,0.95)" : "#16a34a",
       warn: isDark ? "rgba(255,210,120,0.95)" : "#b45309",

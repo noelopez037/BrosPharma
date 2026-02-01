@@ -33,6 +33,7 @@ import { emitSolicitudesChanged } from "../lib/solicitudesEvents";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
 import { goBackSafe } from "../lib/goBackSafe";
+import { FB_DARK_DANGER, getHeaderColors } from "../src/theme/headerColors";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURADOR" | "";
 
@@ -247,11 +248,12 @@ export default function VentaDetalleScreen() {
   const { colors } = useTheme();
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
-  const headerTint = String(colors.primary ?? "#007AFF");
+  const headerTint = useMemo(() => getHeaderColors(isDark).fg, [isDark]);
 
-  const params = useLocalSearchParams<{ ventaId?: string }>();
+  const params = useLocalSearchParams<{ ventaId?: string; returnTo?: string }>();
   const ventaIdRaw = String(params?.ventaId ?? "");
   const ventaId = Number(ventaIdRaw);
+  const returnTo = String(params?.returnTo ?? "");
 
   const C = useMemo(
     () => ({
@@ -262,7 +264,7 @@ export default function VentaDetalleScreen() {
         alphaColor(String(colors.text ?? (isDark ? "#ffffff" : "#000000")), 0.65) ||
         (isDark ? "rgba(255,255,255,0.65)" : "#666"),
       border: colors.border ?? (isDark ? "rgba(255,255,255,0.14)" : "#e5e5e5"),
-      danger: isDark ? "rgba(255,120,120,0.95)" : "#d00",
+      danger: FB_DARK_DANGER,
       warnBg: isDark ? "rgba(255,201,107,0.18)" : "rgba(255,170,0,0.12)",
       warnText: isDark ? "rgba(255,201,107,0.92)" : "#b25a00",
     }),
@@ -691,7 +693,7 @@ export default function VentaDetalleScreen() {
     } finally {
       setUploading(false);
     }
-  }, [canEditRecetas, fetchRecetas, fetchVenta, uploading, venta]);
+  }, [canEditRecetas, fetchRecetas, fetchVenta, uploading, venta, returnTo]);
 
   const setNumero = useCallback((tipo: "IVA" | "EXENTO", val: string) => {
     setFacturaDraft((prev) => {
@@ -1102,6 +1104,15 @@ export default function VentaDetalleScreen() {
 
         await fetchVenta();
         await fetchRecetas();
+        // If caller requested a return path, go back there so the list can refresh.
+        if (returnTo) {
+          try {
+            router.replace(returnTo as any);
+            return;
+          } catch {
+            // ignore navigation error and stay on detail
+          }
+        }
       } catch (e: any) {
         Alert.alert("Error", e?.message ?? "No se pudo eliminar la receta");
       } finally {
@@ -1894,7 +1905,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  pdfThumbText: { fontSize: 12, fontWeight: "900", color: "#d00" },
+  pdfThumbText: { fontSize: 12, fontWeight: "900", color: "#F02849" },
   pdfOpenTitle: { fontSize: 14, fontWeight: "900" },
   pdfOpenSub: { marginTop: 2, fontSize: 12, fontWeight: "700" },
   pdfDelete: { paddingHorizontal: 10, paddingVertical: 8 },

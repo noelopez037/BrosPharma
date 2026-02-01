@@ -21,6 +21,7 @@ import { AppButton } from "../components/ui/app-button";
 import { DoneAccessory } from "../components/ui/done-accessory";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
 import { goBackSafe } from "../lib/goBackSafe";
+import { getHeaderColors } from "../src/theme/headerColors";
 
 function alpha(hexOrRgb: string, a: number) {
   if (!hexOrRgb?.startsWith("#") || hexOrRgb.length !== 7) return hexOrRgb;
@@ -33,12 +34,13 @@ function alpha(hexOrRgb: string, a: number) {
 
 export default function SelectProveedor() {
   const { colors, dark } = useTheme();
+  const header = useMemo(() => getHeaderColors(!!dark), [dark]);
   const { setProveedor } = useCompraDraft();
   const DONE_ID = "doneAccessory";
   const { scrollRef, handleFocus } = useKeyboardAutoScroll(110);
 
   const C = useMemo(() => {
-    const tint = colors.primary ?? "#007AFF";
+    const tint = colors.primary ?? "#153c9e";
     const text = colors.text ?? (dark ? "#fff" : "#111");
     const bg = colors.background ?? (dark ? "#000" : "#fff");
     const card = colors.card ?? (dark ? "#0f0f10" : "#fff");
@@ -134,9 +136,9 @@ export default function SelectProveedor() {
           // En iOS deja el header nativo. En Android sí forzamos colores del theme (toggle)
           ...(Platform.OS === "android"
             ? {
-                headerStyle: { backgroundColor: C.bg as any },
-                headerTitleStyle: { color: C.text as any },
-                headerTintColor: C.text as any,
+                headerStyle: { backgroundColor: header.bg as any },
+                headerTitleStyle: { color: header.fg as any },
+                headerTintColor: header.fg as any,
               }
             : {}),
         }}

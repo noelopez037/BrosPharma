@@ -18,11 +18,11 @@ export function alphaColor(color: string, a: number) {
 }
 
 export function getPrimary(colors?: any): ColorValue {
-  return (colors?.primary ?? "#007AFF") as any;
+  return (colors?.primary ?? "#153c9e") as any;
 }
 
 export function getSwitchColors(colors?: any) {
-  const primary = String(colors?.primary ?? "#007AFF");
+  const primary = String(colors?.primary ?? "#153c9e");
   const text = String(colors?.text ?? "#000000");
   const border = String(colors?.border ?? "#C7C7CC");
 

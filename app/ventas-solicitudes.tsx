@@ -20,6 +20,7 @@ import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
 import { useGoHomeOnBack } from "../lib/useGoHomeOnBack";
 import { goBackSafe } from "../lib/goBackSafe";
+import { FB_DARK_DANGER } from "../src/theme/headerColors";
 
 type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURADOR" | "";
 
@@ -88,7 +89,7 @@ export default function VentasSolicitudesScreen() {
         alphaColor(String(colors.text ?? (isDark ? "#ffffff" : "#000000")), 0.65) ||
         (isDark ? "rgba(255,255,255,0.65)" : "#666"),
       border: colors.border ?? (isDark ? "rgba(255,255,255,0.14)" : "#e5e5e5"),
-      danger: isDark ? "rgba(255,120,120,0.95)" : "#d00",
+      danger: FB_DARK_DANGER,
       amber: isDark ? "rgba(255,201,107,0.92)" : "#b25a00",
       pillRedBg: isDark ? "rgba(255,90,90,0.18)" : "rgba(220,0,0,0.10)",
       pillAmberBg: isDark ? "rgba(255,201,107,0.18)" : "rgba(255,170,0,0.12)",

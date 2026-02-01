@@ -124,7 +124,7 @@ export default function ComprasScreen() {
       divider: isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)",
       fieldBg: isDark ? "rgba(255,255,255,0.10)" : "#ffffff", // ✅ un poco más claro
       back: isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.35)",
-      primary: Platform.OS === "ios" ? "#007AFF" : colors.primary,
+      primary: String(colors.primary ?? "#153c9e"),
     }),
     [isDark, colors.primary]
   );

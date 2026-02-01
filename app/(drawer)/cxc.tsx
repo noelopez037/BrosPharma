@@ -4,6 +4,7 @@ import { Stack, router } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HeaderBackButton } from "@react-navigation/elements";
 import {
+  Alert,
   FlatList,
   Modal,
   Platform,
@@ -36,7 +37,8 @@ type CxCRow = {
 };
 
 type VendedorRow = { vendedor_id: string; vendedor_codigo: string };
-type PayFilter = "ALL" | "PAID" | "PENDING" | "OVERDUE";
+type PayFilter = "ALL" | "PENDING" | "OVERDUE";
+type RpcVendedorRow = { id: string; full_name: string | null; role: string | null };
 
 function shortId(u: string | null | undefined) {
   const s = String(u ?? "").trim();
@@ -116,7 +118,7 @@ export default function CuentasPorCobrarScreen() {
       divider: isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)",
       fieldBg: isDark ? "rgba(255,255,255,0.10)" : "#ffffff",
       back: isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.35)",
-      primary: Platform.OS === "ios" ? "#007AFF" : colors.primary,
+      primary: String(colors.primary ?? "#153c9e"),
     }),
     [isDark, colors.primary]
   );
@@ -126,6 +128,9 @@ export default function CuentasPorCobrarScreen() {
 
   const [rowsRaw, setRowsRaw] = useState<CxCRow[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const fetchTokenRef = useRef(0);
 
   const hasLoadedOnceRef = useRef(false);
   const hasAnyRowsRef = useRef(false);
@@ -204,49 +209,20 @@ export default function CuentasPorCobrarScreen() {
     let alive = true;
     (async () => {
       try {
-        // ADMIN: primero intenta cargar todos los usuarios de roles ADMIN/VENTAS desde profiles
-        let out: VendedorRow[] = [];
-        try {
-          const { data: p, error: pe } = await supabase
-            .from("profiles")
-            .select("id,codigo,full_name,role")
-            .not("role", "is", null)
-            .order("codigo", { ascending: true });
-          if (!pe && p) {
-            out = (p ?? [])
-              .filter((x: any) => {
-                const r = normalizeUpper(x?.role);
-                return r === "ADMIN" || r === "VENTAS";
-              })
-              .map((x: any) => {
-                const id = String(x.id ?? "").trim();
-                const codigo = String(x.codigo ?? "").trim();
-                const nombre = String(x.full_name ?? "").trim();
-                const label = codigo || nombre || id.slice(0, 8);
-                return id ? { vendedor_id: id, vendedor_codigo: label } : null;
-              })
-              .filter(Boolean) as any;
-          }
-        } catch {
-          // ignore
+        const { data, error } = await supabase.rpc("rpc_cxc_vendedores");
+        if (error) {
+          if (alive) setVendedores([]);
+          return;
         }
-
-        // fallback: si profiles no es accesible, derivar desde la vista
-        if (out.length === 0) {
-          const { data: vdata } = await supabase
-            .from("vw_cxc_ventas")
-            .select("vendedor_id,vendedor_codigo")
-            .neq("vendedor_id", null);
-          const map = new Map<string, string>();
-          (vdata ?? []).forEach((r: any) => {
-            const id = String(r.vendedor_id ?? "").trim();
-            if (!id) return;
-            const label = String(r.vendedor_codigo ?? "").trim() || id.slice(0, 8);
-            if (!map.has(id)) map.set(id, label);
-          });
-          out = Array.from(map.entries()).map(([vendedor_id, vendedor_codigo]) => ({ vendedor_id, vendedor_codigo }));
-        }
-
+        const out = ((data ?? []) as RpcVendedorRow[])
+          .map((r) => {
+            const id = String((r as any)?.id ?? "").trim();
+            if (!id) return null;
+            const nombre = String((r as any)?.full_name ?? "").trim();
+            const label = nombre || shortId(id);
+            return { vendedor_id: id, vendedor_codigo: label };
+          })
+          .filter(Boolean) as VendedorRow[];
         out.sort((a, b) => String(a.vendedor_codigo).localeCompare(String(b.vendedor_codigo)));
         if (alive) setVendedores(out);
       } catch {
@@ -265,12 +241,23 @@ export default function CuentasPorCobrarScreen() {
       try {
         const { data, error } = await supabase.from("clientes").select("id,nombre").order("nombre", { ascending: true });
         if (error || !data || (data as any[]).length === 0) {
-          // fallback: distinct clientes from vw_cxc_ventas
+          // fallback: derive distinct clientes from CxC RPC
           try {
-            const { data: vdata } = await supabase.from("vw_cxc_ventas").select("cliente_id,cliente_nombre").order("cliente_nombre", { ascending: true });
-            const out = (vdata ?? [])
-              .map((r: any) => ({ id: Number(r.cliente_id), nombre: String(r.cliente_nombre ?? "") }))
-              .filter((x: any) => x.id && x.nombre);
+            const { data: vdata, error: verr } = await supabase.rpc("rpc_cxc_ventas");
+            if (verr) {
+              if (alive) setClientes([]);
+              return;
+            }
+            const map = new Map<number, string>();
+            (vdata ?? []).forEach((r: any) => {
+              const id = Number(r?.cliente_id ?? 0);
+              const nombre = String(r?.cliente_nombre ?? "").trim();
+              if (!id || !nombre) return;
+              if (!map.has(id)) map.set(id, nombre);
+            });
+            const out = Array.from(map.entries())
+              .map(([id, nombre]) => ({ id, nombre }))
+              .sort((a, b) => String(a.nombre).localeCompare(String(b.nombre)));
             if (alive) setClientes(out);
             return;
           } catch {
@@ -294,36 +281,32 @@ export default function CuentasPorCobrarScreen() {
     return (clientes ?? []).filter((c) => String(c.nombre ?? "").toLowerCase().includes(q) || String(c.id ?? "").includes(q));
   }, [clientes, fClienteQ]);
 
-  const fetchRows = useCallback(async () => {
-    let req = supabase.from("vw_cxc_ventas").select("*").order("fecha", { ascending: false });
-
-    // role-based
-    if (normalizeUpper(role) === "VENTAS" && uid) {
-      req = req.eq("vendedor_id", uid);
-    }
-
-    // ADMIN can filter by vendedor; ignore for non-admin
-    if (fVendedorId && normalizeUpper(role) === "ADMIN") {
-      req = req.eq("vendedor_id", fVendedorId);
-    }
-
-    // server-side filters
-    if (fClienteId) req = req.eq("cliente_id", fClienteId);
-    if (fDesde) req = req.gte("fecha", startOfDay(fDesde).toISOString());
-    if (fHasta) req = req.lte("fecha", endOfDay(fHasta).toISOString());
-    // (vendedor filter applied above for ADMIN only)
-
-    // search by cliente_nombre server-side
-    if (dq) req = req.ilike("cliente_nombre", `%${dq}%`);
-
-    let { data } = await req;
-    let rows = (data ?? []) as CxCRow[];
-    // Fallback: if no rows returned due to role-based gating, retry without role filter
+  const fetchRows = useCallback(async (): Promise<CxCRow[]> => {
     const roleUp = normalizeUpper(role);
-    if (rows.length === 0 && (roleUp === "ADMIN" || roleUp === "VENTAS")) {
-      const { data: alt } = await supabase.from("vw_cxc_ventas").select("*").order("fecha", { ascending: false });
-      rows = ((alt ?? []) as any) as CxCRow[];
+
+    // Source of truth: RPC security definer
+    // Note: the RPC relies on auth.uid(); if the session isn't ready yet it will return 0 rows.
+    // We still guard the call from the focus effect, but keep this as a safety net.
+    if (!uid) return [];
+
+    const { data, error } =
+      roleUp === "ADMIN"
+        ? await supabase.rpc("rpc_cxc_ventas", { p_vendedor_id: fVendedorId })
+        : await supabase.rpc("rpc_cxc_ventas");
+
+    if (error) {
+      throw error;
     }
+
+    let rows = (data ?? []) as CxCRow[];
+
+    // Keep previous behavior: latest first
+    rows = [...rows].sort((a, b) => {
+      const ad = a.fecha ? String(a.fecha) : "";
+      const bd = b.fecha ? String(b.fecha) : "";
+      if (ad === bd) return 0;
+      return ad < bd ? 1 : -1;
+    });
 
     // client-side: search invoice numbers if not found server-side
     if (dq) {
@@ -335,34 +318,52 @@ export default function CuentasPorCobrarScreen() {
       });
     }
 
-    setRowsRaw(rows);
-  }, [dq, fDesde, fHasta, fVendedorId, fClienteId, role, uid]);
+    return rows;
+  }, [dq, fVendedorId, role, uid]);
 
   useFocusEffect(
     useCallback(() => {
-      let alive = true;
+      const token = ++fetchTokenRef.current;
       const showLoading = !hasLoadedOnceRef.current && !hasAnyRowsRef.current;
+
+      // Wait for auth session restoration.
+      if (!uid) {
+        setLoadError(null);
+        setInitialLoading(true);
+        return () => {
+          if (fetchTokenRef.current === token) fetchTokenRef.current++;
+        };
+      }
+
       (async () => {
         try {
-          if (showLoading && alive) setInitialLoading(true);
-          await fetchRows();
+          if (showLoading) setInitialLoading(true);
+          setLoadError(null);
+          const next = await fetchRows();
+          if (fetchTokenRef.current !== token) return;
+          setRowsRaw(next);
           hasLoadedOnceRef.current = true;
         } finally {
-          if (showLoading && alive) setInitialLoading(false);
+          if (fetchTokenRef.current === token) setInitialLoading(false);
         }
-      })().catch(() => {
-        if (showLoading && alive) setInitialLoading(false);
+      })().catch((e: any) => {
+        if (fetchTokenRef.current !== token) return;
+        const msg = String(e?.message ?? e?.error_description ?? e ?? "Error cargando cuentas");
+        setLoadError(msg);
+        Alert.alert("Cuentas por cobrar", msg);
       });
 
       return () => {
-        alive = false;
+        // invalidate any in-flight request so stale responses don't affect UI
+        if (fetchTokenRef.current === token) fetchTokenRef.current++;
       };
-    }, [fetchRows])
+    }, [fetchRows, uid])
   );
 
   const badge = (c: CxCRow) => {
-    const saldo = Number(c.saldo ?? 0);
-    if (saldo <= 0) return { text: "PAGADA", kind: "ok" as const };
+    const saldoNum = Number(c.saldo);
+    const saldo = Number.isFinite(saldoNum) ? saldoNum : null;
+    if (saldo != null && saldo <= 0) return { text: "PAGADA", kind: "ok" as const };
     if (c.fecha_vencimiento) {
       const d = dayDiffFromToday(c.fecha_vencimiento);
       if (d < 0) return { text: `VENCIDA • ${Math.abs(d)}d`, kind: "overdue" as const };
@@ -394,19 +395,21 @@ export default function CuentasPorCobrarScreen() {
       return true;
     });
 
-    if (fPago === "ALL") return filtered;
+    // Esta pantalla es solo "por cobrar": excluir pagadas siempre.
+    const unpaid = filtered.filter((r) => {
+      const saldoNum = Number(r.saldo);
+      const saldo = Number.isFinite(saldoNum) ? saldoNum : null;
+      return saldo == null ? true : saldo > 0;
+    });
 
-    return filtered.filter((r) => {
-      const saldo = Number(r.saldo ?? 0);
-      const isPaid = saldo <= 0;
-      if (fPago === "PAID") return isPaid;
-      if (!isPaid) {
-        if (!r.fecha_vencimiento) return fPago === "PENDING";
-        const d = dayDiffFromToday(r.fecha_vencimiento);
-        if (fPago === "OVERDUE") return d < 0;
-        if (fPago === "PENDING") return d >= 0;
-      }
-      return false;
+    if (fPago === "ALL") return unpaid;
+
+    return unpaid.filter((r) => {
+      if (!r.fecha_vencimiento) return fPago === "PENDING";
+      const d = dayDiffFromToday(r.fecha_vencimiento);
+      if (fPago === "OVERDUE") return d < 0;
+      if (fPago === "PENDING") return d >= 0;
+      return true;
     });
   }, [rowsRaw, fPago, fVendedorId, fClienteId, fDesde, fHasta, role, uid]);
 
@@ -589,9 +592,15 @@ export default function CuentasPorCobrarScreen() {
                   <Text style={[s.empty, { paddingTop: 0 }]}>Cargando...</Text>
                 </View>
               ) : null}
+
+              {!initialLoading && loadError ? (
+                <View style={{ paddingVertical: 10 }}>
+                  <Text style={[s.empty, { paddingTop: 0 }]}>{loadError}</Text>
+                </View>
+              ) : null}
             </>
           }
-          ListEmptyComponent={!initialLoading ? (
+          ListEmptyComponent={!initialLoading && !loadError ? (
             <View style={s.center}><Text style={s.empty}>Sin cuentas por cobrar</Text></View>
           ) : null}
         />
@@ -671,9 +680,8 @@ export default function CuentasPorCobrarScreen() {
 
             <View style={{ height: 10 }} />
             <Text style={[s.sectionLabel, { color: M.text }]}>Estado de pago</Text>
-            <View style={s.chipsRow}>
-              <Chip text="Todos" active={fPago === "ALL"} onPress={() => setFPago("ALL")} M={M} isDark={isDark} />
-              <Chip text="Pagadas" active={fPago === "PAID"} onPress={() => setFPago("PAID")} M={M} isDark={isDark} />
+              <View style={s.chipsRow}>
+              <Chip text="Por cobrar" active={fPago === "ALL"} onPress={() => setFPago("ALL")} M={M} isDark={isDark} />
               <Chip text="Pendientes" active={fPago === "PENDING"} onPress={() => setFPago("PENDING")} M={M} isDark={isDark} />
               <Chip text="Vencidas" active={fPago === "OVERDUE"} onPress={() => setFPago("OVERDUE")} M={M} isDark={isDark} />
             </View>

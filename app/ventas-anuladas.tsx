@@ -11,6 +11,7 @@ import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
 import { useGoHomeOnBack } from "../lib/useGoHomeOnBack";
 import { goBackSafe } from "../lib/goBackSafe";
+import { FB_DARK_DANGER } from "../src/theme/headerColors";
 
 type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURADOR" | "";
 
@@ -67,7 +68,7 @@ export default function VentasAnuladasScreen() {
         (isDark ? "rgba(255,255,255,0.65)" : "#666"),
       border: colors.border ?? (isDark ? "rgba(255,255,255,0.14)" : "#e5e5e5"),
       dangerBg: isDark ? "rgba(255,90,90,0.18)" : "rgba(220,0,0,0.10)",
-      dangerText: isDark ? "rgba(255,120,120,0.95)" : "#d00",
+      dangerText: FB_DARK_DANGER,
     }),
     [colors.background, colors.border, colors.card, colors.text, isDark]
   );

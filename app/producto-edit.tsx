@@ -15,7 +15,6 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Platform,
-  PlatformColor,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -68,10 +67,7 @@ export default function ProductoEdit() {
   const { scrollRef, handleFocus } = useKeyboardAutoScroll(110);
 
   // Colores “nativos”/correctos por plataforma:
-  // iOS: systemBlue
-  // Android: colors.primary (viene del theme de navigation / material)
-  const PRIMARY: ColorValue =
-    Platform.OS === "ios" ? PlatformColor("systemBlue") : (colors.primary ?? "#007AFF");
+  const PRIMARY: ColorValue = String(colors.primary ?? "#153c9e") as any;
 
   const s = useMemo(() => styles(colors, PRIMARY), [colors, PRIMARY]);
 
@@ -277,14 +273,14 @@ export default function ProductoEdit() {
   // Switch colors (para Android se vea “del theme” y no el verde default)
   const switchTrackOn =
     Platform.OS === "android"
-      ? (alpha(String(colors.primary ?? "#007AFF"), 0.35) as any)
+      ? (alpha(String(colors.primary ?? "#153c9e"), 0.35) as any)
       : undefined;
 
   const switchTrackOff =
     Platform.OS === "android" ? (alpha(String(colors.text ?? "#000000"), 0.15) as any) : undefined;
 
   const switchThumbOn =
-    Platform.OS === "android" ? (colors.primary ?? "#007AFF") : undefined;
+    Platform.OS === "android" ? (colors.primary ?? "#153c9e") : undefined;
 
   const switchThumbOff =
     Platform.OS === "android" ? (colors.border ?? "#C7C7CC") : undefined;
