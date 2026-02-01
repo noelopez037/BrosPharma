@@ -1,6 +1,7 @@
 import { useTheme } from "@react-navigation/native";
 import React, { useMemo } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, ViewStyle } from "react-native";
+import { FB_DARK_DANGER, HEADER_BG } from "../../src/theme/headerColors";
 
 type Variant = "primary" | "outline" | "danger" | "ghost";
 type Size = "sm" | "md";
@@ -30,8 +31,8 @@ export function AppButton({
 }) {
   const { colors } = useTheme();
 
-  const PRIMARY = Platform.OS === "ios" ? "#007AFF" : (colors.primary ?? "#007AFF");
-  const DANGER = Platform.OS === "ios" ? "#FF3B30" : "#E53935";
+  const PRIMARY = String(colors.primary ?? HEADER_BG);
+  const DANGER = FB_DARK_DANGER;
 
   const S = useMemo(() => makeStyles(colors, PRIMARY, DANGER), [colors, PRIMARY, DANGER]);
   const isDisabled = !!disabled || !!loading;
@@ -82,7 +83,17 @@ export function AppButton({
         isDisabled ? S.disabled : null,
       ]}
     >
-      {loading ? <ActivityIndicator color={variant === "primary" || variant === "danger" ? "#fff" : (PRIMARY as any)} /> : <Text style={txt}>{title}</Text>}
+      {loading ? (
+        <ActivityIndicator
+          color={
+            variant === "primary" || variant === "danger"
+              ? "#fff"
+              : (variant === "outline" ? (outlineColor as any) : (PRIMARY as any))
+          }
+        />
+      ) : (
+        <Text style={txt}>{title}</Text>
+      )}
     </Pressable>
   );
 }

@@ -12,6 +12,7 @@ import { CompraDraftProvider } from "../lib/compraDraft";
 import { VentaDraftProvider } from "../lib/ventaDraft";
 import { ThemePrefProvider, useThemePref } from "../lib/themePreference";
 import { makeNativeTheme } from "../src/theme/navigationTheme";
+import { getHeaderColors } from "../src/theme/headerColors";
 
 enableScreens(true);
 
@@ -20,12 +21,19 @@ function AppShell() {
   const isDark = resolved === "dark";
 
   const theme = useMemo(() => makeNativeTheme(isDark), [isDark]);
+  const header = useMemo(() => getHeaderColors(isDark), [isDark]);
 
   return (
     <ThemeProvider value={theme}>
       <CompraDraftProvider>
         <VentaDraftProvider>
-          <Stack>
+          <Stack
+            screenOptions={{
+              headerStyle: { backgroundColor: header.bg },
+              headerTintColor: header.fg,
+              headerTitleStyle: { color: header.fg },
+            }}
+          >
             {/* Login debe ocultar header */}
             <Stack.Screen name="login" options={{ headerShown: false }} />
 

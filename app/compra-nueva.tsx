@@ -42,6 +42,7 @@ import { goBackSafe } from "../lib/goBackSafe";
 import { AppButton } from "../components/ui/app-button";
 import { DoneAccessory } from "../components/ui/done-accessory";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
+import { FB_DARK_DANGER } from "../src/theme/headerColors";
 
 const BUCKET = "productos";
 
@@ -103,10 +104,10 @@ export default function CompraNuevaScreen() {
         alphaColor(String(colors.text ?? (isDark ? "#ffffff" : "#000000")), 0.65) ||
         (isDark ? "rgba(255,255,255,0.65)" : "#666"),
       border: colors.border ?? (isDark ? "rgba(255,255,255,0.14)" : "#e5e5e5"),
-      blueText: String(colors.primary ?? "#007AFF"),
-      blue: alphaColor(String(colors.primary ?? "#007AFF"), 0.18) || "rgba(64, 156, 255, 0.18)",
+      blueText: String(colors.primary ?? "#153c9e"),
+      blue: alphaColor(String(colors.primary ?? "#153c9e"), 0.18) || "rgba(64, 156, 255, 0.18)",
       backdrop: "rgba(0,0,0,0.35)",
-      danger: isDark ? "rgba(255,120,120,0.95)" : "#d00",
+      danger: FB_DARK_DANGER,
     }),
     [isDark, colors.background, colors.border, colors.card, colors.primary, colors.text]
   );

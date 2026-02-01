@@ -4,8 +4,8 @@ import { Tabs } from "expo-router";
 import { Platform } from "react-native";
 
 import { useThemePref } from "../../../lib/themePreference";
+import { FB_DARK_BLUE, FB_DARK_BORDER, FB_DARK_MUTED, FB_DARK_SURFACE, FB_DARK_TEXT, HEADER_BG } from "../../../src/theme/headerColors";
 
-const IOS_BLUE = "#007AFF";
 const MUTED = "#8E8E93";
 
 export default function TabLayout() {
@@ -13,9 +13,11 @@ export default function TabLayout() {
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
 
-  const background = isDark ? "#000000" : "#FFFFFF";
-  const border = isDark ? "#38383A" : "#C6C6C8";
-  const text = isDark ? "#FFFFFF" : "#000000";
+  const background = isDark ? FB_DARK_SURFACE : "#F5F6F8";
+  const border = isDark ? FB_DARK_BORDER : "#C6C6C8";
+  const text = isDark ? FB_DARK_TEXT : "#000000";
+  const active = isDark ? FB_DARK_BLUE : HEADER_BG;
+  const inactive = isDark ? FB_DARK_MUTED : MUTED;
 
   return (
       <Tabs
@@ -27,11 +29,11 @@ export default function TabLayout() {
             color: text,
             fontWeight: Platform.OS === "ios" ? "600" : "500",
           },
-          headerTintColor: IOS_BLUE,
+          headerTintColor: active,
 
 
-        tabBarActiveTintColor: IOS_BLUE,
-        tabBarInactiveTintColor: MUTED,
+        tabBarActiveTintColor: active,
+        tabBarInactiveTintColor: inactive,
         tabBarStyle: {
           backgroundColor: background,
           borderTopColor: border,

@@ -22,6 +22,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { AppButton } from "../components/ui/app-button";
+import { HEADER_BG } from "../src/theme/headerColors";
 
 const BUCKET = "productos";
 
@@ -95,7 +96,7 @@ function getSysColors(isDark: boolean): SysColors {
       LABEL: "#FFFFFF",
       SECONDARY: "rgba(255,255,255,0.72)",
       SEPARATOR: "rgba(255,255,255,0.16)",
-      BLUE: "#0A84FF", // iOS blue dark
+      BLUE: HEADER_BG,
       BACKDROP: "rgba(0,0,0,0.45)",
       VIEWER_TOPBAR: "rgba(0,0,0,0.35)",
     };
@@ -107,7 +108,7 @@ function getSysColors(isDark: boolean): SysColors {
     LABEL: "#000000",
     SECONDARY: "rgba(0,0,0,0.60)",
     SEPARATOR: "rgba(0,0,0,0.14)",
-    BLUE: "#007AFF", // iOS blue light
+    BLUE: HEADER_BG,
     BACKDROP: Platform.OS === "android" ? "rgba(0,0,0,0.35)" : "rgba(0,0,0,0.18)",
     VIEWER_TOPBAR: "rgba(0,0,0,0.35)",
   };

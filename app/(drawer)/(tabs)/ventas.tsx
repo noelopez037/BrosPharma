@@ -17,9 +17,12 @@ import { AppButton } from "../../../components/ui/app-button";
 import { supabase } from "../../../lib/supabase";
 import { useThemePref } from "../../../lib/themePreference";
 import { alphaColor } from "../../../lib/ui";
+import { FB_DARK_DANGER } from "../../../src/theme/headerColors";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURADOR" | "";
 type Estado = "NUEVO" | "FACTURADO" | "EN_RUTA" | "ENTREGADO";
+
+type Chip = { label: string; tone: "neutral" | "red" | "amber" };
 
 type VentaRow = {
   id: number;
@@ -54,6 +57,15 @@ function tagLabel(tag: string) {
   return t.replace(/_/g, " ");
 }
 
+function showChip(tag: string) {
+  return (
+    tag === "ANULACION_REQUERIDA" ||
+    tag === "EDICION_REQUERIDA" ||
+    tag === "PEND_AUTORIZACION_ADMIN" ||
+    tag === "ANULADO"
+  );
+}
+
 export default function Ventas() {
   const { colors } = useTheme();
   const { resolved } = useThemePref();
@@ -68,10 +80,10 @@ export default function Ventas() {
         alphaColor(String(colors.text ?? (isDark ? "#ffffff" : "#000000")), 0.65) ||
         (isDark ? "rgba(255,255,255,0.65)" : "#666"),
       border: colors.border ?? (isDark ? "rgba(255,255,255,0.14)" : "#e5e5e5"),
-      tint: String(colors.primary ?? "#007AFF"),
+      tint: String(colors.primary ?? "#153c9e"),
       chipBg: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
       chipRedBg: isDark ? "rgba(255,90,90,0.18)" : "rgba(220,0,0,0.10)",
-      chipRedText: isDark ? "rgba(255,120,120,0.95)" : "#d00",
+      chipRedText: FB_DARK_DANGER,
       chipAmberBg: isDark ? "rgba(255,201,107,0.18)" : "rgba(255,170,0,0.12)",
       chipAmberText: isDark ? "rgba(255,201,107,0.92)" : "#b25a00",
     }),
@@ -83,6 +95,14 @@ export default function Ventas() {
 
   const [estado, setEstado] = useState<Estado>("NUEVO");
   const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQ(q);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [q]);
 
   const [rowsRaw, setRowsRaw] = useState<VentaRow[]>([]);
   const [tagsByVenta, setTagsByVenta] = useState<Record<string, string[]>>({});
@@ -93,6 +113,7 @@ export default function Ventas() {
 
   const [initialLoading, setInitialLoading] = useState(true);
   const [listLoading, setListLoading] = useState(false);
+  const [pullRefreshing, setPullRefreshing] = useState(false);
 
   const [facturadosAlert, setFacturadosAlert] = useState(false);
   const [nuevosAlert, setNuevosAlert] = useState(false);
@@ -103,6 +124,16 @@ export default function Ventas() {
 
   const cacheRef = useRef<Record<string, { rows: VentaRow[]; tags: Record<string, string[]> }>>({});
   const reqSeq = useRef(0);
+
+  const dotsCacheRef = useRef<{
+    data: {
+      nuevosAlert: boolean;
+      facturadosAlert: boolean;
+      facturadoAny: boolean;
+      enRutaAny: boolean;
+    } | null;
+    timestamp: number;
+  }>({ data: null, timestamp: 0 });
 
   const [verseOpen, setVerseOpen] = useState(false);
   const verseOpacity = useRef(new Animated.Value(0)).current;
@@ -125,65 +156,51 @@ export default function Ventas() {
   const refreshDots = useCallback(async () => {
     const mySeq = ++dotsReqSeq.current;
 
-    const attentionTags = ["ANULACION_REQUERIDA", "EDICION_REQUERIDA", "PEND_AUTORIZACION_ADMIN"];
-
-    const getVisibleIds = async (st: Estado): Promise<number[]> => {
-      const { data, error } = await supabase
-        .from("ventas")
-        .select("id")
-        .eq("estado", st)
-        .order("fecha", { ascending: false })
-        .limit(200);
-      if (mySeq !== dotsReqSeq.current) return [];
-      if (error) throw error;
-
-      const ids = (data ?? []).map((r: any) => Number(r.id)).filter((x) => Number.isFinite(x) && x > 0);
-      if (!ids.length) return [];
-
-      // Excluir ANULADO (igual que el listado)
-      const { data: an, error: ae } = await supabase
-        .from("ventas_tags")
-        .select("venta_id")
-        .is("removed_at", null)
-        .eq("tag", "ANULADO")
-        .in("venta_id", ids)
-        .limit(2000);
-      if (mySeq !== dotsReqSeq.current) return [];
-      if (ae) throw ae;
-
-      const anuladas = new Set(
-        (an ?? []).map((r: any) => Number(r.venta_id)).filter((x) => Number.isFinite(x) && x > 0)
-      );
-      return ids.filter((id) => !anuladas.has(id));
-    };
+    const now = Date.now();
+    const cached = dotsCacheRef.current;
+    if (cached.data && now - cached.timestamp < 25000) {
+      setNuevosAlert(cached.data.nuevosAlert);
+      setFacturadosAlert(cached.data.facturadosAlert);
+      setFacturadoAny(cached.data.facturadoAny);
+      setEnRutaAny(cached.data.enRutaAny);
+      return;
+    }
 
     try {
-      const [nuevosIds, factIds, rutaIds] = await Promise.all([
-        getVisibleIds("NUEVO"),
-        getVisibleIds("FACTURADO"),
-        getVisibleIds("EN_RUTA"),
-      ]);
+      type Dots = {
+        nuevosAlert: unknown;
+        facturadosAlert: unknown;
+        facturadoAny: unknown;
+        enRutaAny: unknown;
+      };
+
+      const { data, error } = await supabase.rpc("rpc_ventas_dots", { p_limit: 200 });
       if (mySeq !== dotsReqSeq.current) return;
+      if (error) throw error;
 
-      setNuevosAlert(nuevosIds.length > 0);
-      setFacturadoAny(factIds.length > 0);
-      setEnRutaAny(rutaIds.length > 0);
+      const d = data as any as Partial<Dots>;
+      const ok =
+        d &&
+        typeof d === "object" &&
+        "nuevosAlert" in d &&
+        "facturadosAlert" in d &&
+        "facturadoAny" in d &&
+        "enRutaAny" in d;
+      if (!ok) throw new Error("Invalid rpc_ventas_dots response");
 
-      if (!factIds.length) {
-        setFacturadosAlert(false);
-        return;
-      }
+      const next = {
+        nuevosAlert: !!d.nuevosAlert,
+        facturadosAlert: !!d.facturadosAlert,
+        facturadoAny: !!d.facturadoAny,
+        enRutaAny: !!d.enRutaAny,
+      };
 
-      const { data: tg, error: terr } = await supabase
-        .from("ventas_tags")
-        .select("venta_id")
-        .is("removed_at", null)
-        .in("venta_id", factIds)
-        .in("tag", attentionTags)
-        .limit(1);
-      if (mySeq !== dotsReqSeq.current) return;
-      if (terr) throw terr;
-      setFacturadosAlert((tg ?? []).length > 0);
+      setNuevosAlert(next.nuevosAlert);
+      setFacturadosAlert(next.facturadosAlert);
+      setFacturadoAny(next.facturadoAny);
+      setEnRutaAny(next.enRutaAny);
+
+      dotsCacheRef.current = { data: next, timestamp: Date.now() };
     } catch {
       if (mySeq !== dotsReqSeq.current) return;
       // Keep previous dot state on error to avoid flicker.
@@ -265,6 +282,13 @@ export default function Ventas() {
     await refreshDots();
   }, [estado, fetchVentas, loadRole, refreshDots]);
 
+  const onPullRefresh = useCallback(() => {
+    setPullRefreshing(true);
+    Promise.allSettled([loadRole(), fetchVentas(estado, { silent: true }), refreshDots()]).finally(() => {
+      setPullRefreshing(false);
+    });
+  }, [estado, fetchVentas, loadRole, refreshDots]);
+
   useFocusEffect(
     useCallback(() => {
       let alive = true;
@@ -285,7 +309,7 @@ export default function Ventas() {
   );
 
   const rows = useMemo(() => {
-    const search = q.trim().toLowerCase();
+    const search = debouncedQ.trim().toLowerCase();
     const filtered = rowsRaw.filter((r) => {
       const tags = tagsByVenta[String(r.id)] ?? [];
       const isAnulado = tags.includes("ANULADO");
@@ -298,7 +322,40 @@ export default function Ventas() {
       return id.includes(search) || cliente.includes(search) || vcode.includes(search);
     });
     return filtered;
-  }, [q, rowsRaw, tagsByVenta]);
+  }, [debouncedQ, rowsRaw, tagsByVenta]);
+
+  const chipsById = useMemo(() => {
+    const map: Record<number, Chip[]> = {};
+
+    rowsRaw.forEach((item) => {
+      const tags = tagsByVenta[String(item.id)] ?? [];
+      const chips: Chip[] = [];
+
+      if (item.requiere_receta && !item.receta_cargada) {
+        chips.push({ label: "Falta receta", tone: "amber" });
+      }
+
+      tags.filter(showChip).forEach((t) => {
+        if (t === "PEND_AUTORIZACION_ADMIN") {
+          chips.push({ label: "Pendiente admin", tone: "amber" });
+          return;
+        }
+        if (t === "ANULADO") {
+          chips.push({ label: "ANULADO", tone: "red" });
+          return;
+        }
+        if (t.endsWith("_REQUERIDA")) {
+          chips.push({ label: tagLabel(t), tone: "red" });
+          return;
+        }
+        chips.push({ label: tagLabel(t), tone: "neutral" });
+      });
+
+      map[item.id] = chips;
+    });
+
+    return map;
+  }, [rowsRaw, tagsByVenta]);
 
   const visibleRows = loadedEstado === estado ? rows : [];
 
@@ -312,14 +369,71 @@ export default function Ventas() {
     []
   );
 
-  const showChip = (tag: string) => {
+  const keyExtractor = useCallback((it: VentaRow) => String(it.id), []);
+
+  const renderItem = useCallback(
+    ({ item }: { item: VentaRow }) => {
+      const chips = chipsById[item.id] ?? [];
+
+      return (
+        <Pressable
+          onPress={() => router.push({ pathname: "/venta-detalle", params: { ventaId: String(item.id) } } as any)}
+          style={({ pressed }) => [
+            s.card,
+            { borderColor: C.border, backgroundColor: C.card },
+            pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
+          ]}
+        >
+          <Text style={[s.cardTitle, { color: C.text }]} numberOfLines={2}>
+            {item.cliente_nombre ?? "—"}
+          </Text>
+          <Text style={[s.cardSub, { color: C.sub }]} numberOfLines={1}>
+            Fecha: {fmtDate(item.fecha)}
+          </Text>
+          <Text style={[s.cardSub, { color: C.sub }]} numberOfLines={1}>
+            Vendedor: {item.vendedor_codigo ? String(item.vendedor_codigo) : shortUid(item.vendedor_id)}
+          </Text>
+
+          {chips.length ? (
+            <View style={s.chipsRow}>
+              {chips.slice(0, 4).map((c, idx) => {
+                const bg = c.tone === "red" ? C.chipRedBg : c.tone === "amber" ? C.chipAmberBg : C.chipBg;
+                const fg = c.tone === "red" ? C.chipRedText : c.tone === "amber" ? C.chipAmberText : C.sub;
+                return (
+                  <View key={`${item.id}-${idx}`} style={[s.chip, { backgroundColor: bg, borderColor: C.border }]}>
+                    <Text style={[s.chipText, { color: fg }]} numberOfLines={1}>
+                      {c.label}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
+        </Pressable>
+      );
+    },
+    [
+      C.border,
+      C.card,
+      C.chipAmberBg,
+      C.chipAmberText,
+      C.chipBg,
+      C.chipRedBg,
+      C.chipRedText,
+      C.sub,
+      C.text,
+      chipsById,
+    ]
+  );
+
+  const listEmptyComponent = useMemo(() => {
+    const label = initialLoading || listLoading || loadedEstado !== estado ? "Cargando..." : "Sin ventas";
     return (
-      tag === "ANULACION_REQUERIDA" ||
-      tag === "EDICION_REQUERIDA" ||
-      tag === "PEND_AUTORIZACION_ADMIN" ||
-      tag === "ANULADO"
+      <Text style={{ padding: 16, color: C.sub, fontWeight: "700" }}>
+        {label}
+      </Text>
     );
-  };
+  }, [C.sub, estado, initialLoading, listLoading, loadedEstado]);
 
   return (
     <SafeAreaView style={[s.safe, { backgroundColor: C.bg }]} edges={["bottom"]}>
@@ -366,7 +480,7 @@ export default function Ventas() {
             const showDotFactAmber = t.key === "FACTURADO" && !facturadosAlert && facturadoAny;
             const showDotEnRuta = t.key === "EN_RUTA" && enRutaAny;
             const dotColor = showDotFactRed || showDotNuevos
-              ? (isDark ? "rgba(255,90,90,0.95)" : "#d00")
+              ? FB_DARK_DANGER
               : (showDotFactAmber || showDotEnRuta)
                 ? (isDark ? "rgba(255,201,107,0.92)" : "#ff9500")
                 : null;
@@ -414,81 +528,20 @@ export default function Ventas() {
       <FlatList
         key={`ventas-${estado}`}
         data={visibleRows}
-        keyExtractor={(it) => String(it.id)}
+        keyExtractor={keyExtractor}
+        refreshing={pullRefreshing}
+        onRefresh={onPullRefresh}
         contentContainerStyle={{ padding: 16, paddingBottom: 28 }}
+        initialNumToRender={8}
+        maxToRenderPerBatch={5}
+        windowSize={7}
+        updateCellsBatchingPeriod={50}
+        removeClippedSubviews={Platform.OS === "android"}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         automaticallyAdjustKeyboardInsets
-        renderItem={({ item }) => {
-          const tags = tagsByVenta[String(item.id)] ?? [];
-          const chips: { label: string; tone: "neutral" | "red" | "amber" }[] = [];
-
-          if (item.requiere_receta && !item.receta_cargada) {
-            chips.push({ label: "Falta receta", tone: "amber" });
-          }
-
-          tags
-            .filter(showChip)
-            .forEach((t) => {
-              if (t === "PEND_AUTORIZACION_ADMIN") {
-                chips.push({ label: "Pendiente admin", tone: "amber" });
-                return;
-              }
-              if (t === "ANULADO") {
-                chips.push({ label: "ANULADO", tone: "red" });
-                return;
-              }
-              if (t.endsWith("_REQUERIDA")) {
-                chips.push({ label: tagLabel(t), tone: "red" });
-                return;
-              }
-              chips.push({ label: tagLabel(t), tone: "neutral" });
-            });
-
-          return (
-            <Pressable
-              onPress={() => router.push({ pathname: "/venta-detalle", params: { ventaId: String(item.id) } } as any)}
-              style={({ pressed }) => [
-                s.card,
-                { borderColor: C.border, backgroundColor: C.card },
-                pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
-              ]}
-            >
-              <Text style={[s.cardTitle, { color: C.text }]} numberOfLines={2}>
-                {item.cliente_nombre ?? "—"}
-              </Text>
-              <Text style={[s.cardSub, { color: C.sub }]} numberOfLines={1}>
-                Fecha: {fmtDate(item.fecha)}
-              </Text>
-              <Text style={[s.cardSub, { color: C.sub }]} numberOfLines={1}>
-                Vendedor: {item.vendedor_codigo ? String(item.vendedor_codigo) : shortUid(item.vendedor_id)}
-              </Text>
-
-              {chips.length ? (
-                <View style={s.chipsRow}>
-                  {chips.slice(0, 4).map((c, idx) => {
-                    const bg =
-                      c.tone === "red" ? C.chipRedBg : c.tone === "amber" ? C.chipAmberBg : C.chipBg;
-                    const fg =
-                      c.tone === "red" ? C.chipRedText : c.tone === "amber" ? C.chipAmberText : C.sub;
-                    return (
-                      <View key={`${item.id}-${idx}`} style={[s.chip, { backgroundColor: bg, borderColor: C.border }]}>
-                        <Text style={[s.chipText, { color: fg }]} numberOfLines={1}>
-                          {c.label}
-                        </Text>
-                      </View>
-                    );
-                  })}
-                </View>
-              ) : null}
-            </Pressable>
-          );
-        }}
-        ListEmptyComponent={
-          <Text style={{ padding: 16, color: C.sub, fontWeight: "700" }}>
-            {initialLoading || listLoading || loadedEstado !== estado ? "Cargando..." : "Sin ventas"}
-          </Text>
-        }
+        renderItem={renderItem}
+        ListEmptyComponent={listEmptyComponent}
       />
 
       <Modal

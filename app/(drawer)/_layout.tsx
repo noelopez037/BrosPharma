@@ -6,6 +6,7 @@ import {
 import { Drawer } from "expo-router/drawer";
 import React, { useEffect, useMemo, useState } from "react";
 import { Platform, Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import { StatusBar } from "expo-status-bar";
 
 import { router, usePathname } from "expo-router";
 import { getFocusedRouteNameFromRoute } from "@react-navigation/native";
@@ -13,39 +14,63 @@ import { supabase } from "../../lib/supabase";
 import { onSolicitudesChanged } from "../../lib/solicitudesEvents";
 import { useThemePref } from "../../lib/themePreference";
 import { alphaColor } from "../../lib/ui";
-
-const IOS_BLUE = "#007AFF";
+import {
+  FB_DARK_BORDER,
+  FB_DARK_DANGER,
+  FB_DARK_MUTED,
+  getDrawerColors,
+  getHeaderColors,
+} from "../../src/theme/headerColors";
 
 export default function DrawerLayout() {
   // puedes dejarlo si lo usas en otro lado; el drawer se pinta con resolved
   useColorScheme();
 
-  const { mode, setMode, resolved } = useThemePref();
-  const isDark = resolved === "dark";
+  const { mode, setMode } = useThemePref();
   const pathname = usePathname();
+  const isDark = mode === "dark";
+
+  const isWeb = Platform.OS === "web";
+  const WEB_DRAWER_WIDTH = 300;
 
   const [userName, setUserName] = useState<string>("");
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [role, setRole] = useState<string>("");
   const [solicitudesCount, setSolicitudesCount] = useState<number>(0);
 
-  const background = isDark ? "#000000" : "#FFFFFF";
-  const text = isDark ? "#FFFFFF" : "#000000";
-  const muted = "#8E8E93";
-  const border = isDark ? "#2C2C2E" : "#E5E5EA";
-  const activeBg = isDark ? "#2C2C2E" : "#F2F2F7";
+  const header = getHeaderColors(isDark);
+  const drawer = getDrawerColors(isDark);
 
-  const switchTrackOn = Platform.OS === "android" ? (alphaColor(IOS_BLUE, 0.35) as any) : undefined;
+  const drawerBg = drawer.bg;
+  const drawerText = drawer.fg;
+
+  const drawerActiveTint = isDark ? drawerText : header.bg;
+  const drawerMuted =
+    isDark ? FB_DARK_MUTED : (alphaColor(drawerText, 0.62) as any);
+  const drawerBorder =
+    isDark ? FB_DARK_BORDER : (alphaColor(drawerText, 0.10) as any);
+  const drawerActiveBg =
+    isDark ? FB_DARK_BORDER : (alphaColor(header.bg, 0.10) as any);
+  const sectionLabelColor =
+    isDark ? drawerMuted : (alphaColor(header.bg, 0.70) as any);
+
+  const switchTrackOn =
+    Platform.OS === "android"
+      ? (isDark ? (alphaColor(drawerText, 0.32) as any) : (alphaColor(header.bg, 0.35) as any))
+      : undefined;
   const switchTrackOff =
-    Platform.OS === "android" ? (alphaColor(isDark ? "#FFFFFF" : "#000000", 0.15) as any) : undefined;
-  const switchThumbOn = Platform.OS === "android" ? (IOS_BLUE as any) : undefined;
-  const switchThumbOff = Platform.OS === "android" ? (border as any) : undefined;
+    Platform.OS === "android" ? (alphaColor(drawerText, isDark ? 0.16 : 0.14) as any) : undefined;
+  const switchThumbOn =
+    Platform.OS === "android" ? ((isDark ? drawerText : header.bg) as any) : undefined;
+  const switchThumbOff =
+    Platform.OS === "android" ? (alphaColor(drawerText, 0.82) as any) : undefined;
 
   const isTabsRoute = pathname === "/" || pathname === "/ventas" || pathname === "/inventario";
   const isComprasRoute = pathname === "/compras" || pathname.startsWith("/compras/");
   const isClientesRoute = pathname.startsWith("/cliente");
   const isSolicitudesRoute = pathname === "/ventas-solicitudes" || pathname.startsWith("/ventas-solicitudes");
   const isAnuladasRoute = pathname === "/ventas-anuladas" || pathname.startsWith("/ventas-anuladas");
+  const isRecetasRoute = pathname === "/recetas-pendientes" || pathname.startsWith("/recetas-pendientes");
 
   useEffect(() => {
     let alive = true;
@@ -191,109 +216,136 @@ export default function DrawerLayout() {
   };
 
   return (
-    <Drawer
-      screenOptions={{
-        headerShown: true,
-        headerTitle: undefined,
-        headerStyle: { backgroundColor: background },
-        headerTitleStyle: {
-          color: text,
-          fontWeight: Platform.OS === "ios" ? "600" : "500",
-        },
-        headerTintColor: IOS_BLUE,
+    <>
+      <StatusBar style="light" />
+      <Drawer
+        screenOptions={{
+          headerShown: true,
+          headerTitle: undefined,
+          headerStyle: { backgroundColor: header.bg },
+          headerTitleStyle: {
+            color: header.fg,
+            fontWeight: Platform.OS === "ios" ? "600" : "500",
+          },
+          headerTintColor: header.fg,
 
-        drawerStyle: { backgroundColor: background },
-        drawerActiveTintColor: IOS_BLUE,
-        drawerInactiveTintColor: muted,
-        drawerActiveBackgroundColor: activeBg,
+        // WEB only: permanent sidebar drawer (no overlay)
+          ...(isWeb
+            ? {
+              drawerType: "permanent" as const,
+              swipeEnabled: false,
+              overlayColor: "transparent",
+              drawerStyle: { backgroundColor: drawerBg, width: WEB_DRAWER_WIDTH },
+              sceneContainerStyle: {
+                maxWidth: 1400,
+                paddingHorizontal: 24,
+                marginLeft: "auto",
+                marginRight: "auto",
+              },
+            }
+            : {
+              drawerStyle: { backgroundColor: drawerBg },
+            }),
+
+        drawerActiveTintColor: drawerActiveTint,
+        drawerInactiveTintColor: drawerMuted,
+        drawerActiveBackgroundColor: drawerActiveBg,
         drawerLabelStyle: {
           fontSize: 16,
           fontWeight: Platform.OS === "ios" ? "500" : "400",
         },
       }}
-      drawerContent={(props) => (
-        <DrawerContentScrollView
-          {...props}
-          contentContainerStyle={{ paddingBottom: 12, flexGrow: 1, justifyContent: "space-between", minHeight: "100%" }}
-        >
-          <View>
-            <View style={[styles.drawerHeader, { backgroundColor: background, borderBottomColor: border }] }>
-              <View style={[styles.brandMark, { backgroundColor: activeBg, borderColor: border }] }>
-                <MaterialCommunityIcons name="needle" size={26} color={IOS_BLUE} />
+        drawerContent={(props) => (
+          <DrawerContentScrollView
+            {...props}
+            contentContainerStyle={{ paddingBottom: 12, flexGrow: 1, justifyContent: "space-between", minHeight: "100%" }}
+          >
+            <View>
+            <View style={[styles.drawerHeader, { backgroundColor: drawerBg, borderBottomColor: drawerBorder }]}>
+              <View
+                style={[
+                  styles.brandMark,
+                  {
+                    backgroundColor: isDark ? drawerActiveBg : (alphaColor(header.bg, 0.10) as any),
+                    borderColor: isDark ? drawerBorder : (alphaColor(header.bg, 0.22) as any),
+                  },
+                ]}
+              >
+                <MaterialCommunityIcons name="needle" size={26} color={drawerActiveTint} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.drawerHeaderText, { color: text }]}>Bros Pharma</Text>
-                <Text style={[styles.drawerHeaderSub, { color: muted }]} numberOfLines={1}>
+                <Text style={[styles.drawerHeaderText, { color: drawerText }]}>Bros Pharma</Text>
+                <Text style={[styles.drawerHeaderSub, { color: drawerMuted }]} numberOfLines={1}>
                   {headerSub}
                 </Text>
               </View>
             </View>
             {/* Custom Drawer Items with Icons (Option A) */}
             <View style={styles.menuList}>
-              <Text style={[styles.sectionLabel, { color: muted }]}>Navegacion</Text>
+              <Text style={[styles.sectionLabel, { color: sectionLabelColor }]}>Navegacion</Text>
 
               <Pressable
                 onPress={() => props.navigation.navigate("(tabs)", { screen: "index" })}
-                style={({ pressed }) => [
-                  styles.menuItem,
-                  { backgroundColor: isTabsRoute ? activeBg : "transparent" },
-                  pressed && { opacity: 0.85 },
-                ]}
-                accessibilityRole="button"
-              >
-                <Ionicons name="home-outline" size={22} color={isTabsRoute ? IOS_BLUE : muted} />
-                <Text style={[styles.menuLabel, { color: isTabsRoute ? text : muted }]}>Inicio</Text>
-              </Pressable>
-
-              {!isAdmin ? null : (
-                <Pressable
-                  onPress={() => router.push("/compras")}
                   style={({ pressed }) => [
                     styles.menuItem,
-                    { backgroundColor: isComprasRoute ? activeBg : "transparent" },
+                    { backgroundColor: isTabsRoute ? drawerActiveBg : "transparent" },
                     pressed && { opacity: 0.85 },
                   ]}
                   accessibilityRole="button"
                 >
-                  <Ionicons name="cart-outline" size={22} color={isComprasRoute ? IOS_BLUE : muted} />
-                  <Text style={[styles.menuLabel, { color: isComprasRoute ? text : muted }]}>Compras</Text>
+                  <Ionicons name="home-outline" size={22} color={isTabsRoute ? drawerActiveTint : drawerMuted} />
+                  <Text style={[styles.menuLabel, { color: isTabsRoute ? drawerActiveTint : drawerMuted }]}>Inicio</Text>
                 </Pressable>
-              )}
+
+              {!isAdmin ? null : (
+                <Pressable
+                  onPress={() => router.push("/compras")}
+                    style={({ pressed }) => [
+                      styles.menuItem,
+                      { backgroundColor: isComprasRoute ? drawerActiveBg : "transparent" },
+                      pressed && { opacity: 0.85 },
+                    ]}
+                    accessibilityRole="button"
+                  >
+                     <Ionicons name="cart-outline" size={22} color={isComprasRoute ? drawerActiveTint : drawerMuted} />
+                     <Text style={[styles.menuLabel, { color: isComprasRoute ? drawerActiveTint : drawerMuted }]}>Compras</Text>
+                  </Pressable>
+                )}
 
               <Pressable
                 onPress={() => router.push("/clientes" as any)}
                 style={({ pressed }) => [
                   styles.menuItem,
-                  { backgroundColor: isClientesRoute ? activeBg : "transparent" },
+                  { backgroundColor: isClientesRoute ? drawerActiveBg : "transparent" },
                   pressed && { opacity: 0.85 },
                 ]}
                 accessibilityRole="button"
               >
-                <Ionicons name="people-outline" size={22} color={isClientesRoute ? IOS_BLUE : muted} />
-                <Text style={[styles.menuLabel, { color: isClientesRoute ? text : muted }]}>Clientes</Text>
+                <Ionicons name="people-outline" size={22} color={isClientesRoute ? drawerActiveTint : drawerMuted} />
+                <Text style={[styles.menuLabel, { color: isClientesRoute ? drawerActiveTint : drawerMuted }]}>Clientes</Text>
               </Pressable>
 
               {!showSolicitudes ? null : (
                 <Pressable
                   onPress={() => router.push("/ventas-solicitudes" as any)}
-                  style={({ pressed }) => [
-                    styles.menuItem,
-                    { backgroundColor: isSolicitudesRoute ? activeBg : "transparent" },
-                    pressed && { opacity: 0.85 },
-                  ]}
-                  accessibilityRole="button"
-                >
-                  <Ionicons
-                    name="alert-circle-outline"
-                    size={22}
-                    color={isSolicitudesRoute ? IOS_BLUE : muted}
-                  />
-                  <Text
-                    style={[styles.menuLabel, { color: isSolicitudesRoute ? text : muted, flexShrink: 1 }]}
-                    numberOfLines={1}
+                    style={({ pressed }) => [
+                      styles.menuItem,
+                      { backgroundColor: isSolicitudesRoute ? drawerActiveBg : "transparent" },
+                      pressed && { opacity: 0.85 },
+                    ]}
+                    accessibilityRole="button"
                   >
-                    Solicitudes
-                  </Text>
+                    <Ionicons
+                      name="alert-circle-outline"
+                      size={22}
+                      color={isSolicitudesRoute ? drawerActiveTint : drawerMuted}
+                    />
+                    <Text
+                      style={[styles.menuLabel, { color: isSolicitudesRoute ? drawerActiveTint : drawerMuted, flexShrink: 1 }]}
+                      numberOfLines={1}
+                    >
+                      Solicitudes
+                    </Text>
                   <View style={{ flex: 1 }} />
                   {solicitudesCount > 0 ? (
                     <View style={styles.badge}>
@@ -308,44 +360,59 @@ export default function DrawerLayout() {
                {!showAnuladas ? null : (
                 <Pressable
                   onPress={() => router.push("/ventas-anuladas" as any)}
-                  style={({ pressed }) => [
-                    styles.menuItem,
-                    { backgroundColor: isAnuladasRoute ? activeBg : "transparent" },
-                    pressed && { opacity: 0.85 },
-                  ]}
-                  accessibilityRole="button"
-                >
-                  <Ionicons name="ban-outline" size={22} color={isAnuladasRoute ? IOS_BLUE : muted} />
-                  <Text style={[styles.menuLabel, { color: isAnuladasRoute ? text : muted }]}>Anuladas</Text>
-                </Pressable>
-              )}
+                   style={({ pressed }) => [
+                     styles.menuItem,
+                     { backgroundColor: isAnuladasRoute ? drawerActiveBg : "transparent" },
+                     pressed && { opacity: 0.85 },
+                   ]}
+                   accessibilityRole="button"
+                  >
+                   <Ionicons name="ban-outline" size={22} color={isAnuladasRoute ? drawerActiveTint : drawerMuted} />
+                   <Text style={[styles.menuLabel, { color: isAnuladasRoute ? drawerActiveTint : drawerMuted }]}>Anuladas</Text>
+                  </Pressable>
+               )}
 
               {!showCuentasPorCobrar ? null : (
                 <Pressable
                   onPress={() => router.push("/cxc" as any)}
-                  style={({ pressed }) => [
-                    styles.menuItem,
-                    { backgroundColor: pathname === "/cxc" ? activeBg : "transparent" },
-                    pressed && { opacity: 0.85 },
-                  ]}
-                  accessibilityRole="button"
-                >
-                  <Ionicons name="receipt-outline" size={22} color={pathname === "/cxc" ? IOS_BLUE : muted} />
-                  <Text style={[styles.menuLabel, { color: pathname === "/cxc" ? text : muted }]}>Cuentas por cobrar</Text>
-                </Pressable>
-              )}
+                   style={({ pressed }) => [
+                     styles.menuItem,
+                     { backgroundColor: pathname === "/cxc" ? drawerActiveBg : "transparent" },
+                     pressed && { opacity: 0.85 },
+                   ]}
+                   accessibilityRole="button"
+                  >
+                    <Ionicons name="receipt-outline" size={22} color={pathname === "/cxc" ? drawerActiveTint : drawerMuted} />
+                    <Text style={[styles.menuLabel, { color: pathname === "/cxc" ? drawerActiveTint : drawerMuted }]}>Cuentas por cobrar</Text>
+                  </Pressable>
+               )}
+
+              {(role === "ADMIN" || role === "VENTAS") ? (
+                <Pressable
+                  onPress={() => router.push("/recetas-pendientes" as any)}
+                   style={({ pressed }) => [
+                     styles.menuItem,
+                     { backgroundColor: isRecetasRoute ? drawerActiveBg : "transparent" },
+                     pressed && { opacity: 0.85 },
+                   ]}
+                   accessibilityRole="button"
+                  >
+                    <Ionicons name="document-text-outline" size={22} color={isRecetasRoute ? drawerActiveTint : drawerMuted} />
+                    <Text style={[styles.menuLabel, { color: isRecetasRoute ? drawerActiveTint : drawerMuted }]}>Recetas pendientes</Text>
+                  </Pressable>
+               ) : null}
                  
             </View>
 
             {/* Toggle Tema */}
-            <View style={[styles.themeRow, { borderTopColor: border }]}>
-              <Text style={[styles.themeLabel, { color: text }]}>Tema</Text>
+            <View style={[styles.themeRow, { borderTopColor: drawerBorder }]}>
+              <Text style={[styles.themeLabel, { color: drawerText }]}>Tema</Text>
 
               <View style={styles.themeControls}>
                 <Ionicons
                   name="sunny-outline"
                   size={18}
-                  color={isDark ? muted : IOS_BLUE}
+                  color={drawerMuted}
                   style={{ marginRight: 8 }}
                 />
 
@@ -359,7 +426,7 @@ export default function DrawerLayout() {
                 <Ionicons
                   name="moon-outline"
                   size={18}
-                  color={isDark ? IOS_BLUE : muted}
+                  color={drawerMuted}
                   style={{ marginLeft: 8 }}
                 />
               </View>
@@ -370,18 +437,18 @@ export default function DrawerLayout() {
             onPress={handleLogout}
             style={({ pressed }) => [
               styles.logout,
-              { borderTopColor: border },
+              { borderTopColor: drawerBorder },
               pressed && { opacity: 0.85 },
             ]}
             accessibilityLabel="Cerrar sesión"
             accessibilityRole="button"
           >
-            <Ionicons name="log-out-outline" size={18} color="#e53935" style={{ marginRight: 8 }} />
+            <Ionicons name="log-out-outline" size={18} color={FB_DARK_DANGER} style={{ marginRight: 8 }} />
             <Text style={styles.logoutText}>Cerrar sesión</Text>
           </Pressable>
-        </DrawerContentScrollView>
-      )}
-    >
+          </DrawerContentScrollView>
+        )}
+      >
       <Drawer.Screen
         name="(tabs)"
         options={({ route }: any) => {
@@ -402,7 +469,8 @@ export default function DrawerLayout() {
           drawerIcon: ({ color, size }: any) => <Ionicons name="people-outline" size={size} color={color} />,
         }}
       />
-    </Drawer>
+      </Drawer>
+    </>
   );
 }
 
@@ -460,7 +528,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   logoutText: {
-    color: "#e53935",
+    color: FB_DARK_DANGER,
     fontWeight: "700",
   },
   // New icon-enabled menu items
@@ -495,7 +563,7 @@ const styles = StyleSheet.create({
     height: 20,
     paddingHorizontal: 6,
     borderRadius: 10,
-    backgroundColor: "#e53935",
+    backgroundColor: FB_DARK_DANGER,
     alignItems: "center",
     justifyContent: "center",
   },

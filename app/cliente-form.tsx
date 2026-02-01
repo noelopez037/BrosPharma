@@ -21,6 +21,7 @@ import { KeyboardAwareModal } from "../components/ui/keyboard-aware-modal";
 import { DoneAccessory } from "../components/ui/done-accessory";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
 import { goBackSafe } from "../lib/goBackSafe";
+import { FB_DARK_DANGER } from "../src/theme/headerColors";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 
@@ -60,7 +61,7 @@ export default function ClienteForm() {
   const DONE_ID = "doneAccessory";
   const { scrollRef, handleFocus } = useKeyboardAutoScroll(110);
   const s = useMemo(() => styles(colors), [colors]);
-  const dangerColor = Platform.OS === "ios" ? "#FF3B30" : "#E53935";
+  const dangerColor = FB_DARK_DANGER;
 
   const { id } = useLocalSearchParams<{ id?: string }>();
   const editingId = id && Number.isFinite(Number(id)) ? Number(id) : null;
@@ -545,7 +546,7 @@ const styles = (colors: any) =>
       backgroundColor: colors.background,
     },
     modalItemSelected: {
-      borderColor: Platform.OS === "ios" ? "#007AFF" : (colors.primary ?? "#007AFF"),
+      borderColor: (colors.primary ?? "#153c9e"),
       backgroundColor: Platform.OS === "ios" ? "rgba(0,122,255,0.10)" : (colors.card ?? "transparent"),
     },
     modalItemText: { color: colors.text, fontWeight: "500" },

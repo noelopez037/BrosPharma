@@ -40,7 +40,7 @@ export default function LoginScreen() {
     text: colors.text ?? (isDark ? "#fff" : "#111"),
     sub: alphaColor(String(colors.text ?? (isDark ? "#ffffff" : "#000000")), 0.65) || (isDark ? "rgba(255,255,255,0.65)" : "#666"),
     border: colors.border ?? (isDark ? "rgba(255,255,255,0.14)" : "#e5e5e5"),
-    tint: colors.primary ?? "#007AFF",
+    tint: colors.primary ?? "#153c9e",
   } as const;
 
   const [email, setEmail] = useState("");

@@ -35,6 +35,7 @@ import { alphaColor } from "../lib/ui";
 import { AppButton } from "../components/ui/app-button";
 import { DoneAccessory } from "../components/ui/done-accessory";
 import { goBackSafe } from "../lib/goBackSafe";
+import { FB_DARK_DANGER } from "../src/theme/headerColors";
 
 const BUCKET_PRODUCTOS = "productos";
 const BUCKET_COMPROBANTES = "comprobantes";
@@ -270,8 +271,8 @@ export default function CompraDetalleScreen() {
         (isDark ? "rgba(255,255,255,0.65)" : "#6b7280"),
       border: colors.border ?? (isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)"),
 
-      primary: String(colors.primary ?? "#007AFF"),
-      danger: Platform.OS === "ios" ? "#FF3B30" : "#D32F2F",
+      primary: String(colors.primary ?? "#153c9e"),
+      danger: FB_DARK_DANGER,
 
       ok: isDark ? "rgba(140,255,170,0.95)" : "#16a34a",
       warn: isDark ? "rgba(255,210,120,0.95)" : "#b45309",
@@ -279,7 +280,7 @@ export default function CompraDetalleScreen() {
       okBg: isDark ? "rgba(22,163,74,0.18)" : "rgba(22,163,74,0.10)",
       warnBg: isDark ? "rgba(180,83,9,0.18)" : "rgba(180,83,9,0.10)",
       mutedBg: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)",
-      dangerBg: isDark ? "rgba(255,59,48,0.16)" : "rgba(255,59,48,0.10)",
+      dangerBg: alphaColor(FB_DARK_DANGER, isDark ? 0.18 : 0.12),
 
       divider: isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.06)",
       overlay: isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.35)",

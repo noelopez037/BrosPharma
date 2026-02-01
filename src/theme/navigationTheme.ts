@@ -1,25 +1,25 @@
 // src/theme/navigationTheme.ts
 import { Theme } from "@react-navigation/native";
-
-const IOS_BLUE = "#007AFF";
+import { FB_DARK_BG, FB_DARK_BLUE, FB_DARK_BORDER, FB_DARK_SURFACE, FB_DARK_TEXT, HEADER_BG } from "./headerColors";
 
 export function makeNativeTheme(isDark: boolean): Theme {
+  const PRIMARY = isDark ? FB_DARK_BLUE : HEADER_BG;
   const colors = isDark
     ? {
-        primary: IOS_BLUE,
-        background: "#000000",     // iOS systemBackground dark
-        card: "#1C1C1E",           // iOS secondarySystemBackground-ish
-        text: "#FFFFFF",           // label dark
-        border: "#38383A",         // separator dark
-        notification: IOS_BLUE,
+        primary: PRIMARY,
+        background: FB_DARK_BG,
+        card: FB_DARK_SURFACE,
+        text: FB_DARK_TEXT,
+        border: FB_DARK_BORDER,
+        notification: PRIMARY,
       }
     : {
-        primary: IOS_BLUE,
-        background: "#FFFFFF",     // systemBackground light
-        card: "#FFFFFF",
+        primary: PRIMARY,
+        background: "#F5F6F8",     // off-white (light)
+        card: "#F9FAFB",           // slightly gray card (light)
         text: "#000000",           // label light
         border: "#C6C6C8",         // separator light
-        notification: IOS_BLUE,
+        notification: PRIMARY,
       };
 
   return {
