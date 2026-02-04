@@ -392,7 +392,7 @@ export default function ProductoModal() {
                         params: { id: String(productoId) },
                       })
                     }
-                    style={{ alignSelf: "flex-start" } as any}
+                    style={s.editBtn}
                   />
                 ) : null}
               </View>
@@ -445,37 +445,39 @@ export default function ProductoModal() {
         )}
       </Animated.View>
 
-      <Modal visible={viewerOpen} transparent onRequestClose={() => setViewerOpen(false)}>
-        <View style={s.viewerTopBar}>
-          <Pressable
-            onPress={() => setViewerOpen(false)}
-            style={({ pressed }) => [s.viewerBtn, pressed && { opacity: 0.8 }]}
-          >
-            <Text style={s.viewerBtnText}>Cerrar</Text>
-          </Pressable>
+      {viewerOpen ? (
+        <Modal visible={viewerOpen} transparent onRequestClose={() => setViewerOpen(false)}>
+          <View style={s.viewerTopBar}>
+            <Pressable
+              onPress={() => setViewerOpen(false)}
+              style={({ pressed }) => [s.viewerBtn, pressed && { opacity: 0.8 }]}
+            >
+              <Text style={s.viewerBtnText}>Cerrar</Text>
+            </Pressable>
 
-          <Pressable
-            onPress={onSavePhoto}
-            disabled={!imageUrl || savingPhoto}
-            style={({ pressed }) => [
-              s.viewerBtn,
-              (!imageUrl || savingPhoto) && { opacity: 0.5 },
-              pressed && { opacity: 0.8 },
-            ]}
-          >
-            <Text style={s.viewerBtnText}>{savingPhoto ? "Guardando..." : "Guardar"}</Text>
-          </Pressable>
-        </View>
+            <Pressable
+              onPress={onSavePhoto}
+              disabled={!imageUrl || savingPhoto}
+              style={({ pressed }) => [
+                s.viewerBtn,
+                (!imageUrl || savingPhoto) && { opacity: 0.5 },
+                pressed && { opacity: 0.8 },
+              ]}
+            >
+              <Text style={s.viewerBtnText}>{savingPhoto ? "Guardando..." : "Guardar"}</Text>
+            </Pressable>
+          </View>
 
-        <ImageViewer
-          imageUrls={imageUrl ? [{ url: imageUrl }] : []}
-          enableSwipeDown
-          onSwipeDown={() => setViewerOpen(false)}
-          backgroundColor="rgba(0,0,0,0.95)"
-          renderIndicator={() => <View />}
-          saveToLocalByLongPress={false}
-        />
-      </Modal>
+          <ImageViewer
+            imageUrls={imageUrl ? [{ url: imageUrl }] : []}
+            enableSwipeDown
+            onSwipeDown={() => setViewerOpen(false)}
+            backgroundColor="rgba(0,0,0,0.95)"
+            renderIndicator={() => <View />}
+            saveToLocalByLongPress={false}
+          />
+        </Modal>
+      ) : null}
     </View>
   );
 }
@@ -543,6 +545,11 @@ const styles = (C: SysColors) =>
       color: C.LABEL as any,
       fontSize: 14,
       fontWeight: Platform.OS === "ios" ? "600" : "700",
+    },
+
+    editBtn: {
+      alignSelf: "flex-start",
+      marginTop: 12,
     },
 
     btn: {

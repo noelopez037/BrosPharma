@@ -19,10 +19,10 @@ import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
 import { useGoHomeOnBack } from "../lib/useGoHomeOnBack";
-import { goBackSafe } from "../lib/goBackSafe";
+import { goHome } from "../lib/goHome";
 import { FB_DARK_DANGER } from "../src/theme/headerColors";
 
-type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURADOR" | "";
+type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "";
 
 type SolicitudRow = {
   venta_id: number;
@@ -150,7 +150,7 @@ export default function VentasSolicitudesScreen() {
     if (!role) return;
     if (!canView) {
       Alert.alert("Sin permiso", "Tu rol no puede ver solicitudes.", [
-        { text: "OK", onPress: () => goBackSafe("/(drawer)/(tabs)") },
+        { text: "OK", onPress: () => goHome("/(drawer)/(tabs)") },
       ]);
       return;
     }
@@ -298,7 +298,7 @@ export default function VentasSolicitudesScreen() {
           gestureEnabled: false,
           headerBackVisible: false,
           headerBackButtonMenuEnabled: false,
-          headerLeft: () => <HeaderBackButton onPress={() => goBackSafe("/(drawer)/(tabs)")} />,
+          headerLeft: (props: any) => <HeaderBackButton {...props} label="Atrás" onPress={() => goHome("/(drawer)/(tabs)")} />,
         }}
       />
 

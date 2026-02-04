@@ -356,6 +356,21 @@ export default function CompraNuevaScreen() {
     }, 0);
   }, [lineas]);
 
+  const isFormValid = useMemo(() => {
+    if (!proveedor?.id) return false;
+    if (!String(numeroFactura ?? "").trim()) return false;
+    if (tipoPago === "CREDITO" && !fechaVenc) return false;
+    if (!lineas?.length) return false;
+
+    const invalid = lineas.some((l) => {
+      const cant = Math.floor(parseNumberSafe(l.cantidad));
+      const precio = parseNumberSafe(l.precio);
+      return !l.producto_id || !String(l.lote ?? "").trim() || !l.fecha_exp || cant <= 0 || precio < 0;
+    });
+
+    return !invalid;
+  }, [proveedor?.id, numeroFactura, tipoPago, fechaVenc, lineas]);
+
   const ensureMediaPerm = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
@@ -832,19 +847,22 @@ export default function CompraNuevaScreen() {
             title={saveLabel}
             onPress={guardar}
             loading={saving || loadingEdit}
-            style={[styles.saveBtn, { backgroundColor: C.blue, marginBottom: 10 + insets.bottom }] as any}
+            disabled={!isFormValid}
+            variant="primary"
+            style={[styles.saveBtn, { marginBottom: 10 + insets.bottom }] as any}
           />
           </ScrollView>
         </KeyboardAvoidingView>
 
         {/* iOS Date Picker Modal */}
-        <Modal visible={iosDateOpen} transparent animationType="fade">
-          <Pressable
-            style={[styles.dpBackdrop, { backgroundColor: C.backdrop }]}
-            onPress={() => setIosDateOpen(false)}
-          />
-          <View style={[styles.dpCard, { backgroundColor: C.card, borderColor: C.border }]}>
-            <Text style={[styles.dpTitle, { color: C.text }]}>{iosDateTitle}</Text>
+        {iosDateOpen ? (
+          <Modal visible={iosDateOpen} transparent animationType="fade">
+            <Pressable
+              style={[styles.dpBackdrop, { backgroundColor: C.backdrop }]}
+              onPress={() => setIosDateOpen(false)}
+            />
+            <View style={[styles.dpCard, { backgroundColor: C.card, borderColor: C.border }]}>
+              <Text style={[styles.dpTitle, { color: C.text }]}>{iosDateTitle}</Text>
 
             <DateTimePicker
               value={iosDateValue}
@@ -884,8 +902,9 @@ export default function CompraNuevaScreen() {
                 style={[styles.dpBtn, { backgroundColor: C.blueText }, { flex: 1 }] as any}
               />
             </View>
-          </View>
-        </Modal>
+            </View>
+          </Modal>
+        ) : null}
 
         <DoneAccessory nativeID={DONE_ID} />
       </SafeAreaView>

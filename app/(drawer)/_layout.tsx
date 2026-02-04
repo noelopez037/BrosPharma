@@ -4,7 +4,7 @@ import {
   DrawerContentScrollView
 } from "@react-navigation/drawer";
 import { Drawer } from "expo-router/drawer";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
@@ -31,7 +31,13 @@ export default function DrawerLayout() {
   const isDark = mode === "dark";
 
   const isWeb = Platform.OS === "web";
+  const isIOS = Platform.OS === "ios";
   const WEB_DRAWER_WIDTH = 300;
+
+  // Close the overlay drawer when navigating via custom items.
+  // This prevents returning to Tabs with the drawer still open.
+  const drawerNavRef = useRef<any>(null);
+  const didMountRef = useRef(false);
 
   const [userName, setUserName] = useState<string>("");
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
@@ -66,11 +72,15 @@ export default function DrawerLayout() {
     Platform.OS === "android" ? (alphaColor(drawerText, 0.82) as any) : undefined;
 
   const isTabsRoute = pathname === "/" || pathname === "/ventas" || pathname === "/inventario";
+  const isFacturacion = role === "FACTURACION";
+  const isFactMainRoute = pathname === "/" || pathname === "/ventas";
   const isComprasRoute = pathname === "/compras" || pathname.startsWith("/compras/");
   const isClientesRoute = pathname.startsWith("/cliente");
   const isSolicitudesRoute = pathname === "/ventas-solicitudes" || pathname.startsWith("/ventas-solicitudes");
   const isAnuladasRoute = pathname === "/ventas-anuladas" || pathname.startsWith("/ventas-anuladas");
   const isRecetasRoute = pathname === "/recetas-pendientes" || pathname.startsWith("/recetas-pendientes");
+  const isComisionesRoute = pathname === "/comisiones" || pathname.startsWith("/comisiones");
+  const isKardexRoute = pathname === "/kardex" || pathname.startsWith("/kardex");
 
   useEffect(() => {
     let alive = true;
@@ -157,8 +167,9 @@ export default function DrawerLayout() {
   // Mostrar "Solicitudes" solo a administradores.
   // Antes se mostraba también a VENTAS; cambiar para que solo ADMIN lo vea.
   const showSolicitudes = role === "ADMIN";
-  const showAnuladas = role === "ADMIN" || role === "BODEGA" || role === "FACTURADOR" || role === "VENTAS";
+  const showAnuladas = role === "ADMIN" || role === "BODEGA" || role === "FACTURACION" || role === "VENTAS";
   const showCuentasPorCobrar = role === "ADMIN" || role === "VENTAS";
+  const showComisiones = role === "ADMIN" || role === "VENTAS";
 
   useEffect(() => {
     let alive = true;
@@ -199,6 +210,30 @@ export default function DrawerLayout() {
     };
   }, [showSolicitudes, pathname]);
 
+  useEffect(() => {
+    if (isWeb) return;
+
+    // Avoid calling closeDrawer on the very first mount after login.
+    // On iOS this can leave the drawer backdrop in a bad state where it becomes
+    // invisible but still intercepts touches near the bottom until a subsequent navigation.
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
+
+    try {
+      const st = drawerNavRef.current?.getState?.();
+      const hist = (st as any)?.history;
+      const lastDrawerHist = Array.isArray(hist) ? [...hist].reverse().find((h: any) => h?.type === "drawer") : null;
+      const isOpen = lastDrawerHist?.status === "open";
+      if (!isOpen) return;
+
+      drawerNavRef.current?.closeDrawer?.();
+    } catch {
+      // ignore
+    }
+  }, [isWeb, pathname]);
+
   const headerSub = useMemo(() => {
     const n = (userName ?? "").trim();
     if (!n) return "Hola";
@@ -218,7 +253,8 @@ export default function DrawerLayout() {
   return (
     <>
       <StatusBar style="light" />
-      <Drawer
+        <Drawer
+        detachInactiveScreens={false}
         screenOptions={{
           headerShown: true,
           headerTitle: undefined,
@@ -244,6 +280,15 @@ export default function DrawerLayout() {
               },
             }
             : {
+              // iOS: work around a react-navigation-drawer backdrop hit-testing bug
+              // that can leave an invisible overlay intercepting touches right after auth replace.
+              ...(isIOS
+                ? {
+                    overlayColor: "transparent",
+                    drawerType: "front" as const,
+                    swipeEnabled: false,
+                  }
+                : {}),
               drawerStyle: { backgroundColor: drawerBg },
             }),
 
@@ -256,6 +301,19 @@ export default function DrawerLayout() {
         },
       }}
         drawerContent={(props) => (
+          (() => {
+            drawerNavRef.current = props.navigation;
+
+            const closeDrawer = () => {
+              if (isWeb) return;
+              try {
+                (props.navigation as any)?.closeDrawer?.();
+              } catch {
+                // ignore
+              }
+            };
+
+            return (
           <DrawerContentScrollView
             {...props}
             contentContainerStyle={{ paddingBottom: 12, flexGrow: 1, justifyContent: "space-between", minHeight: "100%" }}
@@ -284,8 +342,28 @@ export default function DrawerLayout() {
             <View style={styles.menuList}>
               <Text style={[styles.sectionLabel, { color: sectionLabelColor }]}>Navegacion</Text>
 
-              <Pressable
-                onPress={() => props.navigation.navigate("(tabs)", { screen: "index" })}
+              {isFacturacion ? (
+                <Pressable
+                  onPress={() => {
+                    closeDrawer();
+                    props.navigation.navigate("(tabs)", { screen: "ventas" });
+                  }}
+                  style={({ pressed }) => [
+                    styles.menuItem,
+                    { backgroundColor: isFactMainRoute ? drawerActiveBg : "transparent" },
+                    pressed && { opacity: 0.85 },
+                  ]}
+                  accessibilityRole="button"
+                >
+                  <Ionicons name="cart-outline" size={22} color={isFactMainRoute ? drawerActiveTint : drawerMuted} />
+                  <Text style={[styles.menuLabel, { color: isFactMainRoute ? drawerActiveTint : drawerMuted }]}>Ventas</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  onPress={() => {
+                    closeDrawer();
+                    props.navigation.navigate("(tabs)", { screen: "index" });
+                  }}
                   style={({ pressed }) => [
                     styles.menuItem,
                     { backgroundColor: isTabsRoute ? drawerActiveBg : "transparent" },
@@ -296,10 +374,14 @@ export default function DrawerLayout() {
                   <Ionicons name="home-outline" size={22} color={isTabsRoute ? drawerActiveTint : drawerMuted} />
                   <Text style={[styles.menuLabel, { color: isTabsRoute ? drawerActiveTint : drawerMuted }]}>Inicio</Text>
                 </Pressable>
+              )}
 
-              {!isAdmin ? null : (
-                <Pressable
-                  onPress={() => router.push("/compras")}
+               {!isAdmin ? null : (
+                 <Pressable
+                  onPress={() => {
+                    closeDrawer();
+                    router.push("/compras");
+                  }}
                     style={({ pressed }) => [
                       styles.menuItem,
                       { backgroundColor: isComprasRoute ? drawerActiveBg : "transparent" },
@@ -313,7 +395,10 @@ export default function DrawerLayout() {
                 )}
 
               <Pressable
-                onPress={() => router.push("/clientes" as any)}
+                onPress={() => {
+                  closeDrawer();
+                  router.push("/clientes" as any);
+                }}
                 style={({ pressed }) => [
                   styles.menuItem,
                   { backgroundColor: isClientesRoute ? drawerActiveBg : "transparent" },
@@ -327,7 +412,10 @@ export default function DrawerLayout() {
 
               {!showSolicitudes ? null : (
                 <Pressable
-                  onPress={() => router.push("/ventas-solicitudes" as any)}
+                  onPress={() => {
+                    closeDrawer();
+                    router.push("/ventas-solicitudes" as any);
+                  }}
                     style={({ pressed }) => [
                       styles.menuItem,
                       { backgroundColor: isSolicitudesRoute ? drawerActiveBg : "transparent" },
@@ -357,9 +445,12 @@ export default function DrawerLayout() {
                 </Pressable>
               )}
 
-               {!showAnuladas ? null : (
-                <Pressable
-                  onPress={() => router.push("/ventas-anuladas" as any)}
+                {!showAnuladas ? null : (
+                 <Pressable
+                  onPress={() => {
+                    closeDrawer();
+                    router.push("/ventas-anuladas" as any);
+                  }}
                    style={({ pressed }) => [
                      styles.menuItem,
                      { backgroundColor: isAnuladasRoute ? drawerActiveBg : "transparent" },
@@ -372,29 +463,71 @@ export default function DrawerLayout() {
                   </Pressable>
                )}
 
-              {!showCuentasPorCobrar ? null : (
-                <Pressable
-                  onPress={() => router.push("/cxc" as any)}
-                   style={({ pressed }) => [
-                     styles.menuItem,
-                     { backgroundColor: pathname === "/cxc" ? drawerActiveBg : "transparent" },
-                     pressed && { opacity: 0.85 },
-                   ]}
+                {!showCuentasPorCobrar ? null : (
+                  <Pressable
+                    onPress={() => {
+                      closeDrawer();
+                      router.push("/cxc" as any);
+                    }}
+                    style={({ pressed }) => [
+                      styles.menuItem,
+                      { backgroundColor: pathname === "/cxc" ? drawerActiveBg : "transparent" },
+                      pressed && { opacity: 0.85 },
+                    ]}
                    accessibilityRole="button"
-                  >
-                    <Ionicons name="receipt-outline" size={22} color={pathname === "/cxc" ? drawerActiveTint : drawerMuted} />
-                    <Text style={[styles.menuLabel, { color: pathname === "/cxc" ? drawerActiveTint : drawerMuted }]}>Cuentas por cobrar</Text>
-                  </Pressable>
+                 >
+                   <Ionicons name="receipt-outline" size={22} color={pathname === "/cxc" ? drawerActiveTint : drawerMuted} />
+                   <Text style={[styles.menuLabel, { color: pathname === "/cxc" ? drawerActiveTint : drawerMuted }]}>Cuentas por cobrar</Text>
+                 </Pressable>
                )}
 
-              {(role === "ADMIN" || role === "VENTAS") ? (
-                <Pressable
-                  onPress={() => router.push("/recetas-pendientes" as any)}
-                   style={({ pressed }) => [
-                     styles.menuItem,
-                     { backgroundColor: isRecetasRoute ? drawerActiveBg : "transparent" },
-                     pressed && { opacity: 0.85 },
-                   ]}
+                {!showComisiones ? null : (
+                   <Pressable
+                     onPress={() => {
+                       closeDrawer();
+                       router.push("/comisiones" as any);
+                     }}
+                     style={({ pressed }) => [
+                       styles.menuItem,
+                       { backgroundColor: isComisionesRoute ? drawerActiveBg : "transparent" },
+                       pressed && { opacity: 0.85 },
+                     ]}
+                    accessibilityRole="button"
+                  >
+                    <Ionicons name="cash-outline" size={22} color={isComisionesRoute ? drawerActiveTint : drawerMuted} />
+                    <Text style={[styles.menuLabel, { color: isComisionesRoute ? drawerActiveTint : drawerMuted }]}>Comisiones</Text>
+                  </Pressable>
+                )}
+
+                {role === "ADMIN" ? (
+                  <Pressable
+                    onPress={() => {
+                      closeDrawer();
+                      router.push("/kardex" as any);
+                    }}
+                    style={({ pressed }) => [
+                      styles.menuItem,
+                      { backgroundColor: isKardexRoute ? drawerActiveBg : "transparent" },
+                      pressed && { opacity: 0.85 },
+                    ]}
+                   accessibilityRole="button"
+                 >
+                   <Ionicons name="list-outline" size={22} color={isKardexRoute ? drawerActiveTint : drawerMuted} />
+                   <Text style={[styles.menuLabel, { color: isKardexRoute ? drawerActiveTint : drawerMuted }]}>Kardex</Text>
+                 </Pressable>
+               ) : null}
+
+               {(role === "ADMIN" || role === "VENTAS") ? (
+                 <Pressable
+                   onPress={() => {
+                     closeDrawer();
+                     router.push("/recetas-pendientes" as any);
+                   }}
+                    style={({ pressed }) => [
+                      styles.menuItem,
+                      { backgroundColor: isRecetasRoute ? drawerActiveBg : "transparent" },
+                      pressed && { opacity: 0.85 },
+                    ]}
                    accessibilityRole="button"
                   >
                     <Ionicons name="document-text-outline" size={22} color={isRecetasRoute ? drawerActiveTint : drawerMuted} />
@@ -402,7 +535,7 @@ export default function DrawerLayout() {
                   </Pressable>
                ) : null}
                  
-            </View>
+           </View>
 
             {/* Toggle Tema */}
             <View style={[styles.themeRow, { borderTopColor: drawerBorder }]}>
@@ -445,15 +578,17 @@ export default function DrawerLayout() {
           >
             <Ionicons name="log-out-outline" size={18} color={FB_DARK_DANGER} style={{ marginRight: 8 }} />
             <Text style={styles.logoutText}>Cerrar sesión</Text>
-          </Pressable>
-          </DrawerContentScrollView>
+           </Pressable>
+           </DrawerContentScrollView>
+            );
+          })()
         )}
       >
       <Drawer.Screen
         name="(tabs)"
         options={({ route }: any) => {
           // Determinar el tab activo dentro de (tabs) y ajustar el título del header
-          const focused = getFocusedRouteNameFromRoute(route) ?? "index";
+          const focused = getFocusedRouteNameFromRoute(route) ?? (isFacturacion ? "ventas" : "index");
           const title = focused === "ventas" ? "Ventas" : focused === "inventario" ? "Inventario" : "Inicio";
           return {
             title,

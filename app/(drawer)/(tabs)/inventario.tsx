@@ -121,9 +121,17 @@ export default function InventarioScreen() {
         }
 
         const { data: prof } = await supabase.from("profiles").select("role").eq("id", uid).maybeSingle();
-        const admin = String(prof?.role ?? "")
-          .trim()
-          .toUpperCase() === "ADMIN";
+        const roleUp = String(prof?.role ?? "").trim().toUpperCase();
+
+        if (roleUp === "FACTURACION") {
+          if (!mounted) return;
+          setIsAdmin(false);
+          setShowInactive(false);
+          router.replace("/ventas" as any);
+          return;
+        }
+
+        const admin = roleUp === "ADMIN";
 
         if (!mounted) return;
         setIsAdmin(admin);

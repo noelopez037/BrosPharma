@@ -1,3 +1,4 @@
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -15,7 +16,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
-import { goBackSafe } from "../../lib/goBackSafe";
+import { goHome } from "../../lib/goHome";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 
@@ -55,6 +56,13 @@ function displayNit(nit: string | null | undefined) {
 export default function ClientesScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  let tabBarHeight = 0;
+  try {
+    tabBarHeight = useBottomTabBarHeight();
+  } catch {
+    tabBarHeight = 0;
+  }
+  const bottomRail = tabBarHeight || insets.bottom;
 
   const s = useMemo(() => styles(colors), [colors]);
 
@@ -137,8 +145,7 @@ export default function ClientesScreen() {
 
   const renderItem = ({ item }: { item: ClienteRow }) => {
     const vendedorNombre = (item.vendedor?.full_name ?? "").trim();
-    const vendedorRole = normalizeUpper(item.vendedor?.role);
-    const vendedorLabel = vendedorNombre || (item.vendedor_id ? item.vendedor_id : "Sin asignar");
+    const vendedorChipLabel = vendedorNombre || (item.vendedor_id ? item.vendedor_id : "Sin asignar");
 
     return (
       <Pressable
@@ -167,14 +174,16 @@ export default function ClientesScreen() {
             <Text style={s.sub} numberOfLines={1}>
               Dir: {item.direccion ?? "—"}
             </Text>
-
-            <Text style={s.sub} numberOfLines={1}>
-              Vendedor: {vendedorLabel}
-              {vendedorRole ? ` • ${vendedorRole}` : ""}
-            </Text>
           </View>
 
-          {!item.activo ? <Text style={s.badgeOff}>INACTIVO</Text> : null}
+          <View style={s.rightCol}>
+            <View style={s.vendedorPill}>
+              <Text style={s.vendedorPillText} numberOfLines={1}>
+                {vendedorChipLabel}
+              </Text>
+            </View>
+            {!item.activo ? <Text style={s.badgeOff}>INACTIVO</Text> : null}
+          </View>
         </View>
       </Pressable>
     );
@@ -192,7 +201,7 @@ export default function ClientesScreen() {
           gestureEnabled: false,
           headerBackVisible: false,
           headerBackButtonMenuEnabled: false,
-          headerLeft: () => <HeaderBackButton onPress={() => goBackSafe("/(drawer)/(tabs)")} />,
+          headerLeft: (props: any) => <HeaderBackButton {...props} label="Atrás" onPress={() => goHome("/(drawer)/(tabs)")} />,
         }}
       />
 
@@ -208,7 +217,7 @@ export default function ClientesScreen() {
           contentContainerStyle={{
             paddingHorizontal: 12,
             paddingTop: 12,
-            paddingBottom: 16 + insets.bottom,
+            paddingBottom: 16 + bottomRail,
           }}
           ListHeaderComponent={
             <>
@@ -266,7 +275,7 @@ export default function ClientesScreen() {
 
         {canCreate ? (
           <Pressable
-            style={[s.fab, { backgroundColor: fabBg }]}
+            style={[s.fab, { backgroundColor: fabBg, bottom: 18 + bottomRail }]}
             onPress={() => router.push("/cliente-form" as any)}
             accessibilityRole="button"
             accessibilityLabel="Nuevo cliente"
@@ -343,6 +352,17 @@ const styles = (colors: any) =>
     row: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
     title: { color: colors.text, fontSize: 16, fontWeight: "800" },
     sub: { color: colors.text + "AA", marginTop: 6, fontSize: 12 },
+    rightCol: { alignItems: "flex-end", gap: 8, maxWidth: 160 },
+    vendedorPill: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.background,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 999,
+      overflow: "hidden",
+    },
+    vendedorPillText: { color: colors.text, fontSize: 12, fontWeight: "800" },
     badgeOff: {
       color: colors.text + "AA",
       borderWidth: 1,

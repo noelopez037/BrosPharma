@@ -10,10 +10,10 @@ import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
 import { useGoHomeOnBack } from "../lib/useGoHomeOnBack";
-import { goBackSafe } from "../lib/goBackSafe";
+import { goHome } from "../lib/goHome";
 import { FB_DARK_DANGER } from "../src/theme/headerColors";
 
-type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURADOR" | "";
+type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "";
 
 type VentaRow = {
   id: number;
@@ -88,7 +88,7 @@ export default function VentasAnuladasScreen() {
   const [rowsRaw, setRowsRaw] = useState<VentaRow[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
 
-  const canView = role === "ADMIN" || role === "BODEGA" || role === "FACTURADOR" || role === "VENTAS";
+  const canView = role === "ADMIN" || role === "BODEGA" || role === "FACTURACION" || role === "VENTAS";
 
   const loadRole = useCallback(async () => {
     const { data: auth } = await supabase.auth.getUser();
@@ -163,7 +163,7 @@ export default function VentasAnuladasScreen() {
     if (!role) return;
     if (canView) return;
     Alert.alert("Sin permiso", "Tu rol no puede ver anuladas.", [
-      { text: "OK", onPress: () => goBackSafe("/(drawer)/(tabs)") },
+      { text: "OK", onPress: () => goHome("/(drawer)/(tabs)") },
     ]);
   }, [canView, role]);
 
@@ -265,29 +265,36 @@ export default function VentasAnuladasScreen() {
           gestureEnabled: false,
           headerBackVisible: false,
           headerBackButtonMenuEnabled: false,
-          headerLeft: () => <HeaderBackButton onPress={() => goBackSafe("/(drawer)/(tabs)")} />,
+          headerLeft: (props: any) => <HeaderBackButton {...props} label="Atrás" onPress={() => goHome("/(drawer)/(tabs)")} />,
         }}
       />
 
       <SafeAreaView style={[styles.safe, { backgroundColor: C.bg }]} edges={["bottom"]}>
         <View style={[styles.content, { backgroundColor: C.bg }]}
         >
-          <View style={styles.headerRow}>
-            <TextInput
-              value={q}
-              onChangeText={setQ}
-              placeholder="Buscar (cliente, id, vendedor)..."
-              placeholderTextColor={C.sub}
-              style={[styles.search, { borderColor: C.border, backgroundColor: C.card, color: C.text, flex: 1 }]}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-
-            <Pressable onPress={() => setFiltersOpen(true)} style={({ pressed }) => [styles.filterBtn, pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null]}>
-              <Text style={styles.filterTxt}>Filtros</Text>
-            </Pressable>
-          </View>
-        </View>
+           <View style={styles.headerRow}>
+             <TextInput
+               value={q}
+               onChangeText={setQ}
+               placeholder="Buscar (cliente, id, vendedor)..."
+               placeholderTextColor={C.sub}
+               style={[styles.search, { borderColor: C.border, backgroundColor: C.card, color: C.text, flex: 1 }]}
+               autoCapitalize="none"
+               autoCorrect={false}
+             />
+ 
+             <Pressable
+               onPress={() => setFiltersOpen(true)}
+               style={({ pressed }) => [
+                 styles.filterBtn,
+                 { borderColor: C.border, backgroundColor: C.card },
+                 pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
+               ]}
+             >
+               <Text style={[styles.filterTxt, { color: C.text }]}>Filtros</Text>
+             </Pressable>
+           </View>
+         </View>
 
         <FlatList
           data={rows}
@@ -333,16 +340,23 @@ export default function VentasAnuladasScreen() {
             </Text>
           }
         />
-
+        
         {/* Modal filtros */}
-        <Modal visible={filtersOpen} transparent animationType="fade" onRequestClose={() => setFiltersOpen(false)}>
-          <Pressable style={[styles.modalBackdrop]} onPress={() => setFiltersOpen(false)} />
+        {filtersOpen ? (
+          <Modal visible={filtersOpen} transparent animationType="fade" onRequestClose={() => setFiltersOpen(false)}>
+            <Pressable
+              style={[
+                styles.modalBackdrop,
+                { backgroundColor: isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.35)" },
+              ]}
+              onPress={() => setFiltersOpen(false)}
+            />
 
-          <View style={[styles.modalCard, { backgroundColor: C.card, borderColor: C.border }]}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: C.text }]}>Filtros</Text>
-              <Pressable onPress={() => setFiltersOpen(false)} hitSlop={10}><Text style={[styles.modalClose, { color: C.sub }]}>Cerrar</Text></Pressable>
-            </View>
+            <View style={[styles.modalCard, { backgroundColor: C.card, borderColor: C.border }]}>
+              <View style={styles.modalHeader}>
+                <Text style={[styles.modalTitle, { color: C.text }]}>Filtros</Text>
+                <Pressable onPress={() => setFiltersOpen(false)} hitSlop={10}><Text style={[styles.modalClose, { color: C.sub }]}>Cerrar</Text></Pressable>
+              </View>
 
             <Text style={[styles.sectionLabel, { color: C.text }]}>Cliente</Text>
             <Pressable
@@ -361,14 +375,38 @@ export default function VentasAnuladasScreen() {
                         onChangeText={setFClienteQ}
                         placeholder="Buscar cliente..."
                         placeholderTextColor={C.sub}
-                        style={[styles.clientSearchInput, { color: C.text }]}
+                        style={[
+                          styles.clientSearchInput,
+                          {
+                            color: C.text,
+                            borderColor: C.border,
+                            backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+                          },
+                        ]}
                         autoCapitalize="none"
                         returnKeyType="search"
                       />
                     </View>
-                    <Pressable onPress={() => { setFClienteId(null); setClienteOpen(false); setFClienteQ(""); }} style={styles.ddRow}><Text style={{ fontSize: 16, fontWeight: "600", color: C.text }}>Todos</Text></Pressable>
+                    <Pressable
+                      onPress={() => {
+                        setFClienteId(null);
+                        setClienteOpen(false);
+                        setFClienteQ("");
+                      }}
+                      style={[styles.ddRow, { borderBottomColor: isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)" }]}
+                    >
+                      <Text style={{ fontSize: 16, fontWeight: "600", color: C.text }}>Todos</Text>
+                    </Pressable>
                     {filteredClientes.map((c) => (
-                      <Pressable key={String(c.id)} onPress={() => { setFClienteId(c.id); setClienteOpen(false); setFClienteQ(""); }} style={styles.ddRow}>
+                      <Pressable
+                        key={String(c.id)}
+                        onPress={() => {
+                          setFClienteId(c.id);
+                          setClienteOpen(false);
+                          setFClienteQ("");
+                        }}
+                        style={[styles.ddRow, { borderBottomColor: isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)" }]}
+                      >
                         <Text style={{ fontSize: 16, fontWeight: "600", color: C.text }}>{c.nombre}</Text>
                       </Pressable>
                     ))}
@@ -410,11 +448,27 @@ export default function VentasAnuladasScreen() {
 
             <View style={{ height: 10 }} />
             <View style={styles.modalActions}>
-              <Pressable onPress={limpiarFiltros} style={styles.actionBtn}><Text style={styles.actionBtnText}>Limpiar</Text></Pressable>
-              <Pressable onPress={() => { setFiltersOpen(false); setClienteOpen(false); setShowDesdeIOS(false); setShowHastaIOS(false); }} style={[styles.actionBtn, { backgroundColor: C.card }]}><Text style={styles.actionBtnText}>Aplicar</Text></Pressable>
+              <Pressable
+                onPress={limpiarFiltros}
+                style={[styles.actionBtn, { borderColor: C.border, backgroundColor: C.card }]}
+              >
+                <Text style={[styles.actionBtnText, { color: C.text }]}>Limpiar</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setFiltersOpen(false);
+                  setClienteOpen(false);
+                  setShowDesdeIOS(false);
+                  setShowHastaIOS(false);
+                }}
+                style={[styles.actionBtn, { borderColor: C.border, backgroundColor: C.card }]}
+              >
+                <Text style={[styles.actionBtnText, { color: C.text }]}>Aplicar</Text>
+              </Pressable>
             </View>
-          </View>
-        </Modal>
+            </View>
+          </Modal>
+        ) : null}
       </SafeAreaView>
     </>
   );
@@ -431,7 +485,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   headerRow: { flexDirection: "row", gap: 10, alignItems: "center", marginBottom: 8 },
-  filterBtn: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginLeft: 8 },
+  filterBtn: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.select({ ios: 12, android: 10, default: 10 }),
+    alignItems: "center",
+    justifyContent: "center",
+  },
   filterTxt: { fontWeight: "800" },
   smallInput: {
     borderWidth: 1,
@@ -460,14 +521,19 @@ const styles = StyleSheet.create({
   dropdownText: { fontSize: 16, fontWeight: "600", flex: 1, paddingRight: 10 },
   dropdownCaret: { fontSize: 14, fontWeight: "900" },
   dropdownPanel: { marginTop: 10, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
-  ddRow: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "rgba(0,0,0,0.08)" },
+  ddRow: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
   twoCols: { flexDirection: "row", marginTop: 8 },
   dateBox: { marginTop: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12 },
   dateTxt: { fontSize: 16, fontWeight: "700" },
   iosPickerWrap: { marginTop: 10, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
   clientSearchInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 },
   modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 12, marginTop: 16 },
-  actionBtn: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginLeft: 8 },
+  actionBtn: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.select({ ios: 12, android: 10, default: 10 }),
+  },
   actionBtnText: { fontWeight: "800" },
   card: { marginHorizontal: 16, marginTop: 10, borderWidth: 1, borderRadius: 16, padding: 14 },
   title: { fontSize: 16, fontWeight: "900" },

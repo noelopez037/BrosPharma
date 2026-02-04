@@ -13,6 +13,7 @@
 // ✅ Modal respeta tema (dark/light) + mejor contraste en dark
 
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -34,7 +35,7 @@ import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { AppButton } from "../../components/ui/app-button";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
-import { goBackSafe } from "../../lib/goBackSafe";
+import { goHome } from "../../lib/goHome";
 
 
 // Carga silenciosa: evitar spinners y evitar doble fetch en mount.
@@ -106,6 +107,13 @@ function endOfDay(d: Date) {
 export default function ComprasScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  let tabBarHeight = 0;
+  try {
+    tabBarHeight = useBottomTabBarHeight();
+  } catch {
+    tabBarHeight = 0;
+  }
+  const bottomRail = tabBarHeight || insets.bottom;
   const s = useMemo(() => styles(colors), [colors]);
 
   // ✅ respetar toggle dark/light
@@ -306,6 +314,8 @@ export default function ComprasScreen() {
 
   const renderItem = ({ item }: { item: CompraRow }) => {
     const b = badge(item);
+    const tipo = normalizeUpper(item.tipo_pago);
+    const showSaldo = tipo === "CREDITO";
     return (
       <Pressable
         style={s.card}
@@ -338,6 +348,8 @@ export default function ComprasScreen() {
             </Text>
 
             <Text style={s.total}>{fmtQ(item.monto_total)}</Text>
+
+            {showSaldo ? <Text style={s.saldo}>Saldo: {fmtQ(item.saldo_pendiente)}</Text> : null}
           </View>
         </View>
       </Pressable>
@@ -415,7 +427,7 @@ export default function ComprasScreen() {
           gestureEnabled: false,
           headerBackVisible: false,
           headerBackButtonMenuEnabled: false,
-          headerLeft: () => <HeaderBackButton onPress={() => goBackSafe("/(drawer)/(tabs)")} />,
+          headerLeft: (props: any) => <HeaderBackButton {...props} label="Atrás" onPress={() => goHome("/(drawer)/(tabs)")} />,
         }}
       />
 
@@ -431,7 +443,7 @@ export default function ComprasScreen() {
           contentContainerStyle={{
             paddingHorizontal: 12,
             paddingTop: 12,
-            paddingBottom: 16 + insets.bottom,
+            paddingBottom: 16 + bottomRail,
           }}
           ListHeaderComponent={
             <>
@@ -489,7 +501,7 @@ export default function ComprasScreen() {
 
         {canManage ? (
           <Pressable
-            style={[s.fab, { backgroundColor: fabBg }]}
+            style={[s.fab, { backgroundColor: fabBg, bottom: 18 + bottomRail }]}
             onPress={() => router.push("/compra-nueva")}
           >
             <Text style={s.fabText}>＋</Text>
@@ -497,24 +509,25 @@ export default function ComprasScreen() {
         ) : null}
 
         {/* MODAL FILTROS */}
-        <Modal
-          visible={filtersOpen}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setFiltersOpen(false)}
-        >
-          <Pressable
-            style={[s.modalBackdrop, { backgroundColor: M.back }]}
-            onPress={() => setFiltersOpen(false)}
-          />
+        {filtersOpen ? (
+          <Modal
+            visible={filtersOpen}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setFiltersOpen(false)}
+          >
+            <Pressable
+              style={[s.modalBackdrop, { backgroundColor: M.back }]}
+              onPress={() => setFiltersOpen(false)}
+            />
 
-          <View style={[s.modalCard, { backgroundColor: M.card, borderColor: M.border }]}>
-            <View style={s.modalHeader}>
-              <Text style={[s.modalTitle, { color: M.text }]}>Filtros</Text>
-              <Pressable onPress={() => setFiltersOpen(false)} hitSlop={10}>
-                <Text style={[s.modalClose, { color: M.sub }]}>Cerrar</Text>
-              </Pressable>
-            </View>
+            <View style={[s.modalCard, { backgroundColor: M.card, borderColor: M.border }]}>
+              <View style={s.modalHeader}>
+                <Text style={[s.modalTitle, { color: M.text }]}>Filtros</Text>
+                <Pressable onPress={() => setFiltersOpen(false)} hitSlop={10}>
+                  <Text style={[s.modalClose, { color: M.sub }]}>Cerrar</Text>
+                </Pressable>
+              </View>
 
             {/* Proveedor */}
             <Text style={[s.sectionLabel, { color: M.text }]}>Proveedor</Text>
@@ -645,8 +658,9 @@ export default function ComprasScreen() {
               <AppButton title="Limpiar" variant="ghost" size="sm" onPress={limpiarFiltros} />
               <AppButton title="Aplicar" variant="primary" size="sm" onPress={aplicarFiltros} />
             </View>
-          </View>
-        </Modal>
+            </View>
+          </Modal>
+        ) : null}
       </SafeAreaView>
     </>
   );
@@ -811,6 +825,8 @@ const styles = (colors: any) =>
     badgeMuted: { color: colors.text + "AA", backgroundColor: "transparent" },
 
     total: { color: colors.text, fontWeight: "900", marginTop: 10, fontSize: 14 },
+
+    saldo: { color: colors.text + "AA", marginTop: 4, fontSize: 12, fontWeight: "800" },
 
     fab: {
       position: "absolute",

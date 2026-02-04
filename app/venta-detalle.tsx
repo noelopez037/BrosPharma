@@ -1,12 +1,13 @@
-import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect, useTheme } from "@react-navigation/native";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
-import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
+import * as ImagePicker from "expo-image-picker";
 import * as MediaLibrary from "expo-media-library";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
+import ImageViewer from "react-native-image-zoom-viewer";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -28,14 +29,14 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { AppButton } from "../components/ui/app-button";
 import { KeyboardAwareModal } from "../components/ui/keyboard-aware-modal";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
-import { supabase } from "../lib/supabase";
+import { goBackSafe } from "../lib/goBackSafe";
 import { emitSolicitudesChanged } from "../lib/solicitudesEvents";
+import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
-import { goBackSafe } from "../lib/goBackSafe";
 import { FB_DARK_DANGER, getHeaderColors } from "../src/theme/headerColors";
 
-type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURADOR" | "";
+type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 
 type Venta = {
   id: number;
@@ -92,14 +93,25 @@ type FacturaRow = {
   numero_factura: string | null;
   original_name: string | null;
   size_bytes: number | null;
+  monto_total?: number | null;
+  fecha_emision?: string | null;
+  fecha_vencimiento?: string | null;
 };
 
 type FacturaDraft = {
   tipo: "IVA" | "EXENTO";
   numero: string;
+  monto: string;
   path: string | null;
   originalName: string | null;
   sizeBytes: number | null;
+};
+
+type SolicitudAnulacion = {
+  venta_id: number;
+  solicitud_nota: string | null;
+  solicitud_fecha: string | null;
+  solicitud_user_id: string | null;
 };
 
 const BUCKET = "Ventas-Docs";
@@ -124,6 +136,48 @@ function fmtQ(n: string | number | null | undefined) {
   const x = Number(n);
   if (!Number.isFinite(x)) return "—";
   return `Q ${x.toFixed(2)}`;
+}
+
+function toIsoDateLocal(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function addDays(d: Date, days: number) {
+  const x = new Date(d.getTime());
+  x.setDate(x.getDate() + days);
+  return x;
+}
+
+function sanitizeMontoDraftInput(v: string) {
+  return String(v ?? "").replace(/[^0-9.,]/g, "");
+}
+
+function parseMontoInput(raw: string) {
+  const s0 = String(raw ?? "").trim();
+  if (!s0) return NaN;
+  const noPrefix = s0.replace(/^Q\s*/i, "");
+  const noSpaces = noPrefix.replace(/\s+/g, "");
+  const normalized = noSpaces.replace(/,/g, ".");
+  // Keep digits and first dot only
+  let out = "";
+  let dot = false;
+  for (const ch of normalized) {
+    if (ch >= "0" && ch <= "9") out += ch;
+    else if (ch === "." && !dot) {
+      out += ".";
+      dot = true;
+    }
+  }
+  const n = Number(out);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function isValidMonto(raw: string) {
+  const n = parseMontoInput(raw);
+  return Number.isFinite(n) && n > 0;
 }
 
 function extFromMime(mime: string) {
@@ -265,6 +319,9 @@ export default function VentaDetalleScreen() {
         (isDark ? "rgba(255,255,255,0.65)" : "#666"),
       border: colors.border ?? (isDark ? "rgba(255,255,255,0.14)" : "#e5e5e5"),
       danger: FB_DARK_DANGER,
+      ok: isDark ? "rgba(140,255,170,0.95)" : "#16a34a",
+      okBg: isDark ? "rgba(22,163,74,0.18)" : "rgba(22,163,74,0.10)",
+      mutedBg: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.04)",
       warnBg: isDark ? "rgba(255,201,107,0.18)" : "rgba(255,170,0,0.12)",
       warnText: isDark ? "rgba(255,201,107,0.92)" : "#b25a00",
     }),
@@ -280,6 +337,8 @@ export default function VentaDetalleScreen() {
   const [facturaDraft, setFacturaDraft] = useState<Record<string, FacturaDraft>>({});
 
   const [tagsActivos, setTagsActivos] = useState<string[]>([]);
+  const [solicitudAnulacion, setSolicitudAnulacion] = useState<SolicitudAnulacion | null>(null);
+  const [solicitudAnulacionByName, setSolicitudAnulacionByName] = useState<string | null>(null);
   const [solOpen, setSolOpen] = useState(false);
   const [solAccion, setSolAccion] = useState<"EDICION" | "ANULACION" | null>(null);
   const [solNota, setSolNota] = useState("");
@@ -294,16 +353,16 @@ export default function VentaDetalleScreen() {
   const [enRutaLoading, setEnRutaLoading] = useState(false);
   const [entregarLoading, setEntregarLoading] = useState(false);
 
-  const canViewRecetaTools = role === "ADMIN" || role === "FACTURADOR";
+  const canViewRecetaTools = role === "ADMIN" || role === "FACTURACION" || role === "VENTAS";
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerUrl, setViewerUrl] = useState<string | null>(null);
   const viewerOpacity = useRef(new Animated.Value(0)).current;
   const viewerScale = useRef(new Animated.Value(0.98)).current;
 
-  const canSplitIva = role === "ADMIN" || role === "FACTURADOR";
+  const canSplitIva = role === "ADMIN" || role === "FACTURACION";
   const canEditRecetas = role === "ADMIN" || role === "VENTAS";
-  const canFacturar = role === "ADMIN" || role === "FACTURADOR";
-  const canVerFacturas = role === "ADMIN" || role === "FACTURADOR" || role === "VENTAS";
+  const canFacturar = role === "ADMIN" || role === "FACTURACION";
+  const canVerFacturas = role === "ADMIN" || role === "FACTURACION" || role === "VENTAS";
   const canBodega = role === "ADMIN" || role === "BODEGA";
   const canEntregar = role === "ADMIN" || role === "BODEGA" || role === "VENTAS";
   const canSolicitar = role === "VENTAS" || role === "ADMIN";
@@ -335,6 +394,8 @@ export default function VentaDetalleScreen() {
     setFacturaDraft({});
     setTagsActivos([]);
     setClienteMini(null);
+    setSolicitudAnulacion(null);
+    setSolicitudAnulacionByName(null);
   }, [ventaId]);
 
   React.useEffect(() => {
@@ -373,6 +434,32 @@ export default function VentaDetalleScreen() {
     if (error) throw error;
     const tags = (data ?? []).map((r: any) => String(r.tag ?? "").trim().toUpperCase()).filter(Boolean);
     setTagsActivos(tags);
+  }, [ventaId]);
+
+  const fetchSolicitudAnulacion = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("vw_venta_razon_anulacion")
+      .select("venta_id,solicitud_nota,solicitud_fecha,solicitud_user_id")
+      .eq("venta_id", ventaId)
+      .maybeSingle();
+    if (error) throw error;
+    const row = (data ?? null) as any as SolicitudAnulacion | null;
+    setSolicitudAnulacion(row);
+
+    const uid = String(row?.solicitud_user_id ?? "").trim();
+    if (!uid) {
+      setSolicitudAnulacionByName(null);
+      return;
+    }
+
+    try {
+      const { data: p, error: pe } = await supabase.from("profiles").select("full_name").eq("id", uid).maybeSingle();
+      if (pe) throw pe;
+      const name = String((p as any)?.full_name ?? "").trim();
+      setSolicitudAnulacionByName(name || null);
+    } catch {
+      setSolicitudAnulacionByName(null);
+    }
   }, [ventaId]);
 
   const loadRole = useCallback(async (): Promise<Role> => {
@@ -431,7 +518,7 @@ export default function VentaDetalleScreen() {
   const fetchFacturas = useCallback(async () => {
     const { data, error } = await supabase
       .from("ventas_facturas")
-      .select("id,venta_id,tipo,path,numero_factura,original_name,size_bytes")
+      .select("id,venta_id,tipo,path,numero_factura,original_name,size_bytes,monto_total,fecha_emision,fecha_vencimiento")
       .eq("venta_id", ventaId)
       .order("created_at", { ascending: false });
     if (error) throw error;
@@ -450,6 +537,7 @@ export default function VentaDetalleScreen() {
       next[t] = {
         tipo: t as any,
         numero: String(r.numero_factura ?? ""),
+        monto: r.monto_total == null ? "" : String(r.monto_total),
         path: r.path || null,
         originalName: r.original_name ?? null,
         sizeBytes: r.size_bytes == null ? null : Number(r.size_bytes),
@@ -463,7 +551,7 @@ export default function VentaDetalleScreen() {
       .from("ventas_recetas")
       .select("id,venta_id,path,created_at,uploaded_by")
       .eq("venta_id", ventaId)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: true });
     if (error) throw error;
 
     const rows = (data ?? []) as any as RecetaRow[];
@@ -490,19 +578,24 @@ export default function VentaDetalleScreen() {
       setLineas([]);
       setRecetas([]);
       setFacturas([]);
+      setSolicitudAnulacion(null);
       return;
     }
 
     const r = await loadRole();
-    const allowSplit = r === "ADMIN" || r === "FACTURADOR";
+    const allowSplit = r === "ADMIN" || r === "FACTURACION";
     await Promise.all([
       fetchVenta(),
       fetchLineas(allowSplit),
       fetchRecetas(),
       fetchFacturas(),
       fetchTags(),
+      fetchSolicitudAnulacion().catch(() => {
+        // non-blocking: view may be missing or RLS may restrict
+        setSolicitudAnulacion(null);
+      }),
     ]);
-  }, [fetchFacturas, fetchLineas, fetchRecetas, fetchTags, fetchVenta, loadRole, ventaId]);
+  }, [fetchFacturas, fetchLineas, fetchRecetas, fetchSolicitudAnulacion, fetchTags, fetchVenta, loadRole, ventaId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -548,7 +641,7 @@ export default function VentaDetalleScreen() {
   const isEnRuta = normalizeUpper(venta?.estado) === "EN_RUTA";
 
   const facturaCurrentByTipo = useMemo(() => {
-    const map: Record<string, { path: string; numero: string }> = {};
+    const map: Record<string, { path: string; numero: string; monto: string; fecha_emision: string; fecha_vencimiento: string }> = {};
     for (const f of facturas) {
       const t = String((f as any)?.tipo ?? "").toUpperCase();
       if (t !== "IVA" && t !== "EXENTO") continue;
@@ -556,6 +649,9 @@ export default function VentaDetalleScreen() {
       map[t] = {
         path: String((f as any)?.path ?? "").trim(),
         numero: String((f as any)?.numero_factura ?? "").trim(),
+        monto: String((f as any)?.monto_total ?? "").trim(),
+        fecha_emision: String((f as any)?.fecha_emision ?? "").trim(),
+        fecha_vencimiento: String((f as any)?.fecha_vencimiento ?? "").trim(),
       };
     }
     return map;
@@ -573,26 +669,41 @@ export default function VentaDetalleScreen() {
     return requiredTipos.every((t) => {
       const d = facturaDraft[t];
       const hasPdf = !!String(d?.path ?? facturaCurrentByTipo[t]?.path ?? "").trim();
-      const hasNum = !!String(d?.numero ?? "").trim();
-      return hasPdf && hasNum;
+      const hasNum = !!String(d?.numero ?? facturaCurrentByTipo[t]?.numero ?? "").trim();
+      const hasMonto = isValidMonto(String(d?.monto ?? facturaCurrentByTipo[t]?.monto ?? "").trim());
+      return hasPdf && hasNum && hasMonto;
     });
   }, [facturaCurrentByTipo, facturaDraft, requiredTipos]);
 
   const buildFacturaPayload = useCallback(() => {
+    const now = new Date();
+    const emisionDefault = toIsoDateLocal(now);
+    const vencDefault = toIsoDateLocal(addDays(now, 30));
+
     const payload: any[] = [];
     for (const tipo of requiredTipos) {
+      const uiLabel = `Factura ${requiredTipos.indexOf(tipo) + 1}`;
       const d = facturaDraft[tipo] ?? null;
-      const numero = String(d?.numero ?? "").trim();
+      const numero = String(d?.numero ?? facturaCurrentByTipo[tipo]?.numero ?? "").trim();
       const path = String(d?.path ?? facturaCurrentByTipo[tipo]?.path ?? "").trim();
-      if (!numero || !path) {
-        throw new Error(`Completa numero y PDF para ${tipo}.`);
+      const montoRaw = String(d?.monto ?? facturaCurrentByTipo[tipo]?.monto ?? "").trim();
+      const monto = parseMontoInput(montoRaw);
+      if (!numero || !path || !Number.isFinite(monto) || monto <= 0) {
+        throw new Error(`Completa numero, monto y PDF para ${uiLabel}.`);
       }
+
+      const cur = facturaCurrentByTipo[tipo] ?? null;
+      const fecha_emision = (cur?.fecha_emision || "").trim() || emisionDefault;
+      const fecha_vencimiento = (cur?.fecha_vencimiento || "").trim() || vencDefault;
       payload.push({
         tipo,
         numero_factura: numero,
         path,
         original_name: d?.originalName ?? null,
         size_bytes: d?.sizeBytes ?? null,
+        monto_total: monto,
+        fecha_emision,
+        fecha_vencimiento,
       });
     }
     return payload;
@@ -601,11 +712,12 @@ export default function VentaDetalleScreen() {
   const facturaHasChanges = useMemo(() => {
     if (!requiredTipos.length) return false;
     return requiredTipos.some((t) => {
-      const cur = facturaCurrentByTipo[t] ?? { path: "", numero: "" };
-      const d = facturaDraft[t] ?? { path: "", numero: "" };
+      const cur = facturaCurrentByTipo[t] ?? { path: "", numero: "", monto: "" };
+      const d = facturaDraft[t] ?? ({ path: "", numero: "", monto: "" } as any);
       const dp = String((d as any).path ?? "").trim();
       const dn = String((d as any).numero ?? "").trim();
-      return dp !== cur.path || dn !== cur.numero;
+      const dm = String((d as any).monto ?? "").trim();
+      return dp !== cur.path || dn !== cur.numero || dm !== cur.monto;
     });
   }, [facturaCurrentByTipo, facturaDraft, requiredTipos]);
 
@@ -632,6 +744,7 @@ export default function VentaDetalleScreen() {
 
   const pickAndUploadReceta = useCallback(async () => {
     if (!venta) return;
+    if (!venta.requiere_receta) return;
     if (!canEditRecetas) return;
     if (uploading) return;
 
@@ -688,17 +801,34 @@ export default function VentaDetalleScreen() {
 
       await fetchVenta();
       await fetchRecetas();
+
+      // If the user is adding more than one receta, keep the newest visible.
+      try {
+        setTimeout(() => {
+          try {
+            scrollRef.current?.scrollToEnd?.({ animated: true });
+          } catch {}
+        }, 180);
+      } catch {}
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo subir la receta");
     } finally {
       setUploading(false);
     }
-  }, [canEditRecetas, fetchRecetas, fetchVenta, uploading, venta, returnTo]);
+  }, [canEditRecetas, fetchRecetas, fetchVenta, scrollRef, uploading, venta, returnTo]);
 
   const setNumero = useCallback((tipo: "IVA" | "EXENTO", val: string) => {
     setFacturaDraft((prev) => {
-      const cur = prev[tipo] ?? { tipo, numero: "", path: null, originalName: null, sizeBytes: null };
+      const cur = prev[tipo] ?? { tipo, numero: "", monto: "", path: null, originalName: null, sizeBytes: null };
       return { ...prev, [tipo]: { ...cur, numero: val } };
+    });
+  }, []);
+
+  const setMonto = useCallback((tipo: "IVA" | "EXENTO", val: string) => {
+    const clean = sanitizeMontoDraftInput(val);
+    setFacturaDraft((prev) => {
+      const cur = prev[tipo] ?? { tipo, numero: "", monto: "", path: null, originalName: null, sizeBytes: null };
+      return { ...prev, [tipo]: { ...cur, monto: clean } };
     });
   }, []);
 
@@ -735,7 +865,7 @@ export default function VentaDetalleScreen() {
         const size = (asset as any)?.size ?? null;
 
         setFacturaDraft((prev) => {
-          const cur = prev[tipo] ?? { tipo, numero: "", path: null, originalName: null, sizeBytes: null };
+          const cur = prev[tipo] ?? { tipo, numero: "", monto: "", path: null, originalName: null, sizeBytes: null };
           return {
             ...prev,
             [tipo]: {
@@ -800,8 +930,8 @@ export default function VentaDetalleScreen() {
               if (delErr) throw delErr;
 
               setFacturaDraft((prev) => {
-                const cur = prev[tipo] ?? { tipo, numero: "", path: null, originalName: null, sizeBytes: null };
-                return { ...prev, [tipo]: { ...cur, path: null, originalName: null, sizeBytes: null, numero: "" } };
+                const cur = prev[tipo] ?? { tipo, numero: "", monto: "", path: null, originalName: null, sizeBytes: null };
+                return { ...prev, [tipo]: { ...cur, path: null, originalName: null, sizeBytes: null, numero: "", monto: "" } };
               });
 
               await fetchVenta();
@@ -825,7 +955,7 @@ export default function VentaDetalleScreen() {
     try {
       payload = buildFacturaPayload();
     } catch (e: any) {
-      Alert.alert("Falta info", e?.message ?? "Completa numero y PDF.");
+      Alert.alert("Falta info", e?.message ?? "Completa numero, monto y PDF.");
       return;
     }
 
@@ -967,7 +1097,7 @@ export default function VentaDetalleScreen() {
   );
 
   const canAnular =
-    (role === "ADMIN" || role === "FACTURADOR") &&
+    (role === "ADMIN" || role === "FACTURACION") &&
     !anulada &&
     anulacionRequerida &&
     normalizeUpper(venta?.estado) === "FACTURADO";
@@ -978,7 +1108,7 @@ export default function VentaDetalleScreen() {
     if (anulando || facturando || uploadingPdfTipo) return;
 
     if (!facturaDraftComplete) {
-      Alert.alert("Falta info", "Completa numero y PDF de las facturas requeridas para anular.");
+      Alert.alert("Falta info", "Completa numero, monto y PDF de las facturas requeridas para anular.");
       return;
     }
 
@@ -986,7 +1116,7 @@ export default function VentaDetalleScreen() {
     try {
       payload = buildFacturaPayload();
     } catch (e: any) {
-      Alert.alert("Falta info", e?.message ?? "Completa numero y PDF.");
+      Alert.alert("Falta info", e?.message ?? "Completa numero, monto y PDF.");
       return;
     }
 
@@ -1134,6 +1264,20 @@ export default function VentaDetalleScreen() {
 
   const title = "Detalles";
 
+  const badge = useMemo(() => {
+    const estado = String(venta?.estado ?? "").trim().toUpperCase();
+    if (!estado) return { text: "—", kind: "muted" as const };
+    if (estado === "PENDIENTE") return { text: estado, kind: "warn" as const };
+    if (estado === "ENTREGADA") return { text: estado, kind: "ok" as const };
+    return { text: estado, kind: "muted" as const };
+  }, [venta?.estado]);
+
+  const badgeStyle = useMemo(() => {
+    if (badge.kind === "ok") return { color: C.ok, bg: C.okBg };
+    if (badge.kind === "warn") return { color: C.warnText, bg: C.warnBg };
+    return { color: C.sub, bg: C.mutedBg };
+  }, [badge.kind, C.ok, C.okBg, C.sub, C.mutedBg, C.warnBg, C.warnText]);
+
   const openViewer = useCallback(
     async (r: RecetaItem) => {
       if (!canViewRecetaTools) return;
@@ -1234,43 +1378,79 @@ export default function VentaDetalleScreen() {
             </View>
           ) : null}
 
-          {venta ? (
-            <View style={[styles.card, { borderColor: C.border, backgroundColor: C.card }]}>
-              <View style={styles.rowBetween}>
-                <View style={{ flex: 1, paddingRight: 12 }}>
-                  <Text style={[styles.title, { color: C.text }]} numberOfLines={2}>
-                    {venta.cliente_nombre ?? clienteMini?.nombre ?? "—"}
-                  </Text>
-                </View>
-                <View style={[styles.chip, { borderColor: C.border, backgroundColor: C.card }]}>
-                  <Text style={[styles.chipText, { color: C.sub }]}>{String(venta.estado ?? "—")}</Text>
-                </View>
-              </View>
+           {venta ? (
+             <View style={[styles.card, { borderColor: C.border, backgroundColor: C.card }]}>
+               <View style={styles.rowBetween}>
+                 <View style={{ flex: 1, paddingRight: 12 }}>
+                   <Text style={[styles.title, { color: C.text }]} numberOfLines={2}>
+                     {venta.cliente_nombre ?? clienteMini?.nombre ?? "—"}
+                   </Text>
+                 </View>
+                 <View
+                   style={[
+                     styles.badgePill,
+                     {
+                       backgroundColor: badgeStyle.bg,
+                       borderColor: alphaColor(badgeStyle.color, isDark ? 0.32 : 0.22) || C.border,
+                     },
+                   ]}
+                 >
+                   <Text style={[styles.badgeText, { color: badgeStyle.color }]}>{badge.text}</Text>
+                 </View>
+               </View>
 
-              <Text style={[styles.metaText, { color: C.sub, marginTop: 8 }]} numberOfLines={2}>
-                Dirección: {clienteMini?.direccion ?? "—"}
-              </Text>
-              <Text style={[styles.metaText, { color: C.sub, marginTop: 6 }]} numberOfLines={1}>
-                Teléfono: {clienteMini?.telefono ?? "—"}
-              </Text>
-              <Text style={[styles.metaText, { color: C.sub, marginTop: 6 }]} numberOfLines={1}>
-                Vendedor: {venta.vendedor_codigo ? String(venta.vendedor_codigo) : shortUid(venta.vendedor_id)}
-              </Text>
+               <View style={[styles.kvGrid, { marginTop: 12 }]}>
+                 <View style={styles.kv}>
+                   <Text style={[styles.k, { color: C.sub }]}>Fecha</Text>
+                   <Text style={[styles.v, { color: C.text }]} numberOfLines={1}>
+                     {fmtDate(venta.fecha)}
+                   </Text>
+                 </View>
+                 <View style={styles.kv}>
+                   <Text style={[styles.k, { color: C.sub }]}>Teléfono</Text>
+                   <Text style={[styles.v, { color: C.text }]} numberOfLines={1}>
+                     {clienteMini?.telefono ?? "—"}
+                   </Text>
+                 </View>
+                 <View style={styles.kv}>
+                   <Text style={[styles.k, { color: C.sub }]}>Vendedor</Text>
+                   <Text style={[styles.v, { color: C.text }]} numberOfLines={1}>
+                     {venta.vendedor_codigo ? String(venta.vendedor_codigo) : shortUid(venta.vendedor_id)}
+                   </Text>
+                 </View>
+               </View>
 
-              <View style={styles.metaRow}>
-                <Text style={[styles.metaText, { color: C.sub }]}>{fmtDate(venta.fecha)}</Text>
-              </View>
+               <Text style={[styles.k, { color: C.sub, marginTop: 12 }]}>Dirección</Text>
+               <Text style={[styles.note, { color: C.text, marginTop: 6 }]} numberOfLines={3}>
+                 {clienteMini?.direccion ?? "—"}
+               </Text>
 
-              {venta.requiere_receta && !venta.receta_cargada ? (
-                <View style={styles.chipsRow}>
-                  <View style={[styles.chip, { borderColor: C.border, backgroundColor: C.warnBg }]}>
-                    <Text style={[styles.chipText, { color: C.warnText }]}>Falta receta</Text>
+               {venta.requiere_receta && !venta.receta_cargada ? (
+                 <View style={styles.chipsRow}>
+                   <View style={[styles.chip, { borderColor: C.border, backgroundColor: C.warnBg }]}>
+                     <Text style={[styles.chipText, { color: C.warnText }]}>Falta receta</Text>
                   </View>
                 </View>
               ) : null}
 
               {!!venta.comentarios ? (
                 <Text style={[styles.note, { color: C.text }]}>Notas: {venta.comentarios}</Text>
+              ) : null}
+
+              {!!solicitudAnulacion?.solicitud_nota ? (
+                <View
+                  style={[
+                    styles.warn,
+                    {
+                      borderColor: alphaColor(C.danger, isDark ? 0.35 : 0.25) || C.border,
+                      backgroundColor: isDark ? "rgba(255,90,90,0.10)" : "rgba(220,0,0,0.06)",
+                    },
+                  ]}
+                >
+                  <Text style={[styles.warnText, { color: C.danger }]}>Razón de solicitud de anulación</Text>
+                  <Text style={[styles.note, { color: C.text, marginTop: 6 }]}>{solicitudAnulacion.solicitud_nota}</Text>
+                  <Text style={[styles.sub, { color: C.sub, marginTop: 6 }]}>Solicitado: {fmtDate(solicitudAnulacion.solicitud_fecha)} • Por: {solicitudAnulacionByName ?? shortUid(solicitudAnulacion.solicitud_user_id)}</Text>
+                </View>
               ) : null}
             </View>
           ) : null}
@@ -1279,78 +1459,203 @@ export default function VentaDetalleScreen() {
           <View style={[styles.card, { borderColor: C.border, backgroundColor: C.card }]}>
             <View style={styles.rowBetween}>
               <Text style={[styles.sectionTitle, { color: C.text }]}>Productos</Text>
-              <Text style={[styles.sectionTotal, { color: C.text }]}>{fmtQ(total)}</Text>
             </View>
 
             {!canSplitIva ? (
               <>
-                {lineas.map((l, idx) => (
-                  <View key={l.id} style={[styles.lineRow, idx === 0 ? { borderTopWidth: 0 } : { borderTopColor: C.border }]}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.lineTitle, { color: C.text }]} numberOfLines={2}>
-                        {l.producto_nombre ?? "—"}
-                        {l.producto_marca ? ` • ${l.producto_marca}` : ""}
-                      </Text>
-                      <Text style={[styles.lineSub, { color: C.sub }]} numberOfLines={2}>
-                        Lote: {l.lote ?? "—"} • Exp: {l.fecha_exp ?? "—"}
-                      </Text>
+                {!lineas.length ? (
+                  <Text style={{ paddingTop: 10, color: C.sub, fontWeight: "700" }}>Sin productos</Text>
+                ) : (
+                  <>
+                    <View style={[styles.tableWrap, { borderColor: C.border }]}>
+                      <View
+                        style={[
+                          styles.tableHeaderRow,
+                          {
+                            borderBottomColor: C.border,
+                            backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.th, { color: C.sub, flex: 1 }]}>Detalle</Text>
+                        <Text style={[styles.th, { color: C.sub, width: 140, textAlign: "right" }]}>Importe</Text>
+                      </View>
+
+                      {lineas.map((l) => {
+                        const unit = Number(l.precio_venta_unit ?? 0);
+                        const title = `${String(l.producto_nombre ?? "—")}${l.producto_marca ? ` • ${l.producto_marca}` : ""}`;
+                        return (
+                          <View key={l.id} style={[styles.tableRow, { borderTopColor: C.border }]}>
+                            <View style={{ flex: 1, paddingRight: 10, minWidth: 0 }}>
+                              <Text style={[styles.td, { color: C.text }]} numberOfLines={1}>
+                                {title}
+                              </Text>
+                              <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
+                                Lote: {l.lote ?? "—"}
+                              </Text>
+                              <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
+                                Ven: {fmtDate(l.fecha_exp)}
+                              </Text>
+                            </View>
+
+                            <View style={{ width: 140, paddingLeft: 8, alignItems: "flex-end" }}>
+                              <Text style={[styles.td, { color: C.text }]} numberOfLines={1}>
+                                {Number(l.cantidad ?? 0)} x {fmtQ(unit)}
+                              </Text>
+                            </View>
+                          </View>
+                        );
+                      })}
+
+                      <View
+                        style={[
+                          styles.tableFooterRow,
+                          {
+                            borderTopColor: C.border,
+                            backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.td, { color: C.sub, flex: 1 }]}>Total</Text>
+                        <Text style={[styles.td, { color: C.text, width: 140, textAlign: "right" }]}>{fmtQ(total)}</Text>
+                      </View>
                     </View>
-                    <View style={{ alignItems: "flex-end" }}>
-                      <Text style={[styles.lineAmt, { color: C.text }]}>
-                        {l.cantidad} x {fmtQ(l.precio_venta_unit)}
-                      </Text>
-                    </View>
-                  </View>
-                ))}
+                  </>
+                )}
               </>
             ) : (
               <>
                 <Text style={[styles.groupLabel, { color: C.sub }]}>IVA</Text>
-                {(ivaLineas.length ? ivaLineas : []).map((l, idx) => (
-                  <View key={l.id} style={[styles.lineRow, idx === 0 ? { borderTopWidth: 0 } : { borderTopColor: C.border }]}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.lineTitle, { color: C.text }]} numberOfLines={2}>
-                        {l.producto_nombre ?? "—"}
-                        {l.producto_marca ? ` • ${l.producto_marca}` : ""}
-                      </Text>
-                      <Text style={[styles.lineSub, { color: C.sub }]} numberOfLines={2}>
-                        Lote: {l.lote ?? "—"} • Exp: {l.fecha_exp ?? "—"}
-                      </Text>
-                    </View>
-                    <View style={{ alignItems: "flex-end" }}>
-                      <Text style={[styles.lineAmt, { color: C.text }]}>
-                        {l.cantidad} x {fmtQ(l.precio_venta_unit)}
-                      </Text>
-                    </View>
-                  </View>
-                ))}
                 {!ivaLineas.length ? (
                   <Text style={{ paddingTop: 10, color: C.sub, fontWeight: "700" }}>Sin productos</Text>
-                ) : null}
+                ) : (
+                  <>
+                    <View style={[styles.tableWrap, { borderColor: C.border }]}>
+                      <View
+                        style={[
+                          styles.tableHeaderRow,
+                          {
+                            borderBottomColor: C.border,
+                            backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.th, { color: C.sub, flex: 1 }]}>Detalle</Text>
+                        <Text style={[styles.th, { color: C.sub, width: 140, textAlign: "right" }]}>Importe</Text>
+                      </View>
+
+                      {ivaLineas.map((l) => {
+                        const unit = Number(l.precio_venta_unit ?? 0);
+                        const title = `${String(l.producto_nombre ?? "—")}${l.producto_marca ? ` • ${l.producto_marca}` : ""}`;
+                        return (
+                          <View key={l.id} style={[styles.tableRow, { borderTopColor: C.border }]}>
+                            <View style={{ flex: 1, paddingRight: 10, minWidth: 0 }}>
+                              <Text style={[styles.td, { color: C.text }]} numberOfLines={1}>
+                                {title}
+                              </Text>
+                              <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
+                                Lote: {l.lote ?? "—"}
+                              </Text>
+                              <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
+                                Vence: {fmtDate(l.fecha_exp)}
+                              </Text>
+                            </View>
+
+                            <View style={{ width: 140, paddingLeft: 8, alignItems: "flex-end" }}>
+                              <Text style={[styles.td, { color: C.text }]} numberOfLines={1}>
+                                {Number(l.cantidad ?? 0)} x {fmtQ(unit)}
+                              </Text>
+                            </View>
+                          </View>
+                        );
+                      })}
+
+                      <View
+                        style={[
+                          styles.tableFooterRow,
+                          {
+                            borderTopColor: C.border,
+                            backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.td, { color: C.sub, flex: 1 }]}>Total IVA</Text>
+                        <Text style={[styles.td, { color: C.text, width: 140, textAlign: "right" }]}>
+                          {fmtQ(ivaLineas.reduce((acc, l) => acc + Number(l.subtotal ?? 0), 0))}
+                        </Text>
+                      </View>
+                    </View>
+                  </>
+                )}
 
                 <View style={[styles.divider, { backgroundColor: C.border }]} />
                 <Text style={[styles.groupLabel, { color: C.sub }]}>EXENTO</Text>
-                {(exentoLineas.length ? exentoLineas : []).map((l, idx) => (
-                  <View key={l.id} style={[styles.lineRow, idx === 0 ? { borderTopWidth: 0 } : { borderTopColor: C.border }]}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.lineTitle, { color: C.text }]} numberOfLines={2}>
-                        {l.producto_nombre ?? "—"}
-                        {l.producto_marca ? ` • ${l.producto_marca}` : ""}
-                      </Text>
-                      <Text style={[styles.lineSub, { color: C.sub }]} numberOfLines={2}>
-                        Lote: {l.lote ?? "—"} • Exp: {l.fecha_exp ?? "—"}
-                      </Text>
-                    </View>
-                    <View style={{ alignItems: "flex-end" }}>
-                      <Text style={[styles.lineAmt, { color: C.text }]}>
-                        {l.cantidad} x {fmtQ(l.precio_venta_unit)}
-                      </Text>
-                    </View>
-                  </View>
-                ))}
                 {!exentoLineas.length ? (
                   <Text style={{ paddingTop: 10, color: C.sub, fontWeight: "700" }}>Sin productos</Text>
-                ) : null}
+                ) : (
+                  <>
+                    <View style={[styles.tableWrap, { borderColor: C.border }]}>
+                      <View
+                        style={[
+                          styles.tableHeaderRow,
+                          {
+                            borderBottomColor: C.border,
+                            backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.th, { color: C.sub, flex: 1 }]}>Detalle</Text>
+                        <Text style={[styles.th, { color: C.sub, width: 140, textAlign: "right" }]}>Importe</Text>
+                      </View>
+
+                      {exentoLineas.map((l) => {
+                        const unit = Number(l.precio_venta_unit ?? 0);
+                        const title = `${String(l.producto_nombre ?? "—")}${l.producto_marca ? ` • ${l.producto_marca}` : ""}`;
+                        return (
+                          <View key={l.id} style={[styles.tableRow, { borderTopColor: C.border }]}>
+                            <View style={{ flex: 1, paddingRight: 10, minWidth: 0 }}>
+                              <Text style={[styles.td, { color: C.text }]} numberOfLines={1}>
+                                {title}
+                              </Text>
+                              <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
+                                Lote: {l.lote ?? "—"}
+                              </Text>
+                              <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
+                                Ven: {fmtDate(l.fecha_exp)}
+                              </Text>
+                            </View>
+
+                            <View style={{ width: 140, paddingLeft: 8, alignItems: "flex-end" }}>
+                              <Text style={[styles.td, { color: C.text }]} numberOfLines={1}>
+                                {Number(l.cantidad ?? 0)} x {fmtQ(unit)}
+                              </Text>
+                            </View>
+                          </View>
+                        );
+                      })}
+
+                      <View
+                        style={[
+                          styles.tableFooterRow,
+                          {
+                            borderTopColor: C.border,
+                            backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.td, { color: C.sub, flex: 1 }]}>Total EXENTO</Text>
+                        <Text style={[styles.td, { color: C.text, width: 140, textAlign: "right" }]}>
+                          {fmtQ(exentoLineas.reduce((acc, l) => acc + Number(l.subtotal ?? 0), 0))}
+                        </Text>
+                      </View>
+                    </View>
+                  </>
+                )}
+
+                <View style={[styles.totalRow, { borderTopColor: C.border }]}>
+                  <Text style={[styles.totalLabel, { color: C.sub }]}>Total</Text>
+                  <Text style={[styles.totalValue, { color: C.text }]}>{fmtQ(total)}</Text>
+                </View>
               </>
             )}
           </View>
@@ -1366,8 +1671,8 @@ export default function VentaDetalleScreen() {
               <>
                 <Text style={[styles.sub, { color: C.sub }]}>
                   {canAnular
-                    ? "Completa numero + PDF para anular la venta."
-                    : "Completa numero + PDF para marcar como facturado."}
+                    ? "Completa numero + monto + PDF para anular la venta."
+                    : "Completa numero + monto + PDF para marcar como facturado."}
                 </Text>
 
                 {facturaTipo1
@@ -1375,6 +1680,7 @@ export default function VentaDetalleScreen() {
                       const tipo = facturaTipo1 as "IVA" | "EXENTO";
                       const hasPdf = !!String(facturaDraft[tipo]?.path ?? facturaCurrentByTipo[tipo]?.path ?? "").trim();
                       const numero = String(facturaDraft[tipo]?.numero ?? facturaCurrentByTipo[tipo]?.numero ?? "").trim();
+                      const monto = String(facturaDraft[tipo]?.monto ?? facturaCurrentByTipo[tipo]?.monto ?? "").trim();
                       return (
                         <View style={[styles.facturaCard, { borderColor: C.border }]}>
                           <View style={styles.rowBetween}>
@@ -1389,25 +1695,34 @@ export default function VentaDetalleScreen() {
                             )}
                           </View>
 
-                          {hasPdf ? (
-                            <>
-                              <Text style={[styles.facturaMeta, { color: C.sub }]}>Numero: {numero || "—"}</Text>
-                              <Text style={[styles.facturaMeta, { color: C.sub }]}>PDF: Listo</Text>
-                            </>
-                          ) : (
-                            <>
+                          <View style={styles.facturaInputsRow}>
+                            <View style={{ flex: 1, minWidth: 0 }}>
                               <Text style={[styles.label, { color: C.sub }]}>Numero de factura</Text>
                               <TextInput
-                                value={facturaDraft[tipo]?.numero ?? ""}
+                                value={facturaDraft[tipo]?.numero ?? numero}
                                 onChangeText={(t: string) => setNumero(tipo, t)}
                                 onFocus={handleFocus}
                                 placeholder="Ej: 12345"
                                 placeholderTextColor={C.sub}
                                 style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.card }]}
                               />
-                              <Text style={[styles.facturaMeta, { color: C.sub }]}>PDF: Pendiente</Text>
-                            </>
-                          )}
+                            </View>
+
+                            <View style={styles.facturaMontoCol}>
+                              <Text style={[styles.label, { color: C.sub }]}>Monto de factura (Q)</Text>
+                              <TextInput
+                                value={facturaDraft[tipo]?.monto ?? monto}
+                                onChangeText={(t: string) => setMonto(tipo, t)}
+                                onFocus={handleFocus}
+                                placeholder="Ej: 1250.00"
+                                placeholderTextColor={C.sub}
+                                keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
+                                style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.card }]}
+                              />
+                            </View>
+                          </View>
+
+                          <Text style={[styles.facturaMeta, { color: C.sub }]}>PDF: {hasPdf ? "Listo" : "Pendiente"}</Text>
 
                           {hasPdf ? (
                             <View style={styles.pdfRow}>
@@ -1444,6 +1759,7 @@ export default function VentaDetalleScreen() {
                       const tipo = facturaTipo2 as "IVA" | "EXENTO";
                       const hasPdf = !!String(facturaDraft[tipo]?.path ?? facturaCurrentByTipo[tipo]?.path ?? "").trim();
                       const numero = String(facturaDraft[tipo]?.numero ?? facturaCurrentByTipo[tipo]?.numero ?? "").trim();
+                      const monto = String(facturaDraft[tipo]?.monto ?? facturaCurrentByTipo[tipo]?.monto ?? "").trim();
                       return (
                         <View style={[styles.facturaCard, { borderColor: C.border }]}>
                           <View style={styles.rowBetween}>
@@ -1458,25 +1774,34 @@ export default function VentaDetalleScreen() {
                             )}
                           </View>
 
-                          {hasPdf ? (
-                            <>
-                              <Text style={[styles.facturaMeta, { color: C.sub }]}>Numero: {numero || "—"}</Text>
-                              <Text style={[styles.facturaMeta, { color: C.sub }]}>PDF: Listo</Text>
-                            </>
-                          ) : (
-                            <>
+                          <View style={styles.facturaInputsRow}>
+                            <View style={{ flex: 1, minWidth: 0 }}>
                               <Text style={[styles.label, { color: C.sub }]}>Numero de factura</Text>
                               <TextInput
-                                value={facturaDraft[tipo]?.numero ?? ""}
+                                value={facturaDraft[tipo]?.numero ?? numero}
                                 onChangeText={(t: string) => setNumero(tipo, t)}
                                 onFocus={handleFocus}
                                 placeholder="Ej: 12346"
                                 placeholderTextColor={C.sub}
                                 style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.card }]}
                               />
-                              <Text style={[styles.facturaMeta, { color: C.sub }]}>PDF: Pendiente</Text>
-                            </>
-                          )}
+                            </View>
+
+                            <View style={styles.facturaMontoCol}>
+                              <Text style={[styles.label, { color: C.sub }]}>Monto de factura (Q)</Text>
+                              <TextInput
+                                value={facturaDraft[tipo]?.monto ?? monto}
+                                onChangeText={(t: string) => setMonto(tipo, t)}
+                                onFocus={handleFocus}
+                                placeholder="Ej: 1250.00"
+                                placeholderTextColor={C.sub}
+                                keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
+                                style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.card }]}
+                              />
+                            </View>
+                          </View>
+
+                          <Text style={[styles.facturaMeta, { color: C.sub }]}>PDF: {hasPdf ? "Listo" : "Pendiente"}</Text>
 
                           {hasPdf ? (
                             <View style={styles.pdfRow}>
@@ -1609,73 +1934,79 @@ export default function VentaDetalleScreen() {
               </>
             )}
 
-            <View style={[styles.divider, { backgroundColor: C.border }]} />
+            {!venta?.requiere_receta ? null : (
+              <>
+                <View style={[styles.divider, { backgroundColor: C.border }]} />
 
-            <View style={styles.rowBetween}>
-              <Text style={[styles.blockTitle, { color: C.sub }]}>Recetas</Text>
-              {!canEditRecetas ? null : (
-                <AppButton
-                  title={uploading ? "Subiendo..." : "+ Agregar"}
-                  size="sm"
-                  onPress={pickAndUploadReceta}
-                  disabled={uploading}
-                />
-              )}
-            </View>
+                <View style={styles.rowBetween}>
+                  <Text style={[styles.blockTitle, { color: C.sub }]}>Recetas</Text>
+                  {!canEditRecetas ? null : (
+                    <AppButton
+                      title={uploading ? "Subiendo..." : "+ Agregar receta"}
+                      size="sm"
+                      variant="outline"
+                      onPress={pickAndUploadReceta}
+                      disabled={uploading}
+                      accessibilityLabel="Agregar receta"
+                    />
+                  )}
+                </View>
 
-            {recetas.length ? (
-              <View style={{ marginTop: 10, gap: 12 }}>
-                {recetas.map((r) => {
-                  const isDeleting = deletingId === Number(r.row.id);
-                  return (
-                    <View key={r.row.id} style={[styles.recetaRow, { borderColor: C.border }]}>
-                      <Pressable
-                        disabled={!canViewRecetaTools || !r.signedUrl}
-                        onPress={() => {
-                          openViewer(r).catch((e: any) => {
-                            Alert.alert("Error", e?.message ?? "No se pudo abrir la receta");
-                          });
-                        }}
-                        style={({ pressed }) => [pressed && canViewRecetaTools ? { opacity: 0.85 } : null]}
-                      >
-                        {r.signedUrl ? (
-                          <Image source={{ uri: r.signedUrl }} style={styles.recetaThumb} />
-                        ) : (
-                          <View
-                            style={[
-                              styles.recetaThumb,
-                              { backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "#f3f3f3" },
-                            ]}
-                          />
-                        )}
-                      </Pressable>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.lineTitle, { color: C.text }]} numberOfLines={1}>
-                          {fmtDate(r.row.created_at)}
-                        </Text>
-                        <Text style={[styles.lineSub, { color: C.sub }]} numberOfLines={1}>
-                          Receta
-                        </Text>
-                      </View>
+                {recetas.length ? (
+                  <View style={{ marginTop: 10, gap: 12 }}>
+                    {recetas.map((r) => {
+                      const isDeleting = deletingId === Number(r.row.id);
+                      return (
+                        <View key={r.row.id} style={[styles.recetaRow, { borderColor: C.border }]}>
+                          <Pressable
+                            disabled={!canViewRecetaTools}
+                            onPress={() => {
+                              openViewer(r).catch((e: any) => {
+                                Alert.alert("Error", e?.message ?? "No se pudo abrir la receta");
+                              });
+                            }}
+                            style={({ pressed }) => [pressed && canViewRecetaTools ? { opacity: 0.85 } : null]}
+                          >
+                            {r.signedUrl ? (
+                              <Image source={{ uri: r.signedUrl }} style={styles.recetaThumb} />
+                            ) : (
+                              <View
+                                style={[
+                                  styles.recetaThumb,
+                                  { backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "#f3f3f3" },
+                                ]}
+                              />
+                            )}
+                          </Pressable>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.lineTitle, { color: C.text }]} numberOfLines={1}>
+                              {fmtDate(r.row.created_at)}
+                            </Text>
+                            <Text style={[styles.lineSub, { color: C.sub }]} numberOfLines={1}>
+                              Receta
+                            </Text>
+                          </View>
 
-                      {!canEditRecetas ? null : (
-                        <Pressable
-                          disabled={isDeleting}
-                          onPress={() => confirmDelete(r)}
-                          style={({ pressed }) => [
-                            styles.deleteBtn,
-                            { opacity: isDeleting ? 0.5 : pressed ? 0.85 : 1 },
-                          ]}
-                        >
-                          <Text style={{ color: C.danger, fontWeight: "800" }}>{isDeleting ? "..." : "Eliminar"}</Text>
-                        </Pressable>
-                      )}
-                    </View>
-                  );
-                })}
-              </View>
-            ) : (
-              <Text style={{ marginTop: 10, color: C.sub, fontWeight: "700" }}>Sin recetas</Text>
+                          {!canEditRecetas ? null : (
+                            <Pressable
+                              disabled={isDeleting}
+                              onPress={() => confirmDelete(r)}
+                              style={({ pressed }) => [
+                                styles.deleteBtn,
+                                { opacity: isDeleting ? 0.5 : pressed ? 0.85 : 1 },
+                              ]}
+                            >
+                              <Text style={{ color: C.danger, fontWeight: "800" }}>{isDeleting ? "..." : "Eliminar"}</Text>
+                            </Pressable>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <Text style={{ marginTop: 10, color: C.sub, fontWeight: "700" }}>Sin recetas</Text>
+                )}
+              </>
             )}
           </View>
 
@@ -1786,55 +2117,58 @@ export default function VentaDetalleScreen() {
           </View>
         </KeyboardAwareModal>
 
-        <Modal visible={viewerOpen} transparent animationType="none" onRequestClose={closeViewer}>
-          <Pressable
-            style={[
-              styles.viewerBackdrop,
-              { backgroundColor: isDark ? "rgba(0,0,0,0.60)" : "rgba(0,0,0,0.40)" },
-            ]}
-            onPress={closeViewer}
-          />
+        {viewerOpen ? (
+          <Modal visible={viewerOpen} transparent animationType="none" onRequestClose={closeViewer}>
+            <Pressable
+              style={[
+                styles.viewerBackdrop,
+                { backgroundColor: isDark ? "rgba(0,0,0,0.60)" : "rgba(0,0,0,0.40)" },
+              ]}
+              onPress={closeViewer}
+            />
 
-          <Animated.View
-            style={[
-              styles.viewerCard,
-              {
-                backgroundColor: C.card,
-                borderColor: C.border,
-                opacity: viewerOpacity,
-                transform: [{ scale: viewerScale }],
-              },
-            ]}
-          >
-            <View style={styles.viewerTop}>
-              <Text style={[styles.viewerTitle, { color: C.text }]} numberOfLines={1}>
-                Receta
-              </Text>
-              <Pressable onPress={closeViewer} style={({ pressed }) => [pressed ? { opacity: 0.85 } : null]}>
-                <Text style={{ color: C.sub, fontWeight: "900" }}>Cerrar</Text>
-              </Pressable>
-            </View>
+            <Animated.View
+              style={[
+                styles.viewerFull,
+                {
+                  opacity: viewerOpacity,
+                  transform: [{ scale: viewerScale }],
+                },
+              ]}
+            >
+              <View style={[styles.viewerTopBar, { top: Math.max(12, insets.top + 10) }]}>
+                <Pressable
+                  onPress={closeViewer}
+                  style={({ pressed }) => [styles.viewerTopBtn, pressed ? { opacity: 0.8 } : null]}
+                >
+                  <Text style={styles.viewerTopBtnText}>Cerrar</Text>
+                </Pressable>
 
-            <View style={styles.viewerImgWrap}>
-              {viewerUrl ? (
-                <Image source={{ uri: viewerUrl }} style={styles.viewerImg} resizeMode="contain" />
-              ) : null}
-            </View>
+                <Pressable
+                  onPress={onDownloadViewer}
+                  disabled={!viewerUrl}
+                  style={({ pressed }) => [
+                    styles.viewerTopBtn,
+                    !viewerUrl ? { opacity: 0.5 } : null,
+                    pressed ? { opacity: 0.8 } : null,
+                  ]}
+                >
+                  <Text style={styles.viewerTopBtnText}>Descargar</Text>
+                </Pressable>
+              </View>
 
-            <View style={styles.viewerBtns}>
-              <AppButton
-                title="Descargar"
-                size="sm"
-                onPress={onDownloadViewer}
-                disabled={!viewerUrl}
+              <ImageViewer
+                imageUrls={viewerUrl ? [{ url: viewerUrl }] : []}
+                enableSwipeDown
+                onSwipeDown={closeViewer}
+                onCancel={closeViewer}
+                backgroundColor="transparent"
+                renderIndicator={() => <View />}
+                saveToLocalByLongPress={false}
               />
-              <View style={{ width: 10 }} />
-              <AppButton title="Cerrar" variant="outline" size="sm" onPress={closeViewer} />
-            </View>
-
-            {/* ocultar ruta interna */}
-          </Animated.View>
-        </Modal>
+            </Animated.View>
+          </Modal>
+        ) : null}
       </SafeAreaView>
     </>
   );
@@ -1856,6 +2190,14 @@ const styles = StyleSheet.create({
   chipsRow: { marginTop: 10, flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
   chipText: { fontSize: 12, fontWeight: "900" },
+
+  badgePill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, alignSelf: "flex-start" },
+  badgeText: { fontSize: 12, fontWeight: "900", letterSpacing: 0.6, textTransform: "uppercase" },
+
+  kvGrid: { marginTop: 10, flexDirection: "row", flexWrap: "wrap", gap: 14 },
+  kv: { minWidth: 140, flexBasis: 140, flexGrow: 1 },
+  k: { fontSize: 12, fontWeight: "800" },
+  v: { marginTop: 3, fontSize: 14, fontWeight: "800" },
 
   sectionTitle: { fontSize: 15, fontWeight: "900" },
   sectionTotal: { fontSize: 15, fontWeight: "900" },
@@ -1880,6 +2222,14 @@ const styles = StyleSheet.create({
   lineSub: { marginTop: 4, fontSize: 12, fontWeight: "700" },
   lineAmt: { fontSize: 13, fontWeight: "800" },
 
+  tableWrap: { marginTop: 10, borderWidth: 1, borderRadius: 14, overflow: "hidden" },
+  tableHeaderRow: { flexDirection: "row", paddingHorizontal: 10, paddingVertical: 10, borderBottomWidth: 1 },
+  tableRow: { flexDirection: "row", alignItems: "flex-start", paddingHorizontal: 10, paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth },
+  tableFooterRow: { flexDirection: "row", paddingHorizontal: 10, paddingVertical: 12, borderTopWidth: 1 },
+  th: { fontSize: 11, fontWeight: "900", letterSpacing: 0.6, textTransform: "uppercase" },
+  td: { fontSize: 13, fontWeight: "800" },
+  tdSub: { marginTop: 2, fontSize: 12, fontWeight: "700" },
+
 
   totalRow: { marginTop: 14, paddingTop: 12, borderTopWidth: 1, flexDirection: "row", justifyContent: "space-between" },
   totalLabel: { fontSize: 15, fontWeight: "900" },
@@ -1894,6 +2244,9 @@ const styles = StyleSheet.create({
   facturaTitle: { fontSize: 14, fontWeight: "900" },
   facturaMeta: { marginTop: 8, fontSize: 12, fontWeight: "800" },
   facturasFlat: { marginTop: 10, fontSize: 16, fontWeight: "900" },
+
+  facturaInputsRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  facturaMontoCol: { width: 150 },
 
   pdfRow: { marginTop: 10, flexDirection: "row", alignItems: "center", gap: 12 },
   pdfOpen: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 },
@@ -1912,6 +2265,23 @@ const styles = StyleSheet.create({
   pdfDeleteText: { fontSize: 13, fontWeight: "900" },
 
   viewerBackdrop: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 },
+  viewerFull: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 },
+  viewerTopBar: {
+    position: "absolute",
+    left: 18,
+    right: 18,
+    zIndex: 20,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  viewerTopBtn: {
+    backgroundColor: "rgba(0,0,0,0.45)",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+  },
+  viewerTopBtnText: { color: "#fff", fontWeight: "900", fontSize: 16 },
   viewerCard: {
     position: "absolute",
     left: 14,

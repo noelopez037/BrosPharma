@@ -11,6 +11,7 @@ import { useFocusEffect, useTheme } from "@react-navigation/native";
 import * as FileSystem from "expo-file-system/legacy";
 import { Image as ExpoImage } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
+import * as MediaLibrary from "expo-media-library";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -29,6 +30,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import ImageViewer from "react-native-image-zoom-viewer";
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
@@ -37,7 +39,6 @@ import { DoneAccessory } from "../components/ui/done-accessory";
 import { goBackSafe } from "../lib/goBackSafe";
 import { FB_DARK_DANGER } from "../src/theme/headerColors";
 
-const BUCKET_PRODUCTOS = "productos";
 const BUCKET_COMPROBANTES = "comprobantes";
 
 type Compra = {
@@ -106,11 +107,6 @@ function normalizeUpper(s: string | null | undefined) {
 function safeNumber(n: any) {
   const x = Number(n);
   return Number.isFinite(x) ? x : 0;
-}
-
-function storagePublicUrl(bucket: string, path: string) {
-  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
-  return data.publicUrl;
 }
 
 function extFromMime(mime: string) {
@@ -197,7 +193,23 @@ async function downloadToCache(remoteUrl: string) {
     .replace(/[^a-zA-Z0-9._-]/g, "_")
     .slice(0, 140);
 
-  const target = `${baseDir}cmp_${safeName}.bin`;
+  const safeStem = safeName.replace(/\.(jpe?g|png|webp|heic|heif)$/i, "");
+
+  // Usa extension para que el archivo sea usable al guardar/compartir
+  const extFromUrl = (() => {
+    try {
+      const u = new URL(remoteUrl);
+      const p = (u.pathname || "").toLowerCase();
+      const m = p.match(/\.(jpe?g|png|webp|heic|heif)$/);
+      return m?.[1] ?? null;
+    } catch {
+      const p = String(remoteUrl).toLowerCase();
+      const m = p.match(/\.(jpe?g|png|webp|heic|heif)(?:\?|#|$)/);
+      return m?.[1] ?? null;
+    }
+  })();
+
+  const target = `${baseDir}cmp_${safeStem}.${extFromUrl ?? "jpg"}`;
 
   try {
     const info = await FileSystem.getInfoAsync(target);
@@ -313,6 +325,8 @@ export default function CompraDetalleScreen() {
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerUrl, setViewerUrl] = useState<string | null>(null); // local file://
   const [viewerRemoteUrl, setViewerRemoteUrl] = useState<string | null>(null); // signed url
+  const [viewerRefRaw, setViewerRefRaw] = useState<string | null>(null);
+  const [viewerSaving, setViewerSaving] = useState(false);
   const viewerBusyRef = useRef(false);
 
   useEffect(() => {
@@ -363,6 +377,13 @@ export default function CompraDetalleScreen() {
     () => safeNumber(compra?.saldo_pendiente),
     [compra?.saldo_pendiente]
   );
+
+  const totalProductos = useMemo(() => {
+    return (lineas ?? []).reduce((acc: number, d: any) => {
+      const sub = d?.subtotal ?? safeNumber(d?.cantidad) * safeNumber(d?.precio_compra_unit);
+      return acc + safeNumber(sub);
+    }, 0);
+  }, [lineas]);
 
   const badge = useMemo(() => {
     const estado = normalizeUpper(compra?.estado);
@@ -636,6 +657,7 @@ export default function CompraDetalleScreen() {
     viewerBusyRef.current = true;
     setViewerUrl(null);
     setViewerRemoteUrl(null);
+    setViewerRefRaw(raw);
     setViewerOpen(true);
 
     try {
@@ -675,6 +697,76 @@ export default function CompraDetalleScreen() {
       viewerBusyRef.current = false;
     }
   };
+
+  const getViewerRemoteUrlFresh = useCallback(async () => {
+    if (!viewerRefRaw) return null;
+    const norm = normalizeComprobanteRef(viewerRefRaw);
+    if (!norm) return null;
+
+    if (norm.url) return norm.url;
+    if (!norm.path) return null;
+
+    const { data, error } = await supabase.storage
+      .from(BUCKET_COMPROBANTES)
+      .createSignedUrl(norm.path, 60 * 10);
+    if (error) throw error;
+    return data?.signedUrl ?? null;
+  }, [viewerRefRaw]);
+
+  const descargarComprobante = useCallback(async () => {
+    if (viewerSaving) return;
+    if (Platform.OS === "web") {
+      Alert.alert("No disponible", "La descarga a galería no está disponible en web.");
+      return;
+    }
+
+    setViewerSaving(true);
+    try {
+      const perm = await MediaLibrary.requestPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert("Permiso requerido", "Permite acceso a tu galería para guardar el comprobante.");
+        return;
+      }
+
+      let localUri = viewerUrl;
+      if (!localUri) {
+        const remote = viewerRemoteUrl ?? (await getViewerRemoteUrlFresh());
+        if (!remote) throw new Error("No se encontró URL del comprobante.");
+
+        // Re-probe para asegurar content-type/bytes
+        const probe = await probeImageUrl(remote, 512);
+        if (!probe.ok) throw new Error(`HTTP ${probe.status || "?"} al descargar.`);
+        if (!probe.looksLikeImage)
+          throw new Error(`No es imagen. content-type=\"${probe.contentType || "?"}\"`);
+        if (!probe.minOk) throw new Error(`Respuesta vacía (${probe.bytes} bytes).`);
+
+        localUri = await downloadToCache(probe.url);
+        setViewerRemoteUrl(probe.url);
+        setViewerUrl(localUri);
+      }
+
+      const asset = await MediaLibrary.createAssetAsync(localUri);
+
+      // Intenta agrupar en un album propio (si falla, igual queda en Recientes)
+      try {
+        const albumName = "BrosPharma";
+        const existing = await MediaLibrary.getAlbumAsync(albumName);
+        if (!existing) {
+          await MediaLibrary.createAlbumAsync(albumName, asset, false);
+        } else {
+          await MediaLibrary.addAssetsToAlbumAsync([asset], existing, false);
+        }
+      } catch {
+        // ignore
+      }
+
+      Alert.alert("Listo", "Comprobante guardado en tu galería.");
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "No se pudo guardar el comprobante");
+    } finally {
+      setViewerSaving(false);
+    }
+  }, [getViewerRemoteUrlFresh, viewerRemoteUrl, viewerSaving, viewerUrl]);
 
   return (
     <>
@@ -720,28 +812,19 @@ export default function CompraDetalleScreen() {
               ]}
             >
               <View style={styles.headerTop}>
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={[styles.h1, { color: C.text }]} numberOfLines={2}>
                     {compra.proveedor_nombre ?? `Proveedor #${compra.proveedor_id}`}
                   </Text>
-
-                  <View style={{ marginTop: 8 }}>
-                    <Text style={[styles.metaK, { color: C.sub }]}>Factura</Text>
-                    <Text style={[styles.metaV, { color: C.text }]} numberOfLines={1}>
-                      {compra.numero_factura ?? "—"}
-                    </Text>
-
-                    <Text style={[styles.metaK, { color: C.sub, marginTop: 6 }]}>Fecha</Text>
-                    <Text style={[styles.metaV, { color: C.text }]} numberOfLines={1}>
-                      {fmtDate(compra.fecha)}
-                    </Text>
-                  </View>
                 </View>
 
                 <View
                   style={[
                     styles.badgePill,
-                    { backgroundColor: badgeStyle.bg, borderColor: C.border },
+                    {
+                      backgroundColor: badgeStyle.bg,
+                      borderColor: alphaColor(badgeStyle.color, isDark ? 0.32 : 0.22) || C.border,
+                    },
                   ]}
                 >
                   <Text style={[styles.badgeText, { color: badgeStyle.color }]}>{badge.text}</Text>
@@ -750,8 +833,22 @@ export default function CompraDetalleScreen() {
 
               <View style={[styles.kvGrid, { marginTop: 12 }]}>
                 <View style={styles.kv}>
+                  <Text style={[styles.k, { color: C.sub }]}>Factura</Text>
+                  <Text style={[styles.v, { color: C.text }]} numberOfLines={1}>
+                    {compra.numero_factura ?? "—"}
+                  </Text>
+                </View>
+
+                <View style={styles.kv}>
+                  <Text style={[styles.k, { color: C.sub }]}>Fecha</Text>
+                  <Text style={[styles.v, { color: C.text }]} numberOfLines={1}>
+                    {fmtDate(compra.fecha)}
+                  </Text>
+                </View>
+
+                <View style={styles.kv}>
                   <Text style={[styles.k, { color: C.sub }]}>Tipo</Text>
-                  <Text style={[styles.v, { color: C.text }]}>
+                  <Text style={[styles.v, { color: C.text }]} numberOfLines={1}>
                     {normalizeUpper(compra.tipo_pago) || "—"}
                   </Text>
                 </View>
@@ -759,7 +856,7 @@ export default function CompraDetalleScreen() {
                 {normalizeUpper(compra.tipo_pago) === "CREDITO" ? (
                   <View style={styles.kv}>
                     <Text style={[styles.k, { color: C.sub }]}>Vencimiento</Text>
-                    <Text style={[styles.v, { color: C.text }]}>
+                    <Text style={[styles.v, { color: C.text }]} numberOfLines={1}>
                       {fmtDate(compra.fecha_vencimiento)}
                     </Text>
                   </View>
@@ -806,90 +903,58 @@ export default function CompraDetalleScreen() {
                 <Text style={{ color: C.sub }}>Sin líneas</Text>
               </View>
             ) : (
-              lineas.map((d, idx) => {
-                const imgUrl = d.producto_image_path
-                  ? storagePublicUrl(BUCKET_PRODUCTOS, d.producto_image_path)
-                  : null;
+              <View style={[styles.tableWrap, styles.shadowCard, { borderColor: C.border, backgroundColor: C.card, marginTop: 12 }]}>
+                <View
+                  style={[
+                    styles.tableHeaderRow,
+                    {
+                      borderBottomColor: C.divider,
+                      backgroundColor: C.mutedBg,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.th, { color: C.sub, flex: 1 }]}>Detalle</Text>
+                  <Text style={[styles.th, { color: C.sub, width: 140, textAlign: "right" }]}>Importe</Text>
+                </View>
 
-                return (
-                  <View
-                    key={String(d.detalle_id)}
-                    style={[
-                      styles.cardBase,
-                      styles.shadowCard,
-                      { borderColor: C.border, backgroundColor: C.card, marginTop: 12 },
-                    ]}
-                  >
-                    <View style={styles.rowBetween}>
-                      <Text style={[styles.cardTitle, { color: C.text }]} numberOfLines={2}>
-                        {idx + 1}. {d.producto_nombre ?? `Producto #${d.producto_id}`}
-                      </Text>
-                      {!!d.producto_marca ? (
-                        <Text style={[styles.brand, { color: C.sub }]} numberOfLines={1}>
-                          {d.producto_marca}
+                {lineas.map((d: any, idx: number) => {
+                  const nombre = d.producto_nombre ?? `Producto #${d.producto_id}`;
+                  const title = `${String(nombre ?? "—")}${d.producto_marca ? ` • ${d.producto_marca}` : ""}`;
+                  const lote = String(d.lote ?? "—");
+                  const venc = fmtDate(d.fecha_exp);
+                  const cant = safeNumber(d.cantidad);
+                  const unit = safeNumber(d.precio_compra_unit);
+
+                  return (
+                    <View key={String(d.detalle_id ?? idx)} style={[styles.tableRow, { borderTopColor: C.divider }]}>
+                      <View style={{ flex: 1, paddingRight: 10, minWidth: 0 }}>
+                        <Text style={[styles.td, { color: C.text }]} numberOfLines={1}>
+                          {idx + 1}. {title}
                         </Text>
-                      ) : null}
-                    </View>
+                        <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
+                          Lote: {lote}
+                        </Text>
+                        <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
+                          Venc: {venc}
+                        </Text>
+                      </View>
 
-                    <View style={styles.productBody}>
-                      {imgUrl ? (
-                        <ExpoImage
-                          source={{ uri: imgUrl }}
-                          style={styles.photo}
-                          contentFit="cover"
-                          cachePolicy="disk"
-                        />
-                      ) : (
-                        <View
-                          style={[
-                            styles.photoPlaceholder,
-                            { borderColor: C.border, backgroundColor: C.mutedBg },
-                          ]}
-                        >
-                          <Text style={{ color: C.sub, fontWeight: "700", fontSize: 12 }}>
-                            Sin foto
-                          </Text>
-                        </View>
-                      )}
-
-                      <View style={{ flex: 1 }}>
-                        <View style={styles.miniRow}>
-                          <Text style={[styles.miniK, { color: C.sub }]}>Lote</Text>
-                          <Text style={[styles.miniV, { color: C.text }]} numberOfLines={1}>
-                            {d.lote}
-                          </Text>
-                        </View>
-
-                        <View style={styles.miniRow}>
-                          <Text style={[styles.miniK, { color: C.sub }]}>Expira</Text>
-                          <Text style={[styles.miniV, { color: C.text }]}>
-                            {fmtDate(d.fecha_exp)}
-                          </Text>
-                        </View>
-
-                        <View style={styles.miniRow}>
-                          <Text style={[styles.miniK, { color: C.sub }]}>Cant.</Text>
-                          <Text style={[styles.miniV, { color: C.text }]}>{d.cantidad}</Text>
-                        </View>
-
-                        <View style={styles.miniRow}>
-                          <Text style={[styles.miniK, { color: C.sub }]}>Precio</Text>
-                          <Text style={[styles.miniV, { color: C.text }]}>
-                            {fmtQ(d.precio_compra_unit)}
-                          </Text>
-                        </View>
+                      <View style={{ width: 140, paddingLeft: 8, alignItems: "flex-end" }}>
+                        <Text style={[styles.td, { color: C.text }]} numberOfLines={1}>
+                          {cant} x {fmtQ(unit)}
+                        </Text>
                       </View>
                     </View>
+                  );
+                })}
 
-                    <View style={[styles.subtotalPill, { backgroundColor: C.mutedBg, borderColor: C.border }]}>
-                      <Text style={[styles.subtotalText, { color: C.text }]}>
-                        Subtotal:{" "}
-                        {fmtQ(d.subtotal ?? Number(d.cantidad) * Number(d.precio_compra_unit))}
-                      </Text>
-                    </View>
-                  </View>
-                );
-              })
+                <View style={[styles.tableFooterRow, { borderTopColor: C.divider, backgroundColor: C.mutedBg }]}>
+                  <Text style={[styles.td, { color: C.sub, flex: 1 }]}>Total</Text>
+                  <Text style={[styles.td, { color: C.text, width: 140, textAlign: "right" }]}>
+                    {fmtQ(compra?.monto_total ?? totalProductos)}
+                  </Text>
+                </View>
+              </View>
             )}
 
             {/* Pagos */}
@@ -1052,34 +1117,35 @@ export default function CompraDetalleScreen() {
         ) : null}
 
         {/* Modal: Aplicar pago */}
-        <Modal
-          transparent
-          visible={pagoModal}
-          animationType="fade"
-          onRequestClose={() => setPagoModal(false)}
-        >
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-            <View style={[styles.modalBg, { backgroundColor: C.overlay }]}>
-              <KeyboardAvoidingView
-                behavior={Platform.OS === "ios" ? "padding" : "height"}
-                style={{ width: "100%" }}
-                keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
-              >
-                <ScrollView
-                  keyboardShouldPersistTaps="handled"
-                  keyboardDismissMode="on-drag"
-                  contentContainerStyle={{ paddingBottom: 12 }}
-                  showsVerticalScrollIndicator={false}
-                  automaticallyAdjustKeyboardInsets
+        {pagoModal ? (
+          <Modal
+            transparent
+            visible={pagoModal}
+            animationType="fade"
+            onRequestClose={() => setPagoModal(false)}
+          >
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+              <View style={[styles.modalBg, { backgroundColor: C.overlay }]}>
+                <KeyboardAvoidingView
+                  behavior={Platform.OS === "ios" ? "padding" : "height"}
+                  style={{ width: "100%" }}
+                  keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
                 >
-                  <TouchableWithoutFeedback onPress={() => { }} accessible={false}>
-                    <View
-                      style={[
-                        styles.modalCard,
-                        styles.shadowCard,
-                        { backgroundColor: C.card, borderColor: C.border },
-                      ]}
-                    >
+                  <ScrollView
+                    keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode="on-drag"
+                    contentContainerStyle={{ paddingBottom: 12 }}
+                    showsVerticalScrollIndicator={false}
+                    automaticallyAdjustKeyboardInsets
+                  >
+                    <TouchableWithoutFeedback onPress={() => { }} accessible={false}>
+                      <View
+                        style={[
+                          styles.modalCard,
+                          styles.shadowCard,
+                          { backgroundColor: C.card, borderColor: C.border },
+                        ]}
+                      >
                       <Text style={[styles.modalTitle, { color: C.text }]}>Aplicar pago</Text>
                       <Text style={[styles.modalSub, { color: C.sub }]}>
                         Saldo: {fmtQ(compra?.saldo_pendiente)}
@@ -1218,53 +1284,66 @@ export default function CompraDetalleScreen() {
                           style={{ flex: 1, minHeight: 48, backgroundColor: C.primary, borderColor: C.primary } as any}
                         />
                       </View>
-                    </View>
-                  </TouchableWithoutFeedback>
-                </ScrollView>
-              </KeyboardAvoidingView>
-            </View>
-          </TouchableWithoutFeedback>
-        </Modal>
+                      </View>
+                    </TouchableWithoutFeedback>
+                  </ScrollView>
+                </KeyboardAvoidingView>
+              </View>
+            </TouchableWithoutFeedback>
+          </Modal>
+        ) : null}
 
-
+        
         {/* Viewer */}
-        <Modal
-          transparent
-          visible={viewerOpen}
-          animationType="fade"
-          onRequestClose={() => setViewerOpen(false)}
-        >
-          <View style={[styles.modalBg, { backgroundColor: "rgba(0,0,0,0.75)" }]}>
-            <View style={styles.viewerCard}>
-              <Pressable
-                onPress={() => setViewerOpen(false)}
-                style={({ pressed }) => [styles.viewerClose, pressed ? { opacity: 0.8 } : null]}
-              >
-                <Text style={{ color: "#fff", fontWeight: "900", fontSize: 16 }}>Cerrar</Text>
-              </Pressable>
+        {viewerOpen ? (
+          <Modal
+            transparent
+            visible={viewerOpen}
+            animationType="fade"
+            onRequestClose={() => setViewerOpen(false)}
+          >
+            <View style={[styles.viewerBg, { backgroundColor: "rgba(0,0,0,0.75)" }]}>
+              <View style={styles.viewerCard}>
+                <View style={[styles.viewerTopBar, { top: Math.max(12, insets.top + 10) }]}>
+                  <Pressable
+                    onPress={() => setViewerOpen(false)}
+                    style={({ pressed }) => [styles.viewerTopBtn, pressed ? { opacity: 0.8 } : null]}
+                  >
+                    <Text style={styles.viewerTopBtnText}>Cerrar</Text>
+                  </Pressable>
 
-              {!(viewerUrl || viewerRemoteUrl) ? (
-                <View style={[styles.center, { paddingTop: 18 }]}>
-                  <Text style={{ color: "rgba(255,255,255,0.85)", fontWeight: "700" }}>Cargando...</Text>
+                  <Pressable
+                    onPress={descargarComprobante}
+                    disabled={viewerSaving}
+                    style={({ pressed }) => [
+                      styles.viewerTopBtn,
+                      viewerSaving ? { opacity: 0.6 } : null,
+                      pressed ? { opacity: 0.8 } : null,
+                    ]}
+                  >
+                    <Text style={styles.viewerTopBtnText}>{viewerSaving ? "Guardando..." : "Descargar"}</Text>
+                  </Pressable>
                 </View>
-              ) : (
-                <ExpoImage
-                  source={{
-                    uri: viewerUrl ?? viewerRemoteUrl!,
-                    headers: { "Cache-Control": "no-cache" },
-                  }}
-                  style={styles.viewerImg}
-                  contentFit="contain"
-                  cachePolicy="none"
-                  onError={(e) => {
-                    const msg = (e as any)?.error ?? "Image data is nil";
-                    Alert.alert("No se pudo cargar", String(msg));
-                  }}
-                />
-              )}
+
+                {!(viewerUrl || viewerRemoteUrl) ? (
+                  <View style={[styles.center, { paddingTop: 18 }]}>
+                    <Text style={{ color: "rgba(255,255,255,0.85)", fontWeight: "700" }}>Cargando...</Text>
+                  </View>
+                ) : (
+                  <ImageViewer
+                    imageUrls={[{ url: viewerUrl ?? viewerRemoteUrl! }]}
+                    enableSwipeDown
+                    onSwipeDown={() => setViewerOpen(false)}
+                    onCancel={() => setViewerOpen(false)}
+                    renderIndicator={() => <View />}
+                    backgroundColor="transparent"
+                    saveToLocalByLongPress={false}
+                  />
+                )}
+              </View>
             </View>
-          </View>
-        </Modal>
+          </Modal>
+        ) : null}
 
         <DoneAccessory nativeID={DONE_ID} />
       </SafeAreaView>
@@ -1305,9 +1384,6 @@ const styles = StyleSheet.create({
 
   h1: { fontSize: 20, fontWeight: "700", letterSpacing: -0.2, lineHeight: 24 },
 
-  metaK: { fontSize: 12, fontWeight: "600" },
-  metaV: { marginTop: 2, fontSize: 14, fontWeight: "600", lineHeight: 18 },
-
   badgePill: {
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 10,
@@ -1315,20 +1391,20 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignSelf: "flex-start",
   },
-  badgeText: { fontSize: 12, fontWeight: "700", letterSpacing: 0.2 },
+  badgeText: { fontSize: 12, fontWeight: "800", letterSpacing: 0.6, textTransform: "uppercase" },
 
   kvGrid: { flexDirection: "row", gap: 16, flexWrap: "wrap" },
-  kv: { minWidth: 130 },
+  kv: { minWidth: 140, flexBasis: 140, flexGrow: 1 },
 
   k: { fontSize: 12, fontWeight: "600" },
   v: { marginTop: 3, fontSize: 14, fontWeight: "600", lineHeight: 18 },
   note: { marginTop: 6, fontSize: 14, fontWeight: "600", lineHeight: 20 },
 
-  divider: { height: StyleSheet.hairlineWidth, marginVertical: 10 },
+  divider: { height: StyleSheet.hairlineWidth, marginVertical: 14 },
 
   totalRow: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" },
-  total: { fontSize: 24, fontWeight: "700", marginTop: 4, letterSpacing: -0.3 },
-  totalSmall: { fontSize: 16, fontWeight: "700", marginTop: 4 },
+  total: { fontSize: 26, fontWeight: "800", marginTop: 4, letterSpacing: -0.5 },
+  totalSmall: { fontSize: 17, fontWeight: "800", marginTop: 4 },
 
   sectionTitle: { marginTop: 18, fontSize: 18, fontWeight: "700", letterSpacing: -0.2 },
 
@@ -1366,6 +1442,14 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   subtotalText: { fontSize: 14, fontWeight: "700" },
+
+  tableWrap: { width: "100%", borderWidth: StyleSheet.hairlineWidth, borderRadius: 18, overflow: "hidden" },
+  tableHeaderRow: { flexDirection: "row", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
+  tableRow: { flexDirection: "row", alignItems: "flex-start", paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: StyleSheet.hairlineWidth },
+  tableFooterRow: { flexDirection: "row", paddingHorizontal: 16, paddingVertical: 14, borderTopWidth: StyleSheet.hairlineWidth },
+  th: { fontSize: 11, fontWeight: "800", letterSpacing: 0.7, textTransform: "uppercase" },
+  td: { fontSize: 13, fontWeight: "800" },
+  tdSub: { marginTop: 2, fontSize: 12, fontWeight: "700" },
 
   bottomBar: {
     position: "absolute",
@@ -1496,16 +1580,22 @@ const styles = StyleSheet.create({
   },
   previewImg: { width: "100%", height: 160, borderRadius: 12 },
 
-  viewerCard: { width: "100%", height: "100%", justifyContent: "center" },
-  viewerClose: {
+  viewerBg: { flex: 1 },
+  viewerCard: { width: "100%", height: "100%" },
+  viewerTopBar: {
     position: "absolute",
-    top: 60,
+    left: 18,
     right: 18,
-    zIndex: 10,
+    zIndex: 20,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  viewerTopBtn: {
     backgroundColor: "rgba(0,0,0,0.45)",
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 14,
   },
-  viewerImg: { width: "100%", height: "100%" },
+  viewerTopBtnText: { color: "#fff", fontWeight: "900", fontSize: 16 },
 });

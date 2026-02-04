@@ -9,10 +9,12 @@
 
 import { useTheme } from "@react-navigation/native";
 import { router } from "expo-router";
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Image,
+  InteractionManager,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -34,6 +36,15 @@ export default function LoginScreen() {
   const isDark = !!dark;
   const insets = useSafeAreaInsets();
 
+  const didNavigateRef = useRef(false);
+  const aliveRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
+
   const C = {
     bg: colors.background ?? (isDark ? "#000" : "#fff"),
     card: colors.card ?? (isDark ? "#0f0f10" : "#fff"),
@@ -48,6 +59,32 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
 
   const passRef = useRef<TextInput>(null);
+
+  const nextFrame = () =>
+    new Promise<void>((resolve) => {
+      const raf = (globalThis as any)?.requestAnimationFrame;
+      if (typeof raf === "function") raf(() => resolve());
+      else setTimeout(() => resolve(), 0);
+    });
+
+  const replaceToTabsDeferredOnce = async () => {
+    if (didNavigateRef.current) return;
+    didNavigateRef.current = true;
+
+    Keyboard.dismiss();
+
+    await new Promise<void>((resolve) => {
+      InteractionManager.runAfterInteractions(() => resolve());
+    });
+
+    // Give the native navigation + layout a couple frames to settle.
+    // This avoids a rare iOS state where an invisible overlay keeps intercepting
+    // touches near the bottom immediately after auth -> nested navigator replace.
+    await nextFrame();
+    await nextFrame();
+
+    router.replace("/(drawer)/(tabs)");
+  };
 
   const onLogin = async () => {
     const cleanEmail = email.trim().toLowerCase();
@@ -70,11 +107,11 @@ export default function LoginScreen() {
         return;
       }
 
-      router.replace("/(drawer)/(tabs)");
+      await replaceToTabsDeferredOnce();
     } catch {
       Alert.alert("Error", "Ocurrió un error inesperado");
     } finally {
-      setLoading(false);
+      if (aliveRef.current) setLoading(false);
     }
   };
 

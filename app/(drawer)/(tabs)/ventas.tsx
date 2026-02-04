@@ -7,11 +7,13 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AppButton } from "../../../components/ui/app-button";
 import { supabase } from "../../../lib/supabase";
@@ -19,7 +21,7 @@ import { useThemePref } from "../../../lib/themePreference";
 import { alphaColor } from "../../../lib/ui";
 import { FB_DARK_DANGER } from "../../../src/theme/headerColors";
 
-type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURADOR" | "";
+type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 type Estado = "NUEVO" | "FACTURADO" | "EN_RUTA" | "ENTREGADO";
 
 type Chip = { label: string; tone: "neutral" | "red" | "amber" };
@@ -28,6 +30,7 @@ type VentaRow = {
   id: number;
   fecha: string;
   estado: Estado;
+  cliente_id: number | null;
   cliente_nombre: string | null;
   vendedor_id: string | null;
   vendedor_codigo: string | null;
@@ -42,6 +45,17 @@ function normalizeUpper(v: any) {
 function fmtDate(iso: string | null | undefined) {
   if (!iso) return "—";
   return String(iso).slice(0, 10);
+}
+
+function startOfDay(d: Date) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+function endOfDay(d: Date) {
+  const x = new Date(d);
+  x.setHours(23, 59, 59, 999);
+  return x;
 }
 
 function shortUid(u: string | null | undefined) {
@@ -96,6 +110,40 @@ export default function Ventas() {
   const [estado, setEstado] = useState<Estado>("NUEVO");
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
+
+  // filtros (tipo CxC): cliente + rango de fechas
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [clientes, setClientes] = useState<{ id: number; nombre: string }[]>([]);
+  const [clienteOpen, setClienteOpen] = useState(false);
+  const [fClienteId, setFClienteId] = useState<number | null>(null);
+  const [fClienteQ, setFClienteQ] = useState("");
+  const [fDesde, setFDesde] = useState<Date | null>(null);
+  const [fHasta, setFHasta] = useState<Date | null>(null);
+  const [showDesdeIOS, setShowDesdeIOS] = useState(false);
+  const [showHastaIOS, setShowHastaIOS] = useState(false);
+
+  React.useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("clientes")
+          .select("id,nombre")
+          .order("nombre", { ascending: true });
+        if (!alive) return;
+        if (error) {
+          setClientes([]);
+          return;
+        }
+        setClientes(((data ?? []) as any) as { id: number; nombre: string }[]);
+      } catch {
+        if (alive) setClientes([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   React.useEffect(() => {
     const timer = setTimeout(() => {
@@ -222,7 +270,7 @@ export default function Ventas() {
         const { data, error } = await supabase
           .from("ventas")
           .select(
-            "id,fecha,estado,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada"
+            "id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada"
           )
           .eq("estado", targetEstado)
           .order("fecha", { ascending: false })
@@ -310,10 +358,20 @@ export default function Ventas() {
 
   const rows = useMemo(() => {
     const search = debouncedQ.trim().toLowerCase();
+    const desdeMs = fDesde ? startOfDay(fDesde).getTime() : null;
+    const hastaMs = fHasta ? endOfDay(fHasta).getTime() : null;
+
     const filtered = rowsRaw.filter((r) => {
       const tags = tagsByVenta[String(r.id)] ?? [];
       const isAnulado = tags.includes("ANULADO");
       if (isAnulado) return false;
+
+      if (fClienteId && Number(r.cliente_id ?? 0) !== fClienteId) return false;
+
+      const ymd = r.fecha ? String(r.fecha).slice(0, 10) : "";
+      const rowDateMs = ymd ? new Date(`${ymd}T12:00:00`).getTime() : null;
+      if (desdeMs && (rowDateMs == null || rowDateMs < desdeMs)) return false;
+      if (hastaMs && (rowDateMs == null || rowDateMs > hastaMs)) return false;
 
       if (!search) return true;
       const id = String(r.id);
@@ -322,7 +380,70 @@ export default function Ventas() {
       return id.includes(search) || cliente.includes(search) || vcode.includes(search);
     });
     return filtered;
-  }, [debouncedQ, rowsRaw, tagsByVenta]);
+  }, [debouncedQ, rowsRaw, tagsByVenta, fClienteId, fDesde, fHasta]);
+
+  const filteredClientes = useMemo(() => {
+    const qq = (fClienteQ ?? "").trim().toLowerCase();
+    if (!qq) return clientes;
+    return (clientes ?? []).filter(
+      (c) => String(c.nombre ?? "").toLowerCase().includes(qq) || String(c.id ?? "").includes(qq)
+    );
+  }, [clientes, fClienteQ]);
+
+  const clienteLabel = useMemo(() => {
+    if (!fClienteId) return "Todos";
+    const c = clientes.find((x) => x.id === fClienteId);
+    return c?.nombre ?? "Todos";
+  }, [clientes, fClienteId]);
+
+  const openDesdePicker = useCallback(() => {
+    setClienteOpen(false);
+    if (Platform.OS === "android") {
+      DateTimePickerAndroid.open({
+        value: fDesde ?? new Date(),
+        mode: "date",
+        onChange: (_ev, date) => {
+          if (date) setFDesde(date);
+        },
+      });
+    } else {
+      setShowDesdeIOS(true);
+      setShowHastaIOS(false);
+    }
+  }, [fDesde]);
+
+  const openHastaPicker = useCallback(() => {
+    setClienteOpen(false);
+    if (Platform.OS === "android") {
+      DateTimePickerAndroid.open({
+        value: fHasta ?? new Date(),
+        mode: "date",
+        onChange: (_ev, date) => {
+          if (date) setFHasta(date);
+        },
+      });
+    } else {
+      setShowHastaIOS(true);
+      setShowDesdeIOS(false);
+    }
+  }, [fHasta]);
+
+  const limpiarFiltros = useCallback(() => {
+    setFClienteId(null);
+    setFClienteQ("");
+    setFDesde(null);
+    setFHasta(null);
+    setClienteOpen(false);
+    setShowDesdeIOS(false);
+    setShowHastaIOS(false);
+  }, []);
+
+  const aplicarFiltros = useCallback(() => {
+    setFiltersOpen(false);
+    setClienteOpen(false);
+    setShowDesdeIOS(false);
+    setShowHastaIOS(false);
+  }, []);
 
   const chipsById = useMemo(() => {
     const map: Record<number, Chip[]> = {};
@@ -374,6 +495,7 @@ export default function Ventas() {
   const renderItem = useCallback(
     ({ item }: { item: VentaRow }) => {
       const chips = chipsById[item.id] ?? [];
+      const vendedorChip = item.vendedor_codigo ? String(item.vendedor_codigo) : shortUid(item.vendedor_id);
 
       return (
         <Pressable
@@ -384,14 +506,18 @@ export default function Ventas() {
             pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
           ]}
         >
-          <Text style={[s.cardTitle, { color: C.text }]} numberOfLines={2}>
-            {item.cliente_nombre ?? "—"}
-          </Text>
+          <View style={s.cardTopRow}>
+            <Text style={[s.cardTitle, { color: C.text, flex: 1 }]} numberOfLines={2}>
+              {item.cliente_nombre ?? "—"}
+            </Text>
+            <View style={[s.vendedorPill, { backgroundColor: C.chipBg, borderColor: C.border }]}>
+              <Text style={[s.vendedorPillText, { color: C.text }]} numberOfLines={1}>
+                {vendedorChip}
+              </Text>
+            </View>
+          </View>
           <Text style={[s.cardSub, { color: C.sub }]} numberOfLines={1}>
             Fecha: {fmtDate(item.fecha)}
-          </Text>
-          <Text style={[s.cardSub, { color: C.sub }]} numberOfLines={1}>
-            Vendedor: {item.vendedor_codigo ? String(item.vendedor_codigo) : shortUid(item.vendedor_id)}
           </Text>
 
           {chips.length ? (
@@ -522,6 +648,22 @@ export default function Ventas() {
             autoCapitalize="none"
             autoCorrect={false}
           />
+
+          <Pressable
+            onPress={() => {
+              setFiltersOpen(true);
+              setClienteOpen(false);
+              setShowDesdeIOS(false);
+              setShowHastaIOS(false);
+            }}
+            style={({ pressed }) => [
+              s.filterBtn,
+              { borderColor: C.border, backgroundColor: C.card },
+              pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
+            ]}
+          >
+            <Text style={[s.filterTxt, { color: C.text }]}>Filtros</Text>
+          </Pressable>
         </View>
       </View>
 
@@ -544,40 +686,216 @@ export default function Ventas() {
         ListEmptyComponent={listEmptyComponent}
       />
 
-      <Modal
-        visible={verseOpen}
-        transparent
-        animationType="none"
-        onRequestClose={() => {
-          Animated.parallel([
-            Animated.timing(verseOpacity, { toValue: 0, duration: 120, useNativeDriver: true }),
-            Animated.timing(verseTranslateY, { toValue: 18, duration: 150, useNativeDriver: true }),
-            Animated.timing(verseScale, { toValue: 0.96, duration: 150, useNativeDriver: true }),
-          ]).start(() => setVerseOpen(false));
-        }}
-      >
-        <Pressable
-          style={[s.verseBackdrop, { backgroundColor: isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.35)" }]}
-          onPress={() => {
+      {/* Modal filtros */}
+      {filtersOpen ? (
+        <Modal
+          visible={filtersOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => {
+            setFiltersOpen(false);
+            setClienteOpen(false);
+            setShowDesdeIOS(false);
+            setShowHastaIOS(false);
+          }}
+        >
+          <Pressable
+            style={[s.modalBackdrop, { backgroundColor: isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.35)" }]}
+            onPress={() => {
+              setFiltersOpen(false);
+              setClienteOpen(false);
+              setShowDesdeIOS(false);
+              setShowHastaIOS(false);
+            }}
+          />
+
+          <View style={[s.modalCard, { backgroundColor: C.card, borderColor: C.border }]}>
+          <View style={s.modalHeader}>
+            <Text style={[s.modalTitle, { color: C.text }]}>Filtros</Text>
+            <Pressable
+              onPress={() => {
+                setFiltersOpen(false);
+                setClienteOpen(false);
+                setShowDesdeIOS(false);
+                setShowHastaIOS(false);
+              }}
+              hitSlop={10}
+            >
+              <Text style={[s.modalClose, { color: C.sub }]}>Cerrar</Text>
+            </Pressable>
+          </View>
+
+          <Text style={[s.sectionLabel, { color: C.text }]}>Cliente</Text>
+          <Pressable
+            onPress={() => {
+              setClienteOpen((v) => !v);
+              setShowDesdeIOS(false);
+              setShowHastaIOS(false);
+            }}
+            style={[s.dropdownInput, { borderColor: C.border, backgroundColor: C.card }]}
+          >
+            <Text style={[s.dropdownText, { color: C.text }]} numberOfLines={1}>
+              {clienteLabel}
+            </Text>
+            <Text style={[s.dropdownCaret, { color: C.sub }]}>{clienteOpen ? "▲" : "▼"}</Text>
+          </Pressable>
+
+          {clienteOpen ? (
+            <View style={[s.dropdownPanel, { borderColor: C.border, backgroundColor: C.card }]}
+            >
+              <ScrollView style={{ maxHeight: 180 }} keyboardShouldPersistTaps="handled">
+                <View style={{ paddingHorizontal: 12, paddingVertical: 8 }}>
+                  <TextInput
+                    value={fClienteQ}
+                    onChangeText={setFClienteQ}
+                    placeholder="Buscar cliente..."
+                    placeholderTextColor={C.sub}
+                    style={[
+                      s.clientSearchInput,
+                      {
+                        color: C.text,
+                        borderColor: C.border,
+                        backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+                      },
+                    ]}
+                    autoCapitalize="none"
+                    returnKeyType="search"
+                  />
+                </View>
+
+                <DDRow
+                  label="Todos"
+                  selected={!fClienteId}
+                  onPress={() => {
+                    setFClienteId(null);
+                    setClienteOpen(false);
+                    setFClienteQ("");
+                  }}
+                  isDark={isDark}
+                  text={C.text}
+                  divider={isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)"}
+                  tint={C.tint}
+                />
+                {filteredClientes.map((c) => (
+                  <DDRow
+                    key={String(c.id)}
+                    label={c.nombre}
+                    selected={fClienteId === c.id}
+                    onPress={() => {
+                      setFClienteId(c.id);
+                      setClienteOpen(false);
+                      setFClienteQ("");
+                    }}
+                    isDark={isDark}
+                    text={C.text}
+                    divider={isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)"}
+                    tint={C.tint}
+                  />
+                ))}
+              </ScrollView>
+            </View>
+          ) : null}
+
+          <Text style={{ marginTop: 6, color: C.sub }}>Busca por nombre.</Text>
+
+          <View style={{ height: 10 }} />
+          <View style={s.twoCols}>
+            <View style={{ flex: 1 }}>
+              <Text style={[s.sectionLabel, { color: C.text }]}>Desde</Text>
+              <Pressable onPress={openDesdePicker} style={[s.dateBox, { borderColor: C.border, backgroundColor: C.card }]}
+              >
+                <Text style={[s.dateTxt, { color: C.text }]}>{fDesde ? fmtDate(fDesde.toISOString()) : "—"}</Text>
+              </Pressable>
+            </View>
+
+            <View style={{ width: 12 }} />
+
+            <View style={{ flex: 1 }}>
+              <Text style={[s.sectionLabel, { color: C.text }]}>Hasta</Text>
+              <Pressable onPress={openHastaPicker} style={[s.dateBox, { borderColor: C.border, backgroundColor: C.card }]}
+              >
+                <Text style={[s.dateTxt, { color: C.text }]}>{fHasta ? fmtDate(fHasta.toISOString()) : "—"}</Text>
+              </Pressable>
+            </View>
+          </View>
+
+          {Platform.OS === "ios" && showDesdeIOS ? (
+            <View style={[s.iosPickerWrap, { borderColor: C.border, backgroundColor: C.card }]}>
+              <DateTimePicker
+                value={fDesde ?? new Date()}
+                mode="date"
+                display="inline"
+                themeVariant={isDark ? "dark" : "light"}
+                onChange={(_ev, date) => {
+                  if (date) {
+                    setFDesde(date);
+                    setShowDesdeIOS(false);
+                  }
+                }}
+              />
+            </View>
+          ) : null}
+
+          {Platform.OS === "ios" && showHastaIOS ? (
+            <View style={[s.iosPickerWrap, { borderColor: C.border, backgroundColor: C.card }]}>
+              <DateTimePicker
+                value={fHasta ?? new Date()}
+                mode="date"
+                display="inline"
+                themeVariant={isDark ? "dark" : "light"}
+                onChange={(_ev, date) => {
+                  if (date) {
+                    setFHasta(date);
+                    setShowHastaIOS(false);
+                  }
+                }}
+              />
+            </View>
+          ) : null}
+
+          <View style={s.modalActions}>
+            <AppButton title="Limpiar" variant="ghost" size="sm" onPress={limpiarFiltros} />
+            <AppButton title="Aplicar" variant="primary" size="sm" onPress={aplicarFiltros} />
+          </View>
+          </View>
+        </Modal>
+      ) : null}
+
+      {verseOpen ? (
+        <Modal
+          visible={verseOpen}
+          transparent
+          animationType="none"
+          onRequestClose={() => {
             Animated.parallel([
               Animated.timing(verseOpacity, { toValue: 0, duration: 120, useNativeDriver: true }),
               Animated.timing(verseTranslateY, { toValue: 18, duration: 150, useNativeDriver: true }),
               Animated.timing(verseScale, { toValue: 0.96, duration: 150, useNativeDriver: true }),
             ]).start(() => setVerseOpen(false));
           }}
-        />
-
-        <Animated.View
-          style={[
-            s.verseCard,
-            {
-              backgroundColor: C.card,
-              borderColor: C.border,
-              opacity: verseOpacity,
-              transform: [{ translateY: verseTranslateY }, { scale: verseScale }],
-            },
-          ]}
         >
+          <Pressable
+            style={[s.verseBackdrop, { backgroundColor: isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.35)" }]}
+            onPress={() => {
+              Animated.parallel([
+                Animated.timing(verseOpacity, { toValue: 0, duration: 120, useNativeDriver: true }),
+                Animated.timing(verseTranslateY, { toValue: 18, duration: 150, useNativeDriver: true }),
+                Animated.timing(verseScale, { toValue: 0.96, duration: 150, useNativeDriver: true }),
+              ]).start(() => setVerseOpen(false));
+            }}
+          />
+
+          <Animated.View
+            style={[
+              s.verseCard,
+              {
+                backgroundColor: C.card,
+                borderColor: C.border,
+                opacity: verseOpacity,
+                transform: [{ translateY: verseTranslateY }, { scale: verseScale }],
+              },
+            ]}
+          >
           <Text style={[s.verseKicker, { color: C.sub }]}>Versiculo del dia</Text>
           <Text style={[s.verseTitle, { color: C.text }]}>Mateo 7:7</Text>
 
@@ -602,9 +920,49 @@ export default function Ventas() {
               ]).start(() => setVerseOpen(false));
             }}
           />
-        </Animated.View>
-      </Modal>
+          </Animated.View>
+        </Modal>
+      ) : null}
     </SafeAreaView>
+  );
+}
+
+function DDRow({
+  label,
+  selected,
+  onPress,
+  isDark,
+  text,
+  divider,
+  tint,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+  isDark: boolean;
+  text: string;
+  divider: string;
+  tint: string;
+}) {
+  const selBg = alphaColor(tint, isDark ? 0.22 : 0.12) || (isDark ? "rgba(21,60,158,0.22)" : "rgba(21,60,158,0.12)");
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        {
+          paddingHorizontal: 14,
+          paddingVertical: 12,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomColor: divider,
+          backgroundColor: selected ? selBg : "transparent",
+        },
+        pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
+      ]}
+    >
+      <Text style={{ fontSize: 16, fontWeight: "600", color: selected ? tint : text }} numberOfLines={1}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -624,22 +982,54 @@ const s = StyleSheet.create({
     letterSpacing: Platform.OS === "ios" ? -0.2 : 0,
   },
 
-  filtersRow: { marginTop: 12, gap: 10 },
+  filtersRow: { marginTop: 12, flexDirection: "row", alignItems: "center", gap: 10 },
   search: {
     borderWidth: 1,
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: Platform.select({ ios: 12, android: 10, default: 10 }),
     fontSize: 16,
+    flex: 1,
   },
 
+  filterBtn: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.select({ ios: 12, android: 10, default: 10 }),
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  filterTxt: { fontWeight: "800" },
+
   card: { borderWidth: 1, borderRadius: 16, padding: 14, marginBottom: 12 },
+  cardTopRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
   cardTitle: { fontSize: 16, fontWeight: "900" },
   cardSub: { marginTop: 6, fontSize: 13, fontWeight: "700" },
+
+  vendedorPill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, maxWidth: 140 },
+  vendedorPillText: { fontSize: 12, fontWeight: "900" },
 
   chipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
   chip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
   chipText: { fontSize: 12, fontWeight: "900" },
+
+  modalBackdrop: { ...StyleSheet.absoluteFillObject },
+  modalCard: { position: "absolute", left: 14, right: 14, top: 90, borderRadius: 18, padding: 16, borderWidth: 1 },
+  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  modalTitle: { fontSize: 22, fontWeight: "800" },
+  modalClose: { fontSize: 15, fontWeight: "700" },
+  sectionLabel: { marginTop: 12, fontSize: 15, fontWeight: "800" },
+  dropdownInput: { marginTop: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  dropdownText: { fontSize: 16, fontWeight: "600", flex: 1, paddingRight: 10 },
+  dropdownCaret: { fontSize: 14, fontWeight: "900" },
+  dropdownPanel: { marginTop: 10, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
+  clientSearchInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 },
+  twoCols: { flexDirection: "row", marginTop: 8 },
+  dateBox: { marginTop: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12 },
+  dateTxt: { fontSize: 16, fontWeight: "700" },
+  iosPickerWrap: { marginTop: 10, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
+  modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 12, marginTop: 16 },
 
   verseBackdrop: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 },
   verseCard: {

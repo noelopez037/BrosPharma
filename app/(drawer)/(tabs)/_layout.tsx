@@ -1,17 +1,86 @@
 // app/(drawer)/(tabs)/_layout.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
-import { Platform } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { InteractionManager, Platform } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { supabase } from "../../../lib/supabase";
 import { useThemePref } from "../../../lib/themePreference";
 import { FB_DARK_BLUE, FB_DARK_BORDER, FB_DARK_MUTED, FB_DARK_SURFACE, FB_DARK_TEXT, HEADER_BG } from "../../../src/theme/headerColors";
 
 const MUTED = "#8E8E93";
 
+function normalizeUpper(v: any) {
+  return String(v ?? "").trim().toUpperCase();
+}
+
 export default function TabLayout() {
   // ⬅️ USAR preferencia del usuario, no sistema
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
+
+  const [role, setRole] = useState<string>("");
+  const [navKey, setNavKey] = useState(0);
+  const didFixRef = useRef(false);
+  const insets = useSafeAreaInsets();
+
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== "ios") return;
+      if (didFixRef.current) return;
+      didFixRef.current = true;
+
+      const raf: (cb: any) => any =
+        (globalThis as any)?.requestAnimationFrame ?? ((cb: any) => setTimeout(cb, 0));
+
+      const task = InteractionManager.runAfterInteractions(() => {
+        raf(() => raf(() => setNavKey((k) => k + 1)));
+      });
+
+      return () => {
+        task?.cancel?.();
+      };
+    }, [])
+  );
+
+  useEffect(() => {
+    let alive = true;
+
+    const loadRole = async () => {
+      try {
+        const { data } = await supabase.auth.getUser();
+        const uid = data?.user?.id;
+        if (!uid) {
+          if (alive) setRole("");
+          return;
+        }
+
+        const { data: prof } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", uid)
+          .maybeSingle();
+
+        if (!alive) return;
+        setRole(normalizeUpper(prof?.role));
+      } catch {
+        if (!alive) return;
+        setRole("");
+      }
+    };
+
+    loadRole().catch(() => {});
+    const { data: sub } = supabase.auth.onAuthStateChange(() => {
+      loadRole().catch(() => {});
+    });
+
+    return () => {
+      alive = false;
+      sub?.subscription?.unsubscribe();
+    };
+  }, []);
 
   const background = isDark ? FB_DARK_SURFACE : "#F5F6F8";
   const border = isDark ? FB_DARK_BORDER : "#C6C6C8";
@@ -19,8 +88,12 @@ export default function TabLayout() {
   const active = isDark ? FB_DARK_BLUE : HEADER_BG;
   const inactive = isDark ? FB_DARK_MUTED : MUTED;
 
+  const hideTabBar = role === "FACTURACION";
+
   return (
       <Tabs
+        key={navKey}
+        detachInactiveScreens={false}
         screenOptions={{
           headerShown: false,
           headerTitleAlign: "center",
@@ -34,10 +107,14 @@ export default function TabLayout() {
 
         tabBarActiveTintColor: active,
         tabBarInactiveTintColor: inactive,
-        tabBarStyle: {
-          backgroundColor: background,
-          borderTopColor: border,
-        },
+        tabBarStyle: hideTabBar
+          ? ({ display: "none" } as any)
+          : {
+              backgroundColor: background,
+              borderTopColor: border,
+              paddingBottom: Math.max(insets.bottom, 6),
+              height: 56 + Math.max(insets.bottom, 6),
+            },
         tabBarLabelStyle: {
           fontSize: Platform.OS === "ios" ? 11 : 12,
           fontWeight: Platform.OS === "ios" ? "500" : "400",
@@ -48,6 +125,7 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "Inicio",
+          ...(role === "FACTURACION" ? { href: null } : {}),
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? "home" : "home-outline"}
@@ -76,6 +154,7 @@ export default function TabLayout() {
         name="inventario"
         options={{
           title: "Inventario",
+          ...(role === "FACTURACION" ? { href: null } : {}),
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? "cube" : "cube-outline"}

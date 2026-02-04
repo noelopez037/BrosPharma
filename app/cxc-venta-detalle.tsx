@@ -1,12 +1,13 @@
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
-import { Image as ExpoImage } from "expo-image";
-import * as WebBrowser from "expo-web-browser";
+import * as MediaLibrary from "expo-media-library";
 import { Stack, router, useLocalSearchParams } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Image,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -19,13 +20,13 @@ import {
   TouchableWithoutFeedback,
   View,
 } from "react-native";
+import ImageViewer from "react-native-image-zoom-viewer";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { supabase } from "../lib/supabase";
-import * as MediaLibrary from "expo-media-library";
-import { useThemePref } from "../lib/themePreference";
-import { alphaColor } from "../lib/ui";
 import { AppButton } from "../components/ui/app-button";
 import { DoneAccessory } from "../components/ui/done-accessory";
+import { supabase } from "../lib/supabase";
+import { useThemePref } from "../lib/themePreference";
+import { alphaColor } from "../lib/ui";
 
 const BUCKET_COMPROBANTES = "comprobantes";
 const BUCKET_VENTAS_DOCS = "Ventas-Docs";
@@ -83,14 +84,6 @@ function extFromMime(mime: string) {
   if (m.includes("heic")) return "heic";
   if (m.includes("heif")) return "heif";
   return "jpg";
-}
-
-function base64ToUint8Array(base64: string) {
-  const binary = globalThis.atob(base64);
-  const len = binary.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
 }
 
 async function uriToBytes(uri: string) {
@@ -226,8 +219,11 @@ export default function CxcVentaDetalle() {
 
   // pago modal
   const [pagoModal, setPagoModal] = useState(false);
+  const [pagoFacturaId, setPagoFacturaId] = useState<number | null>(null);
+  const [facturaPickerOpen, setFacturaPickerOpen] = useState(false);
   const [pagoMonto, setPagoMonto] = useState("");
-  const [pagoMetodo, setPagoMetodo] = useState<"EFECTIVO" | "TRANSFERENCIA" | "TARJETA" | "OTRO">("EFECTIVO");
+  type PagoMetodo = "EFECTIVO" | "TRANSFERENCIA" | "CHEQUE" | "TARJETA" | "OTRO";
+  const [pagoMetodo, setPagoMetodo] = useState<PagoMetodo>("EFECTIVO");
   const [pagoReferencia, setPagoReferencia] = useState("");
   const [pagoComentario, setPagoComentario] = useState("");
   const [pagoImg, setPagoImg] = useState<{ uri: string; mimeType: string } | null>(null);
@@ -273,13 +269,17 @@ export default function CxcVentaDetalle() {
 
       const { data: f } = await supabase
         .from("ventas_facturas")
-        .select("id,venta_id,tipo,path,numero_factura,original_name,size_bytes,created_at")
+        .select("id,venta_id,tipo,path,numero_factura,original_name,size_bytes,created_at,monto_total,fecha_vencimiento")
         .eq("venta_id", id)
         .order("created_at", { ascending: false });
       const frows = (f ?? []).map((r: any) => ({ ...r, path: normalizeStoragePath(r.path) }));
       setFacturas(frows);
 
-      const { data: p } = await supabase.from("ventas_pagos").select("id,venta_id,fecha,monto,metodo,referencia,comprobante_path,comentario,created_by").eq("venta_id", id).order("fecha", { ascending: false });
+      const { data: p } = await supabase
+        .from("ventas_pagos")
+        .select("id,venta_id,factura_id,fecha,monto,metodo,referencia,comprobante_path,comentario,created_by")
+        .eq("venta_id", id)
+        .order("fecha", { ascending: false });
       setPagos((p ?? []) as any[]);
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo cargar");
@@ -349,16 +349,95 @@ export default function CxcVentaDetalle() {
     return path;
   };
 
+  const saldoNum = useMemo(() => safeNumber(row?.saldo), [row?.saldo]);
+  const totalProductos = useMemo(() => {
+    return (lineas ?? []).reduce((acc: number, d: any) => {
+      const sub = d?.subtotal ?? safeNumber(d?.cantidad) * safeNumber(d?.precio_venta_unit);
+      return acc + safeNumber(sub);
+    }, 0);
+  }, [lineas]);
+
+  const facturasById = useMemo(() => {
+    const m = new Map<number, any>();
+    for (const f of facturas ?? []) {
+      const fid = Number((f as any)?.id);
+      if (Number.isFinite(fid) && fid > 0) m.set(fid, f);
+    }
+    return m;
+  }, [facturas]);
+
+  const facturaLabel = (f: any) => {
+    const n = String(f?.numero_factura ?? "").trim();
+    const numero = n || `Factura #${String(f?.id ?? "").trim() || "—"}`;
+    const montoRaw = f?.monto_total;
+    const m = montoRaw == null ? NaN : safeNumber(montoRaw);
+    if (Number.isFinite(m) && m > 0) return `${numero} · ${fmtQ(m)}`;
+
+    if ((facturas?.length ?? 0) === 1) {
+      const t = safeNumber(row?.total ?? totalProductos);
+      if (Number.isFinite(t) && t > 0) return `${numero} · ${fmtQ(t)}`;
+    }
+
+    return numero;
+  };
+
+  const facturaMonto = useCallback(
+    (f: any): number | null => {
+      const montoRaw = f?.monto_total;
+      const m = montoRaw == null ? NaN : safeNumber(montoRaw);
+      if (Number.isFinite(m) && m > 0) return m;
+
+      // fallback: si solo existe 1 factura y no tiene monto, usar total de la venta
+      if ((facturas?.length ?? 0) === 1) {
+        const t = safeNumber(row?.total ?? totalProductos);
+        if (Number.isFinite(t) && t > 0) return t;
+      }
+
+      return null;
+    },
+    [facturas?.length, row?.total, totalProductos]
+  );
+
+  const selectedFactura = useMemo(() => {
+    if (!pagoFacturaId) return null;
+    return facturasById.get(Number(pagoFacturaId)) ?? null;
+  }, [facturasById, pagoFacturaId]);
+
   const guardarPago = async () => {
     if (!row) return;
     if (savingPago) return;
+    const montoRaw = String(pagoMonto ?? "").trim();
     const monto = safeNumber(pagoMonto);
-    if (!(monto > 0)) { Alert.alert("Monto inválido", "Ingresa un monto mayor a 0."); return; }
+    if (!montoRaw) {
+      Alert.alert("Falta monto", "El monto es obligatorio.");
+      return;
+    }
+    if (!(monto > 0)) {
+      Alert.alert("Monto inválido", "Ingresa un monto mayor a 0.");
+      return;
+    }
+
+    if (!pagoFacturaId) {
+      Alert.alert("Falta factura", "Selecciona la factura a la que aplicarás este pago.");
+      return;
+    }
+    const f = facturasById.get(Number(pagoFacturaId)) ?? null;
+    if (!f || Number(f?.venta_id) !== Number(row.venta_id)) {
+      Alert.alert("Factura inválida", "La factura seleccionada no pertenece a esta venta.");
+      return;
+    }
+
+    if (!pagoImg?.uri) {
+      Alert.alert("Falta comprobante", "El comprobante es obligatorio.");
+      return;
+    }
+
     setSavingPago(true);
     try {
       const comprobantePath = await subirComprobanteSiExiste(Number(row.venta_id));
       const { error } = await supabase.rpc("rpc_venta_aplicar_pago", {
         p_venta_id: Number(row.venta_id),
+        p_factura_id: Number(pagoFacturaId),
         p_monto: monto,
         p_metodo: pagoMetodo,
         p_referencia: pagoReferencia ? pagoReferencia : null,
@@ -366,7 +445,9 @@ export default function CxcVentaDetalle() {
         p_comentario: pagoComentario ? pagoComentario : null,
       });
       if (error) throw error;
+      setFacturaPickerOpen(false);
       setPagoModal(false);
+      setPagoFacturaId(null);
       setPagoMonto(""); setPagoReferencia(""); setPagoComentario(""); setPagoImg(null);
       await fetchAll();
     } catch (e: any) {
@@ -385,8 +466,19 @@ export default function CxcVentaDetalle() {
     }
   }, [role]);
 
-  const saldoNum = useMemo(() => safeNumber(row?.saldo), [row?.saldo]);
+  const allowedMetodosPago = useMemo<readonly PagoMetodo[]>(() => {
+    const r = normalizeUpper(role);
+    if (r === "ADMIN") return ["EFECTIVO", "TRANSFERENCIA", "CHEQUE"] as const;
+    return ["TRANSFERENCIA", "CHEQUE"] as const;
+  }, [role]);
 
+  useEffect(() => {
+    // si cambia el rol o la lista permitida, asegurar que el método actual sea válido
+    if (!allowedMetodosPago.length) return;
+    if (!allowedMetodosPago.includes(pagoMetodo)) {
+      setPagoMetodo(allowedMetodosPago[0]);
+    }
+  }, [allowedMetodosPago, pagoMetodo]);
 
   const openFacturaPdf = useCallback(async (pathRaw: string) => {
     const path = normalizeStoragePath(pathRaw);
@@ -512,7 +604,7 @@ export default function CxcVentaDetalle() {
     } finally {
       setSavingDownload(false);
     }
-  }, [viewerRemoteUrl, viewerUrl]);
+  }, [viewerRemoteUrl, viewerUrl, viewerMimeType]);
 
   const confirmDeletePago = useCallback(
     (p: any) => {
@@ -556,26 +648,32 @@ export default function CxcVentaDetalle() {
           <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentInsetAdjustmentBehavior="never" contentContainerStyle={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: 12 + insets.bottom + 104 }} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
             <View style={[styles.cardBase, styles.headerCard, styles.shadowCard, { borderColor: C.border, backgroundColor: C.card }]}>
               <View style={styles.headerTop}>
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={[styles.h1, { color: C.text }]} numberOfLines={2}>{row.cliente_nombre ?? `Cliente #${row.cliente_id}`}</Text>
-                  <View style={{ marginTop: 8 }}>
-                    <Text style={[styles.metaK, { color: C.sub }]}>Fecha</Text>
-                    <Text style={[styles.metaV, { color: C.text }]} numberOfLines={1}>{fmtDate(row.fecha)}</Text>
-                    <Text style={[styles.metaK, { color: C.sub, marginTop: 6 }]}>Vencimiento</Text>
-                    <Text style={[styles.metaV, { color: C.text }]} numberOfLines={1}>{fmtDate(row.fecha_vencimiento)}</Text>
-                    <Text style={[styles.metaK, { color: C.sub, marginTop: 6 }]}>Vendedor</Text>
-                    <Text style={[styles.metaV, { color: C.text }]} numberOfLines={1}>
-                      {vendedorDisplay || shortUid(row.vendedor_id)}
-                    </Text>
-                  </View>
                 </View>
 
-                <View style={[styles.badgePill, { backgroundColor: saldoNum <= 0 ? C.okBg : C.warnBg, borderColor: C.border }]}>
+                <View
+                  style={[
+                    styles.badgePill,
+                    {
+                      backgroundColor: saldoNum <= 0 ? C.okBg : C.warnBg,
+                      borderColor: alphaColor(saldoNum <= 0 ? C.ok : C.warn, isDark ? 0.32 : 0.22) || C.border,
+                    },
+                  ]}
+                >
                   <Text style={[styles.badgeText, { color: saldoNum <= 0 ? C.ok : C.warn }]}>{saldoNum <= 0 ? "PAGADA" : "PENDIENTE"}</Text>
                 </View>
               </View>
 
               <View style={[styles.kvGrid, { marginTop: 12 }]}>
+                <View style={styles.kv}><Text style={[styles.k, { color: C.sub }]}>Fecha de emisión</Text><Text style={[styles.v, { color: C.text }]} numberOfLines={1}>{fmtDate(row.fecha)}</Text></View>
+                <View style={styles.kv}><Text style={[styles.k, { color: C.sub }]}>Vencimiento</Text><Text style={[styles.v, { color: C.text }]} numberOfLines={1}>{fmtDate(row.fecha_vencimiento)}</Text></View>
+                <View style={styles.kv}><Text style={[styles.k, { color: C.sub }]}>Vendedor</Text><Text style={[styles.v, { color: C.text }]} numberOfLines={1}>{vendedorDisplay || shortUid(row.vendedor_id)}</Text></View>
+              </View>
+
+              <View style={[styles.divider, { backgroundColor: C.divider }]} />
+
+              <View style={styles.kvGrid}>
                 <View style={styles.kv}><Text style={[styles.k, { color: C.sub }]}>Total</Text><Text style={[styles.v, { color: C.text }]}>{fmtQ(row?.total)}</Text></View>
                 <View style={styles.kv}><Text style={[styles.k, { color: C.sub }]}>Pagado</Text><Text style={[styles.v, { color: C.text }]}>{fmtQ(row?.pagado)}</Text></View>
                 <View style={styles.kv}><Text style={[styles.k, { color: C.sub }]}>Saldo</Text><Text style={[styles.v, { color: C.text }]}>{fmtQ(row?.saldo)}</Text></View>
@@ -586,28 +684,59 @@ export default function CxcVentaDetalle() {
             {lineas.length === 0 ? (
               <View style={[styles.cardBase, styles.shadowCard, { borderColor: C.border, backgroundColor: C.card, marginTop: 12 }]}><Text style={{ color: C.sub }}>Sin líneas</Text></View>
             ) : (
-              lineas.map((d, idx) => {
-                const nombre = d.productos?.nombre ?? `Producto #${d.producto_id}`;
-                const marca = d.productos?.marcas?.nombre ?? d.productos?.marcas?.[0]?.nombre ?? null;
-                const subtotal = d.subtotal ?? (Number(d.cantidad ?? 0) * Number(d.precio_venta_unit ?? 0));
-                return (
-                  <View key={String(d.id)} style={[styles.cardBase, styles.shadowCard, { borderColor: C.border, backgroundColor: C.card, marginTop: 12 }]}>
-                    <View style={styles.rowBetween}>
-                      <Text style={[styles.cardTitle, { color: C.text }]} numberOfLines={2}>
-                        {idx + 1}. {nombre}{marca ? ` • ${marca}` : ""}
-                      </Text>
-                      <Text style={[styles.lineAmt, { color: C.text }]}>{fmtQ(subtotal)}</Text>
-                    </View>
+              <View style={[styles.tableWrap, styles.shadowCard, { borderColor: C.border, backgroundColor: C.card, marginTop: 12 }]}>
+                <View
+                  style={[
+                    styles.tableHeaderRow,
+                    {
+                      borderBottomColor: C.divider,
+                      backgroundColor: C.mutedBg,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.th, { color: C.sub, flex: 1 }]}>Detalle</Text>
+                  <Text style={[styles.th, { color: C.sub, width: 140, textAlign: "right" }]}>Importe</Text>
+                </View>
 
-                    <View style={[styles.lineRow, { borderTopColor: C.divider }]}>
-                      <Text style={[styles.lineSub, { color: C.sub }]}>Cantidad</Text>
-                      <Text style={[styles.lineSubV, { color: C.text }]}>
-                        {Number(d.cantidad ?? 0)} x {fmtQ(d.precio_venta_unit)}
-                      </Text>
+                {lineas.map((d: any) => {
+                  const nombre = d.productos?.nombre ?? `Producto #${d.producto_id}`;
+                  const marca = d.productos?.marcas?.nombre ?? d.productos?.marcas?.[0]?.nombre ?? null;
+                  const title = `${String(nombre ?? "—")}${marca ? ` • ${marca}` : ""}`;
+                  const lote = d.producto_lotes?.lote ?? "—";
+                  const venc = fmtDate(d.producto_lotes?.fecha_exp);
+                  const cant = safeNumber(d.cantidad);
+                  const unit = safeNumber(d.precio_venta_unit);
+
+                  return (
+                    <View key={String(d.id)} style={[styles.tableRow, { borderTopColor: C.divider }]}>
+                      <View style={{ flex: 1, paddingRight: 10, minWidth: 0 }}>
+                        <Text style={[styles.td, { color: C.text }]} numberOfLines={1}>
+                          {title}
+                        </Text>
+                        <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
+                          Lote: {lote}
+                        </Text>
+                        <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
+                          Venc: {venc}
+                        </Text>
+                      </View>
+
+                      <View style={{ width: 140, paddingLeft: 8, alignItems: "flex-end" }}>
+                        <Text style={[styles.td, { color: C.text }]} numberOfLines={1}>
+                          {cant} x {fmtQ(unit)}
+                        </Text>
+                      </View>
                     </View>
-                  </View>
-                );
-              })
+                  );
+                })}
+
+                <View style={[styles.tableFooterRow, { borderTopColor: C.divider, backgroundColor: C.mutedBg }]}>
+                  <Text style={[styles.td, { color: C.sub, flex: 1 }]}>Total</Text>
+                  <Text style={[styles.td, { color: C.text, width: 140, textAlign: "right" }]}>
+                    {fmtQ(row?.total ?? totalProductos)}
+                  </Text>
+                </View>
+              </View>
             )}
 
             <Text style={[styles.sectionTitle, { color: C.text }]}>Facturas</Text>
@@ -618,19 +747,38 @@ export default function CxcVentaDetalle() {
                 facturas.slice(0, 2).map((f: any) => (
                   <View key={String(f.id)} style={{ paddingVertical: 10 }}>
                     <View style={styles.rowBetween}>
-                      <Text style={[styles.payTitle, { color: C.text }]} numberOfLines={1}>
-                        {String(f.numero_factura ?? "—")}
-                      </Text>
-                      <Pressable
-                        onPress={() => openFacturaPdf(String(f.path ?? "")).catch((e: any) => Alert.alert("Error", e?.message ?? "No se pudo abrir"))}
-                        style={({ pressed }) => [
-                          styles.linkBtnSmall,
-                          { borderColor: C.border, backgroundColor: C.mutedBg },
-                          pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
-                        ]}
-                      >
-                        <Text style={[styles.linkBtnTextSmall, { color: C.text }]}>Ver PDF</Text>
-                      </Pressable>
+                      <View style={{ flexDirection: "row", alignItems: "baseline", gap: 10, flex: 1, minWidth: 0, paddingRight: 10 }}>
+                        <Text
+                          selectable
+                          selectionColor={C.primary}
+                          style={[styles.payTitle, { color: C.text }]}
+                          numberOfLines={1}
+                        >
+                          {String(f.numero_factura ?? "—")}
+                        </Text>
+
+                        {(() => {
+                          const monto = facturaMonto(f);
+                          return monto != null ? (
+                            <Text style={[styles.payAmount, { color: C.text }]} numberOfLines={1}>
+                              {fmtQ(monto)}
+                            </Text>
+                          ) : null;
+                        })()}
+                      </View>
+
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                        <Pressable
+                          onPress={() => openFacturaPdf(String(f.path ?? "")).catch((e: any) => Alert.alert("Error", e?.message ?? "No se pudo abrir"))}
+                          style={({ pressed }) => [
+                            styles.linkBtnSmall,
+                            { borderColor: C.border, backgroundColor: C.mutedBg },
+                            pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
+                          ]}
+                        >
+                          <Text style={[styles.linkBtnTextSmall, { color: C.text }]}>Ver PDF</Text>
+                        </Pressable>
+                      </View>
                     </View>
                     <View style={[styles.divider, { backgroundColor: C.divider }]} />
                   </View>
@@ -647,6 +795,9 @@ export default function CxcVentaDetalle() {
                   const comprobanteRaw = String(p.comprobante_path ?? "").trim();
                   const hasComprobante = !!comprobanteRaw;
                   const canDeletePago = normalizeUpper(role) === "ADMIN" || normalizeUpper(role) === "VENTAS";
+                  const pfid = p?.factura_id == null ? null : Number(p.factura_id);
+                  const pf = pfid ? (facturasById.get(pfid) ?? null) : null;
+                  const facturaNum = pf ? String(pf?.numero_factura ?? "").trim() : "";
 
                   return (
                     <View key={String(p.id)} style={{ paddingVertical: 10 }}>
@@ -654,6 +805,9 @@ export default function CxcVentaDetalle() {
                         <Text style={[styles.payTitle, { color: C.text }]}>{fmtDate(p.fecha)} · {p.metodo ?? "—"}</Text>
                         <Text style={[styles.payAmount, { color: C.text }]}>{fmtQ(p.monto)}</Text>
                       </View>
+                      {pfid ? (
+                        <Text style={[styles.payMeta, { color: C.sub }]}>Factura: {facturaNum || `#${pfid}`}</Text>
+                      ) : null}
                       {!!p.referencia ? <Text style={[styles.payMeta, { color: C.sub }]}>Ref: {p.referencia}</Text> : null}
                       {!!p.comentario ? <Text style={[styles.payMeta, { color: C.sub }]}>{p.comentario}</Text> : null}
 
@@ -690,7 +844,20 @@ export default function CxcVentaDetalle() {
 
               {/** Edición de pagos no expuesta. Solo se permite eliminar pagos. **/}
               {saldoNum > 0 ? (
-                <AppButton title="Aplicar pago" onPress={() => setPagoModal(true)} disabled={false} variant="primary" style={{ marginTop: 12, backgroundColor: C.primary, borderColor: C.primary } as any} />
+                <AppButton
+                  title="Aplicar pago"
+                  onPress={() => {
+                    // limpiar selección para evitar aplicar a factura equivocada
+                    const only = (facturas ?? []).length === 1 ? Number((facturas as any[])[0]?.id) : null;
+                    setPagoFacturaId(Number.isFinite(only as any) && (only as any) > 0 ? (only as any) : null);
+                    // set default metodo segun rol
+                    setPagoMetodo(allowedMetodosPago[0]);
+                    setPagoModal(true);
+                  }}
+                  disabled={false}
+                  variant="primary"
+                  style={{ marginTop: 12, backgroundColor: C.primary, borderColor: C.primary } as any}
+                />
               ) : null}
             </View>
 
@@ -701,22 +868,52 @@ export default function CxcVentaDetalle() {
         {/* Bottom actions not required */}
 
         {/* Modal: Aplicar pago */}
-        <Modal transparent visible={pagoModal} animationType="fade" onRequestClose={() => setPagoModal(false)}>
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-            <View style={[styles.modalBg, { backgroundColor: C.overlay }]}> 
-              <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: '100%' }} keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}>
-                <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ paddingBottom: 12 }} showsVerticalScrollIndicator={false} automaticallyAdjustKeyboardInsets>
-                  <TouchableWithoutFeedback onPress={() => {}} accessible={false}>
-                    <View style={[styles.modalCard, styles.shadowCard, { backgroundColor: C.card, borderColor: C.border }]}> 
+        {pagoModal ? (
+          <Modal
+            transparent
+            visible={pagoModal}
+            animationType="fade"
+            onRequestClose={() => {
+              setFacturaPickerOpen(false);
+              setPagoModal(false);
+            }}
+          >
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+              <View style={[styles.modalBg, { backgroundColor: C.overlay }]}> 
+                <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: '100%' }} keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}>
+                  <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ paddingBottom: 12 }} showsVerticalScrollIndicator={false} automaticallyAdjustKeyboardInsets>
+                    <TouchableWithoutFeedback onPress={() => {}} accessible={false}>
+                      <View style={[styles.modalCard, styles.shadowCard, { backgroundColor: C.card, borderColor: C.border }]}> 
                       <Text style={[styles.modalTitle, { color: C.text }]}>Aplicar pago</Text>
                       <Text style={[styles.modalSub, { color: C.sub }]}>Saldo: {fmtQ(row?.saldo)}</Text>
+
+                      <Text style={[styles.inputLabel, { color: C.sub, marginTop: 10 }]}>Factura</Text>
+                      <Pressable
+                        onPress={() => {
+                          Keyboard.dismiss();
+                          setFacturaPickerOpen(true);
+                        }}
+                        style={({ pressed }) => [
+                          styles.input,
+                          {
+                            borderColor: C.border,
+                            backgroundColor: C.inputBg,
+                            justifyContent: "center",
+                          },
+                          pressed && Platform.OS === "ios" ? { opacity: 0.92 } : null,
+                        ]}
+                      >
+                        <Text style={{ color: selectedFactura ? C.text : C.sub, fontWeight: "700" }} numberOfLines={1}>
+                          {selectedFactura ? facturaLabel(selectedFactura) : "Seleccionar factura"}
+                        </Text>
+                      </Pressable>
 
                       <Text style={[styles.inputLabel, { color: C.sub }]}>Monto</Text>
                       <TextInput value={pagoMonto} onChangeText={setPagoMonto} placeholder="0.00" placeholderTextColor={C.sub} keyboardType="decimal-pad" inputAccessoryViewID={Platform.OS === "ios" ? 'doneAccessory' : undefined} style={[styles.input, { color: C.text, borderColor: C.border, backgroundColor: C.inputBg }]} />
 
                       <Text style={[styles.inputLabel, { color: C.sub, marginTop: 10 }]}>Método</Text>
                       <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-                        {(['EFECTIVO','TRANSFERENCIA','TARJETA','OTRO'] as const).map((m) => {
+                        {allowedMetodosPago.map((m) => {
                           const active = pagoMetodo === m;
                           return (
                             <Pressable key={m} onPress={() => { Keyboard.dismiss(); setPagoMetodo(m); }} style={({ pressed }) => [styles.chip, { borderColor: C.border, backgroundColor: active ? C.mutedBg : 'transparent' }, pressed && Platform.OS === 'ios' ? { opacity: 0.85 } : null]}>
@@ -725,77 +922,222 @@ export default function CxcVentaDetalle() {
                           );
                         })}
                       </View>
+                      {normalizeUpper(role) !== "ADMIN" ? (
+                        <Text style={{ color: C.sub, marginTop: 6, fontWeight: "600", fontSize: 12 }}>
+                          Solo administradores pueden registrar pagos en efectivo.
+                        </Text>
+                      ) : null}
 
                       <Text style={[styles.inputLabel, { color: C.sub, marginTop: 10 }]}>Referencia (opcional)</Text>
-                      <TextInput value={pagoReferencia} onChangeText={setPagoReferencia} placeholder="Ej: #boleta" placeholderTextColor={C.sub} style={[styles.input, { color: C.text, borderColor: C.border, backgroundColor: C.inputBg }]} />
+                      <TextInput value={pagoReferencia} onChangeText={setPagoReferencia} placeholder="Ej: #boleta #cheque" placeholderTextColor={C.sub} style={[styles.input, { color: C.text, borderColor: C.border, backgroundColor: C.inputBg }]} />
 
                       <Text style={[styles.inputLabel, { color: C.sub, marginTop: 10 }]}>Comentario (opcional)</Text>
                       <TextInput value={pagoComentario} onChangeText={setPagoComentario} placeholder="Nota breve" placeholderTextColor={C.sub} style={[styles.input, { color: C.text, borderColor: C.border, backgroundColor: C.inputBg }]} />
 
                       <View style={{ marginTop: 12 }}>
-                        <View style={styles.rowBetween}>
-                          <Text style={[styles.inputLabel, { color: C.sub }]}>Comprobante (imagen)</Text>
-                          <Pressable onPress={() => { Keyboard.dismiss(); pickComprobante(); }} style={({ pressed }) => [styles.linkBtnSmall, { borderColor: C.border, backgroundColor: C.mutedBg }, pressed && Platform.OS === 'ios' ? { opacity: 0.85 } : null]}>
-                            <Text style={[styles.linkBtnTextSmall, { color: C.text }]}>{pagoImg?.uri ? 'Cambiar' : 'Agregar'}</Text>
-                          </Pressable>
-                        </View>
-                        {pagoImg?.uri ? <Text style={{ color: C.sub, marginTop: 8 }}>Se subirá junto con el pago</Text> : null}
+                        <Text style={[styles.inputLabel, { color: C.sub }]}>Comprobante (requerido)</Text>
+
+                        <Pressable
+                          onPress={() => {
+                            Keyboard.dismiss();
+                            pickComprobante();
+                          }}
+                          style={({ pressed }) => {
+                            const has = !!pagoImg?.uri;
+                            const primaryBorder = alphaColor(C.primary, isDark ? 0.45 : 0.35) || C.border;
+                            const primaryBg = alphaColor(C.primary, isDark ? 0.14 : 0.08) || C.mutedBg;
+                            return [
+                              styles.comprobanteCta,
+                              {
+                                borderColor: has ? C.border : primaryBorder,
+                                backgroundColor: has ? C.mutedBg : primaryBg,
+                              },
+                              pressed && Platform.OS === "ios" ? { opacity: 0.92 } : null,
+                            ];
+                          }}
+                        >
+                          <View style={styles.comprobanteCtaInner}>
+                            <View
+                              style={[
+                                styles.comprobanteBadge,
+                                {
+                                  backgroundColor: pagoImg?.uri ? C.okBg : (alphaColor(C.primary, isDark ? 0.14 : 0.08) || C.mutedBg),
+                                  borderColor: alphaColor(pagoImg?.uri ? C.ok : C.primary, isDark ? 0.32 : 0.22) || C.border,
+                                },
+                              ]}
+                            >
+                              <Text style={[styles.comprobanteBadgeText, { color: pagoImg?.uri ? C.ok : C.primary }]}>
+                                {pagoImg?.uri ? "OK" : "+"}
+                              </Text>
+                            </View>
+
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                              <Text style={{ color: C.text, fontWeight: "900", fontSize: 14 }} numberOfLines={1}>
+                                {pagoImg?.uri ? "Comprobante adjunto" : "Agregar comprobante"}
+                              </Text>
+                              <Text style={{ color: C.sub, marginTop: 2, fontWeight: "700", fontSize: 12 }} numberOfLines={2}>
+                                {pagoImg?.uri ? "Toca para cambiar la imagen" : "Requerido para habilitar Guardar"}
+                              </Text>
+                            </View>
+
+                            {pagoImg?.uri ? (
+                              <Image source={{ uri: pagoImg.uri }} style={[styles.comprobanteThumb, { borderColor: C.border }]} />
+                            ) : null}
+                          </View>
+                        </Pressable>
+
+                        <Text style={{ color: C.sub, marginTop: 8, fontWeight: "600", fontSize: 12 }}>
+                          {pagoImg?.uri ? "Listo. Se subirá junto con el pago." : "Debes adjuntar una imagen como comprobante."}
+                        </Text>
                       </View>
 
                       <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
-                        <AppButton title="Cancelar" variant="outline" onPress={() => { Keyboard.dismiss(); setPagoModal(false); }} disabled={savingPago} style={{ flex: 1, minHeight: 48 } as any} />
-                        <AppButton title="Guardar" variant="primary" onPress={() => { Keyboard.dismiss(); guardarPago(); }} loading={savingPago} style={{ flex: 1, minHeight: 48, backgroundColor: C.primary, borderColor: C.primary } as any} />
+                        <AppButton
+                          title="Cancelar"
+                          variant="outline"
+                          onPress={() => {
+                            Keyboard.dismiss();
+                            setFacturaPickerOpen(false);
+                            setPagoModal(false);
+                          }}
+                          disabled={savingPago}
+                          style={{ flex: 1, minHeight: 48 } as any}
+                        />
+                        <AppButton title="Guardar" variant="primary" onPress={() => { Keyboard.dismiss(); guardarPago(); }} loading={savingPago} disabled={savingPago || !pagoImg?.uri} style={{ flex: 1, minHeight: 48, backgroundColor: C.primary, borderColor: C.primary } as any} />
                       </View>
-                    </View>
-                  </TouchableWithoutFeedback>
-                </ScrollView>
-              </KeyboardAvoidingView>
-            </View>
-          </TouchableWithoutFeedback>
-        </Modal>
+                      </View>
+                    </TouchableWithoutFeedback>
+                  </ScrollView>
+                </KeyboardAvoidingView>
+              </View>
+            </TouchableWithoutFeedback>
+          </Modal>
+        ) : null}
+
+        {/* Modal: Selector de factura */}
+        {facturaPickerOpen ? (
+          <Modal transparent visible={facturaPickerOpen} animationType="fade" onRequestClose={() => setFacturaPickerOpen(false)}>
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+              <View style={[styles.modalBg, { backgroundColor: C.overlay }]}> 
+                <TouchableWithoutFeedback onPress={() => {}} accessible={false}>
+                  <View style={[styles.modalCard, styles.shadowCard, { backgroundColor: C.card, borderColor: C.border }]}> 
+                  <Text style={[styles.modalTitle, { color: C.text }]}>Seleccionar factura</Text>
+                  <Text style={[styles.modalSub, { color: C.sub }]}>El pago se aplicará a la factura elegida.</Text>
+
+                  {(facturas ?? []).length === 0 ? (
+                    <Text style={{ color: C.sub, marginTop: 12, fontWeight: "700" }}>No hay facturas para esta venta.</Text>
+                  ) : (
+                    <ScrollView style={{ maxHeight: 340, marginTop: 12 }} keyboardShouldPersistTaps="handled">
+                      {(facturas ?? []).map((f: any) => {
+                        const fid = Number(f?.id);
+                        const active = !!pagoFacturaId && fid === Number(pagoFacturaId);
+                        const numero = String(f?.numero_factura ?? "").trim() || `Factura #${fid || "—"}`;
+                        const tipo = String(f?.tipo ?? "").trim();
+                        const venc = fmtDate(f?.fecha_vencimiento);
+                        const monto = f?.monto_total == null ? null : safeNumber(f.monto_total);
+                        const meta = [tipo ? `Tipo: ${tipo}` : "", monto && monto > 0 ? `Total: ${fmtQ(monto)}` : "", venc !== "—" ? `Vence: ${venc}` : ""]
+                          .filter(Boolean)
+                          .join(" · ");
+                        return (
+                          <Pressable
+                            key={String(fid)}
+                            onPress={() => {
+                              if (!fid) return;
+                              setPagoFacturaId(fid);
+                              setFacturaPickerOpen(false);
+                            }}
+                            style={({ pressed }) => [
+                              {
+                                borderWidth: StyleSheet.hairlineWidth,
+                                borderColor: active ? alphaColor(C.primary, 0.35) || C.border : C.border,
+                                backgroundColor: active ? C.mutedBg : "transparent",
+                                borderRadius: 14,
+                                paddingHorizontal: 12,
+                                paddingVertical: 12,
+                                marginBottom: 10,
+                              },
+                              pressed && Platform.OS === "ios" ? { opacity: 0.92 } : null,
+                            ]}
+                          >
+                            <Text style={{ color: C.text, fontWeight: "800" }} numberOfLines={1}>
+                              {numero}
+                            </Text>
+                            {meta ? (
+                              <Text style={{ color: C.sub, marginTop: 4, fontWeight: "700" }} numberOfLines={2}>
+                                {meta}
+                              </Text>
+                            ) : null}
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                  )}
+
+                  <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+                    <AppButton
+                      title="Cerrar"
+                      variant="outline"
+                      onPress={() => {
+                        Keyboard.dismiss();
+                        setFacturaPickerOpen(false);
+                      }}
+                      style={{ flex: 1, minHeight: 48 } as any}
+                    />
+                  </View>
+                  </View>
+                </TouchableWithoutFeedback>
+              </View>
+            </TouchableWithoutFeedback>
+          </Modal>
+        ) : null}
 
 
 
         {/* Viewer comprobante */}
-        <Modal transparent visible={viewerOpen} animationType="fade" onRequestClose={() => setViewerOpen(false)}>
-          <View style={[styles.modalBg, { backgroundColor: "rgba(0,0,0,0.8)" }]}>
-            <View style={styles.viewerCard}>
-              <Pressable onPress={() => setViewerOpen(false)} style={({ pressed }) => [styles.viewerClose, pressed ? { opacity: 0.8 } : null]}>
-                <Text style={{ color: "#fff", fontWeight: "800", fontSize: 16 }}>Cerrar</Text>
-              </Pressable>
+        {viewerOpen ? (
+          <Modal transparent visible={viewerOpen} animationType="fade" onRequestClose={() => setViewerOpen(false)}>
+            <View style={[styles.viewerBg, { backgroundColor: "rgba(0,0,0,0.8)" }]}>
+              <View style={styles.viewerCard}>
+                <View style={[styles.viewerTopBar, { top: Math.max(12, insets.top + 10) }]}>
+                  <Pressable
+                    onPress={() => setViewerOpen(false)}
+                    style={({ pressed }) => [styles.viewerTopBtn, pressed ? { opacity: 0.8 } : null]}
+                  >
+                    <Text style={styles.viewerTopBtnText}>Cerrar</Text>
+                  </Pressable>
 
-              <Pressable onPress={() => downloadViewerImage()} style={({ pressed }) => [styles.viewerDownload, pressed ? { opacity: 0.85 } : null]}>
-                <Text style={{ color: "#fff", fontWeight: "700" }}>{savingDownload ? "..." : "Descargar"}</Text>
-              </Pressable>
-
-              {!(viewerUrl || viewerRemoteUrl) ? (
-                <View style={[styles.center, { paddingTop: 18 }]}>
-                  <Text style={{ color: "rgba(255,255,255,0.85)", fontWeight: "700" }}>Cargando...</Text>
+                  <Pressable
+                    onPress={() => downloadViewerImage()}
+                    disabled={savingDownload}
+                    style={({ pressed }) => [
+                      styles.viewerTopBtn,
+                      savingDownload ? { opacity: 0.6 } : null,
+                      pressed ? { opacity: 0.85 } : null,
+                    ]}
+                  >
+                    <Text style={styles.viewerTopBtnText}>{savingDownload ? "Guardando..." : "Descargar"}</Text>
+                  </Pressable>
                 </View>
-              ) : (
-                <ScrollView
-                  style={styles.viewerScroll}
-                  contentContainerStyle={styles.viewerScrollContent}
-                  maximumZoomScale={3}
-                  minimumZoomScale={1}
-                  showsHorizontalScrollIndicator={false}
-                  showsVerticalScrollIndicator={false}
-                >
-                  <ExpoImage
-                    source={{ uri: viewerUrl ?? viewerRemoteUrl!, headers: { "Cache-Control": "no-cache" } }}
-                    style={styles.viewerImg}
-                    contentFit="contain"
-                    cachePolicy="none"
-                    onError={(e) => {
-                      const msg = (e as any)?.error ?? "Image data is nil";
-                      Alert.alert("No se pudo cargar", String(msg));
-                    }}
+
+                {!(viewerUrl || viewerRemoteUrl) ? (
+                  <View style={[styles.center, { paddingTop: 18 }]}>
+                    <Text style={{ color: "rgba(255,255,255,0.85)", fontWeight: "700" }}>Cargando...</Text>
+                  </View>
+                ) : (
+                  <ImageViewer
+                    imageUrls={[{ url: viewerUrl ?? viewerRemoteUrl! }]}
+                    enableSwipeDown
+                    onSwipeDown={() => setViewerOpen(false)}
+                    onCancel={() => setViewerOpen(false)}
+                    backgroundColor="transparent"
+                    renderIndicator={() => <View />}
+                    saveToLocalByLongPress={false}
                   />
-                </ScrollView>
-              )}
+                )}
+              </View>
             </View>
-          </View>
-        </Modal>
+          </Modal>
+        ) : null}
 
         <DoneAccessory nativeID={"doneAccessory"} />
       </SafeAreaView>
@@ -814,9 +1156,9 @@ const styles = StyleSheet.create({
   metaK: { fontSize: 12, fontWeight: '600' },
   metaV: { marginTop: 2, fontSize: 14, fontWeight: '600', lineHeight: 18 },
   badgePill: { borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, alignSelf: 'flex-start' },
-  badgeText: { fontSize: 12, fontWeight: '700', letterSpacing: 0.2 },
+  badgeText: { fontSize: 12, fontWeight: '800', letterSpacing: 0.6, textTransform: 'uppercase' },
   kvGrid: { flexDirection: 'row', gap: 16, flexWrap: 'wrap' },
-  kv: { minWidth: 130 },
+  kv: { minWidth: 140, flexBasis: 140, flexGrow: 1 },
   k: { fontSize: 12, fontWeight: '600' },
   v: { marginTop: 3, fontSize: 14, fontWeight: '600', lineHeight: 18 },
   sectionTitle: { marginTop: 18, fontSize: 18, fontWeight: '700', letterSpacing: -0.2 },
@@ -828,7 +1170,15 @@ const styles = StyleSheet.create({
   lineSubV: { fontSize: 12, fontWeight: '800' },
   miniK: { fontSize: 12, fontWeight: '600', minWidth: 56 },
   miniV: { fontSize: 13, fontWeight: '600', flex: 1, textAlign: 'right' },
-  divider: { height: StyleSheet.hairlineWidth, marginVertical: 10 },
+
+  tableWrap: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 18, overflow: 'hidden' },
+  tableHeaderRow: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
+  tableRow: { flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: StyleSheet.hairlineWidth },
+  tableFooterRow: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 14, borderTopWidth: StyleSheet.hairlineWidth },
+  th: { fontSize: 11, fontWeight: '800', letterSpacing: 0.7, textTransform: 'uppercase' },
+  td: { fontSize: 13, fontWeight: '800' },
+  tdSub: { marginTop: 2, fontSize: 12, fontWeight: '700' },
+  divider: { height: StyleSheet.hairlineWidth, marginVertical: 14 },
   payTitle: { fontSize: 14, fontWeight: '700', flex: 1, paddingRight: 8 },
   payAmount: { fontSize: 14, fontWeight: '800' },
   payMeta: { marginTop: 4, fontSize: 12, fontWeight: '600' },
@@ -841,10 +1191,27 @@ const styles = StyleSheet.create({
   chip: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 8 },
   linkBtnSmall: { borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 12 },
   linkBtnTextSmall: { fontSize: 12, fontWeight: '700' },
-  viewerCard: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 16 },
-  viewerClose: { position: 'absolute', top: 40, right: 24, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: 'rgba(0,0,0,0.55)', zIndex: 1000, elevation: 20 },
-  viewerDownload: { position: 'absolute', top: 40, left: 24, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: 'rgba(0,0,0,0.55)', zIndex: 1000, elevation: 20 },
-  viewerScroll: { flex: 1, alignSelf: 'stretch', width: '100%' },
-  viewerScrollContent: { flexGrow: 1, minHeight: 320, justifyContent: 'center', alignItems: 'center' },
-  viewerImg: { flex: 1, width: '100%', minHeight: 320 },
+  comprobanteCta: { marginTop: 8, borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, padding: 12, borderStyle: 'dashed' },
+  comprobanteCtaInner: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  comprobanteBadge: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth },
+  comprobanteBadgeText: { fontSize: 15, fontWeight: '900' },
+  comprobanteThumb: { width: 44, height: 44, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, backgroundColor: 'rgba(0,0,0,0.08)' },
+  viewerBg: { flex: 1 },
+  viewerCard: { width: '100%', height: '100%' },
+  viewerTopBar: {
+    position: 'absolute',
+    left: 18,
+    right: 18,
+    zIndex: 20,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  viewerTopBtn: {
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+  },
+  viewerTopBtnText: { color: '#fff', fontWeight: '800', fontSize: 16 },
 });

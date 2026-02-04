@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import { AppButton } from "../components/ui/app-button";
+import { generarEstadoCuentaClientePdf } from "../lib/estadoCuentaClientePdf";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 
@@ -65,9 +66,11 @@ export default function ClienteDetalle() {
   const [role, setRole] = useState<Role>("");
   const canEdit = role === "ADMIN" || role === "VENTAS";
   const canDelete = role === "ADMIN";
+  const canGenerarEstadoCuentaPdf = role === "ADMIN" || role === "VENTAS";
 
   const [loading, setLoading] = useState(true);
   const [row, setRow] = useState<ClienteRow | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
 
   const loadRole = useCallback(async () => {
     const { data: auth } = await supabase.auth.getUser();
@@ -143,6 +146,26 @@ export default function ClienteDetalle() {
      );
   }, [canDelete, row, goBackSafe]);
 
+  const onGenerarEstadoCuentaPdf = useCallback(async () => {
+    if (!canGenerarEstadoCuentaPdf) return;
+    if (!row || pdfLoading) return;
+    setPdfLoading(true);
+    try {
+      const { data, error } = await supabase.rpc("rpc_estado_cuenta_cliente_pdf", { p_cliente_id: row.id });
+      if (error) throw error;
+      if (!data || typeof data !== "object") throw new Error("Respuesta invalida del RPC");
+
+      const iso = new Date().toISOString();
+      const stamp = iso.slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
+      const fileName = `estado-cuenta-cliente-${row.id}-${stamp}`;
+      await generarEstadoCuentaClientePdf(data as any, { fileName });
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "No se pudo generar el PDF");
+    } finally {
+      setPdfLoading(false);
+    }
+  }, [canGenerarEstadoCuentaPdf, row, pdfLoading]);
+
   const vendedorNombre = (row?.vendedor?.full_name ?? "").trim();
   const vendedorRole = normalizeUpper(row?.vendedor?.role);
   const vendedorLabel = vendedorNombre || (row?.vendedor_id ? row?.vendedor_id : "Sin asignar");
@@ -156,7 +179,7 @@ export default function ClienteDetalle() {
           headerBackTitle: "Atrás",
           headerBackVisible: false,
           headerBackButtonMenuEnabled: false,
-          headerLeft: () => <HeaderBackButton onPress={goBackSafe} />,
+          headerLeft: (props: any) => <HeaderBackButton {...props} label="Atrás" onPress={goBackSafe} />,
         }}
       />
 
@@ -182,6 +205,16 @@ export default function ClienteDetalle() {
               <KV k="Dirección" v={row.direccion ?? "—"} s={s} />
               <KV k="Vendedor" v={`${vendedorLabel}${vendedorRole ? ` • ${vendedorRole}` : ""}`} s={s} />
             </View>
+
+            {canGenerarEstadoCuentaPdf ? (
+              <AppButton
+                title="Generar estado de cuenta (PDF)"
+                variant="outline"
+                onPress={onGenerarEstadoCuentaPdf}
+                loading={pdfLoading}
+                accessibilityLabel="Generar estado de cuenta en PDF"
+              />
+            ) : null}
 
             {canEdit ? (
               <AppButton
