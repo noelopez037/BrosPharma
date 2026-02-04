@@ -1,5 +1,6 @@
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { useFocusEffect, useTheme } from "@react-navigation/native";
+import { HeaderBackButton } from "@react-navigation/elements";
 import { Stack, router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -7,6 +8,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { AppButton } from "../components/ui/app-button";
+import { useGoHomeOnBack } from "../lib/useGoHomeOnBack";
+import { goHome } from "../lib/goHome";
 
 type VentaRow = {
   id: number;
@@ -68,6 +71,9 @@ export default function RecetasPendientesScreen() {
   const { colors } = useTheme();
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
+
+  // UX: back / swipe-back siempre regresa a Inicio.
+  useGoHomeOnBack(true, "/(drawer)/(tabs)");
 
   const C = useMemo(
     () => ({
@@ -411,6 +417,10 @@ export default function RecetasPendientesScreen() {
           headerShown: true,
           title: "Recetas pendientes",
           headerBackTitle: "Atrás",
+          gestureEnabled: false,
+          headerBackVisible: false,
+          headerBackButtonMenuEnabled: false,
+          headerLeft: (props: any) => <HeaderBackButton {...props} label="Atrás" onPress={() => goHome("/(drawer)/(tabs)")} />,
         }}
       />
 
@@ -442,24 +452,25 @@ export default function RecetasPendientesScreen() {
         </View>
       </View>
 
-      <Modal visible={filtersOpen} transparent animationType="fade" onRequestClose={() => setFiltersOpen(false)}>
-        <Pressable
-          style={[s.modalBackdrop, { backgroundColor: isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.35)" }]}
-          onPress={() => {
-            setFiltersOpen(false);
-            setShowDesdeIOS(false);
-            setShowHastaIOS(false);
-            setVendedorOpen(false);
-          }}
-        />
+      {filtersOpen ? (
+        <Modal visible={filtersOpen} transparent animationType="fade" onRequestClose={() => setFiltersOpen(false)}>
+          <Pressable
+            style={[s.modalBackdrop, { backgroundColor: isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.35)" }]}
+            onPress={() => {
+              setFiltersOpen(false);
+              setShowDesdeIOS(false);
+              setShowHastaIOS(false);
+              setVendedorOpen(false);
+            }}
+          />
 
-        <View style={[s.modalCard, { backgroundColor: C.card, borderColor: C.border }] }>
-          <View style={s.modalHeader}>
-            <Text style={[s.modalTitle, { color: C.text }]}>Filtros</Text>
-            <Pressable onPress={() => setFiltersOpen(false)} hitSlop={10}>
-              <Text style={[s.modalClose, { color: C.sub }]}>Cerrar</Text>
-            </Pressable>
-          </View>
+          <View style={[s.modalCard, { backgroundColor: C.card, borderColor: C.border }] }>
+            <View style={s.modalHeader}>
+              <Text style={[s.modalTitle, { color: C.text }]}>Filtros</Text>
+              <Pressable onPress={() => setFiltersOpen(false)} hitSlop={10}>
+                <Text style={[s.modalClose, { color: C.sub }]}>Cerrar</Text>
+              </Pressable>
+            </View>
 
           <View style={s.twoCols}>
             <View style={{ flex: 1 }}>
@@ -562,8 +573,9 @@ export default function RecetasPendientesScreen() {
             <AppButton title="Limpiar" variant="ghost" size="sm" onPress={limpiarFiltros} />
             <AppButton title="Aplicar" size="sm" onPress={aplicarFiltros} />
           </View>
-        </View>
-      </Modal>
+          </View>
+        </Modal>
+      ) : null}
 
       <FlatList
         data={rows}

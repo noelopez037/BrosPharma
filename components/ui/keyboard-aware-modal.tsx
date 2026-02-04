@@ -35,6 +35,8 @@ export function KeyboardAwareModal({
   backdropOpacity = 0.4,
   maxHeightRatio = 0.82,
 }: Props) {
+  if (!visible) return null;
+
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();

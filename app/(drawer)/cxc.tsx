@@ -20,7 +20,7 @@ import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { AppButton } from "../../components/ui/app-button";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
-import { goBackSafe } from "../../lib/goBackSafe";
+import { goHome } from "../../lib/goHome";
 
 type CxCRow = {
   venta_id: number;
@@ -534,7 +534,7 @@ export default function CuentasPorCobrarScreen() {
           gestureEnabled: false,
           headerBackVisible: false,
           headerBackButtonMenuEnabled: false,
-          headerLeft: () => <HeaderBackButton onPress={() => goBackSafe("/(drawer)/(tabs)")} />,
+          headerLeft: (props: any) => <HeaderBackButton {...props} label="Atrás" onPress={() => goHome("/(drawer)/(tabs)")} />,
         }}
       />
 
@@ -547,7 +547,7 @@ export default function CuentasPorCobrarScreen() {
               No tienes permiso para ver Cuentas por cobrar.
             </Text>
             <View style={{ height: 12 }} />
-            <AppButton title="Volver" onPress={() => goBackSafe("/(drawer)/(tabs)")} />
+            <AppButton title="Volver" onPress={() => goHome("/(drawer)/(tabs)")} />
           </View>
         </SafeAreaView>
       ) : (
@@ -606,14 +606,15 @@ export default function CuentasPorCobrarScreen() {
         />
 
         {/* Modal filtros */}
-        <Modal visible={filtersOpen} transparent animationType="fade" onRequestClose={() => setFiltersOpen(false)}>
-          <Pressable style={[s.modalBackdrop, { backgroundColor: M.back }]} onPress={() => setFiltersOpen(false)} />
+        {filtersOpen ? (
+          <Modal visible={filtersOpen} transparent animationType="fade" onRequestClose={() => setFiltersOpen(false)}>
+            <Pressable style={[s.modalBackdrop, { backgroundColor: M.back }]} onPress={() => setFiltersOpen(false)} />
 
-          <View style={[s.modalCard, { backgroundColor: M.card, borderColor: M.border }]}>
-            <View style={s.modalHeader}>
-              <Text style={[s.modalTitle, { color: M.text }]}>Filtros</Text>
-              <Pressable onPress={() => setFiltersOpen(false)} hitSlop={10}><Text style={[s.modalClose, { color: M.sub }]}>Cerrar</Text></Pressable>
-            </View>
+            <View style={[s.modalCard, { backgroundColor: M.card, borderColor: M.border }]}>
+              <View style={s.modalHeader}>
+                <Text style={[s.modalTitle, { color: M.text }]}>Filtros</Text>
+                <Pressable onPress={() => setFiltersOpen(false)} hitSlop={10}><Text style={[s.modalClose, { color: M.sub }]}>Cerrar</Text></Pressable>
+              </View>
 
             <Text style={[s.sectionLabel, { color: M.text }]}>Cliente</Text>
             <Pressable
@@ -711,8 +712,9 @@ export default function CuentasPorCobrarScreen() {
               <AppButton title="Limpiar" variant="ghost" size="sm" onPress={limpiarFiltros} />
               <AppButton title="Aplicar" variant="primary" size="sm" onPress={aplicarFiltros} />
             </View>
-          </View>
-        </Modal>
+            </View>
+          </Modal>
+        ) : null}
       </SafeAreaView>
       )}
     </>
