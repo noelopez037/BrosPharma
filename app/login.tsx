@@ -60,6 +60,37 @@ export default function LoginScreen() {
 
   const passRef = useRef<TextInput>(null);
 
+  const networkErrorMessage =
+    "No hay conexión con el servidor. Verifica tu red e inténtalo de nuevo.";
+
+  const isInvalidCredentialsError = (err: unknown) => {
+    const e = err as any;
+    const code = String(e?.code ?? "");
+    const message = String(e?.message ?? "");
+
+    if (code === "invalid_credentials") return true;
+    if (/invalid login credentials/i.test(message)) return true;
+
+    return false;
+  };
+
+  const isNetworkError = (err: unknown) => {
+    if (!err) return false;
+    if (err instanceof TypeError) {
+      return String((err as any).message ?? "").includes("Network request failed");
+    }
+
+    const e = err as any;
+    const message = String(e?.message ?? "");
+    if (message.includes("Network request failed")) return true;
+
+    // Supabase fetch-layer errors can come back without status/response.
+    const status = typeof e?.status === "number" ? e.status : undefined;
+    if (status === 0 || status === undefined) return true;
+
+    return false;
+  };
+
   const nextFrame = () =>
     new Promise<void>((resolve) => {
       const raf = (globalThis as any)?.requestAnimationFrame;
@@ -103,12 +134,23 @@ export default function LoginScreen() {
       });
 
       if (error) {
-        Alert.alert("No se pudo iniciar sesión", "Correo o contraseña incorrectos");
+        const message = isInvalidCredentialsError(error)
+          ? "Correo o contraseña incorrectos."
+          : isNetworkError(error)
+            ? networkErrorMessage
+            : "Ocurrió un error inesperado";
+
+        Alert.alert("No se pudo iniciar sesión", message);
         return;
       }
 
       await replaceToTabsDeferredOnce();
-    } catch {
+    } catch (err) {
+      if (isNetworkError(err)) {
+        Alert.alert("Error", networkErrorMessage);
+        return;
+      }
+
       Alert.alert("Error", "Ocurrió un error inesperado");
     } finally {
       if (aliveRef.current) setLoading(false);

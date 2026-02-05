@@ -1387,11 +1387,15 @@ export default function VentaDetalleScreen() {
            {venta ? (
              <View style={[styles.card, { borderColor: C.border, backgroundColor: C.card }]}>
                <View style={styles.rowBetween}>
-                 <View style={{ flex: 1, paddingRight: 12 }}>
-                    <Text style={[styles.title, { color: C.text }]} numberOfLines={2}>
+                  <View style={{ flex: 1, paddingRight: 12 }}>
+                    <Text style={[styles.clientName, { color: C.text }]} numberOfLines={2}>
                       {venta.cliente_nombre ?? clienteMini?.nombre ?? "—"}
-                      {Number(venta.cliente_id ?? 0) > 0 || clienteMini ? `  ·  NIT: ${clienteMini ? displayNit(clienteMini.nit) : "—"}` : ""}
                     </Text>
+                    {(Number(venta.cliente_id ?? 0) > 0 || clienteMini) ? (
+                      <Text style={[styles.clientNit, { color: C.sub }]} numberOfLines={1}>
+                        NIT: {clienteMini ? displayNit(clienteMini.nit) : "—"}
+                      </Text>
+                    ) : null}
                   </View>
                  <View
                    style={[
@@ -2187,6 +2191,8 @@ const styles = StyleSheet.create({
 
   card: { borderWidth: 1, borderRadius: 16, padding: 14, marginTop: 10 },
   title: { fontSize: 18, fontWeight: "800" },
+  clientName: { fontSize: 16, fontWeight: "800" },
+  clientNit: { marginTop: 4, fontSize: 13, fontWeight: "700" },
   sub: { marginTop: 6, fontSize: 13, fontWeight: "700" },
   note: { marginTop: 10, fontSize: 13, fontWeight: "600", lineHeight: 18 },
 
