@@ -54,9 +54,15 @@ type Venta = {
 type ClienteMini = {
   id: number;
   nombre: string;
+  nit: string | null;
   telefono: string | null;
   direccion: string | null;
 };
+
+function displayNit(nit: string | null | undefined) {
+  const t = String(nit ?? "").trim();
+  return t ? t : "CF";
+}
 
 type DetalleRow = {
   id: number;
@@ -410,7 +416,7 @@ export default function VentaDetalleScreen() {
       try {
         const { data, error } = await supabase
           .from("clientes")
-          .select("id,nombre,telefono,direccion")
+          .select("id,nombre,nit,telefono,direccion")
           .eq("id", cid)
           .maybeSingle();
         if (error) throw error;
@@ -1382,10 +1388,11 @@ export default function VentaDetalleScreen() {
              <View style={[styles.card, { borderColor: C.border, backgroundColor: C.card }]}>
                <View style={styles.rowBetween}>
                  <View style={{ flex: 1, paddingRight: 12 }}>
-                   <Text style={[styles.title, { color: C.text }]} numberOfLines={2}>
-                     {venta.cliente_nombre ?? clienteMini?.nombre ?? "—"}
-                   </Text>
-                 </View>
+                    <Text style={[styles.title, { color: C.text }]} numberOfLines={2}>
+                      {venta.cliente_nombre ?? clienteMini?.nombre ?? "—"}
+                      {Number(venta.cliente_id ?? 0) > 0 || clienteMini ? `  ·  NIT: ${clienteMini ? displayNit(clienteMini.nit) : "—"}` : ""}
+                    </Text>
+                  </View>
                  <View
                    style={[
                      styles.badgePill,
