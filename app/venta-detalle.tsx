@@ -341,6 +341,7 @@ export default function VentaDetalleScreen() {
   const [recetas, setRecetas] = useState<RecetaItem[]>([]);
   const [facturas, setFacturas] = useState<FacturaRow[]>([]);
   const [facturaDraft, setFacturaDraft] = useState<Record<string, FacturaDraft>>({});
+  const [montoTouched, setMontoTouched] = useState<Record<"IVA" | "EXENTO", boolean>>({ IVA: false, EXENTO: false });
 
   const [tagsActivos, setTagsActivos] = useState<string[]>([]);
   const [solicitudAnulacion, setSolicitudAnulacion] = useState<SolicitudAnulacion | null>(null);
@@ -398,6 +399,7 @@ export default function VentaDetalleScreen() {
   React.useEffect(() => {
     setFacturas([]);
     setFacturaDraft({});
+    setMontoTouched({ IVA: false, EXENTO: false });
     setTagsActivos([]);
     setClienteMini(null);
     setSolicitudAnulacion(null);
@@ -620,6 +622,14 @@ export default function VentaDetalleScreen() {
     return lineas.filter((l) => !l.tiene_iva);
   }, [canSplitIva, lineas]);
 
+  const totalIVA = useMemo(() => {
+    return ivaLineas.reduce((acc, l) => acc + Number(l.subtotal ?? 0), 0);
+  }, [ivaLineas]);
+
+  const totalEXENTO = useMemo(() => {
+    return exentoLineas.reduce((acc, l) => acc + Number(l.subtotal ?? 0), 0);
+  }, [exentoLineas]);
+
   const total = useMemo(() => {
     return lineas.reduce((acc, l) => acc + Number(l.subtotal ?? 0), 0);
   }, [lineas]);
@@ -669,6 +679,39 @@ export default function VentaDetalleScreen() {
     if (needsEXENTO) req.push("EXENTO");
     return req;
   }, [needsEXENTO, needsIVA]);
+
+  // Autopoblar monto por tipo (solo si no hay monto guardado y el usuario no lo ha tocado).
+  React.useEffect(() => {
+    if (!venta) return;
+    if (!requiredTipos.length) return;
+
+    setFacturaDraft((prev) => {
+      let next: Record<string, FacturaDraft> | null = null;
+
+      for (const tipo of requiredTipos) {
+        const dbMonto = String(facturaCurrentByTipo[tipo]?.monto ?? "").trim();
+        if (dbMonto) continue;
+        if (montoTouched[tipo]) continue;
+
+        const cur =
+          prev[tipo] ??
+          ({ tipo, numero: "", monto: "", path: null, originalName: null, sizeBytes: null } as FacturaDraft);
+        const curMonto = String(cur?.monto ?? "").trim();
+        if (isValidMonto(curMonto)) continue;
+
+        const totalTipo = tipo === "IVA" ? totalIVA : totalEXENTO;
+        if (!Number.isFinite(totalTipo) || totalTipo <= 0) continue;
+
+        const autoMonto = sanitizeMontoDraftInput(Number(totalTipo).toFixed(2));
+        if (!autoMonto) continue;
+
+        if (next == null) next = { ...prev };
+        next[tipo] = { ...cur, monto: autoMonto };
+      }
+
+      return next ?? prev;
+    });
+  }, [facturaCurrentByTipo, montoTouched, requiredTipos, totalEXENTO, totalIVA, venta]);
 
   const facturaDraftComplete = useMemo(() => {
     if (!requiredTipos.length) return false;
@@ -832,6 +875,7 @@ export default function VentaDetalleScreen() {
 
   const setMonto = useCallback((tipo: "IVA" | "EXENTO", val: string) => {
     const clean = sanitizeMontoDraftInput(val);
+    setMontoTouched((prev) => (prev[tipo] ? prev : { ...prev, [tipo]: true }));
     setFacturaDraft((prev) => {
       const cur = prev[tipo] ?? { tipo, numero: "", monto: "", path: null, originalName: null, sizeBytes: null };
       return { ...prev, [tipo]: { ...cur, monto: clean } };
@@ -870,8 +914,23 @@ export default function VentaDetalleScreen() {
         const name = (asset as any)?.name ?? null;
         const size = (asset as any)?.size ?? null;
 
+        // 1) Guardar PDF en draft
+        // 2) Autollenar monto por tipo (solo si no existe en DB, no lo tocaron manualmente y esta vacio/invalido)
         setFacturaDraft((prev) => {
           const cur = prev[tipo] ?? { tipo, numero: "", monto: "", path: null, originalName: null, sizeBytes: null };
+
+          const dbMonto = String(facturaCurrentByTipo[tipo]?.monto ?? "").trim();
+          const curMonto = String(cur?.monto ?? "").trim();
+          const shouldAutoMonto = !dbMonto && !montoTouched[tipo] && !isValidMonto(curMonto);
+
+          let nextMonto = cur.monto;
+          if (shouldAutoMonto) {
+            const totalTipo = tipo === "IVA" ? totalIVA : totalEXENTO;
+            if (Number.isFinite(totalTipo) && totalTipo > 0) {
+              nextMonto = sanitizeMontoDraftInput(Number(totalTipo).toFixed(2));
+            }
+          }
+
           return {
             ...prev,
             [tipo]: {
@@ -879,16 +938,30 @@ export default function VentaDetalleScreen() {
               path,
               originalName: name ? String(name) : cur.originalName,
               sizeBytes: typeof size === "number" ? Number(size) : cur.sizeBytes,
+              monto: String(nextMonto ?? ""),
             },
           };
         });
+
+        // 3) Extraer No: desde el PDF (fallback silencioso; el usuario puede escribirlo)
+        try {
+          const { data, error } = await supabase.functions.invoke("invoice_extract", {
+            body: { path },
+          });
+          if (error) throw error;
+          const extracted = String((data as any)?.numero ?? "").trim();
+          if (!extracted) return;
+
+          const existingNumero = String(facturaDraft[tipo]?.numero ?? facturaCurrentByTipo[tipo]?.numero ?? "").trim();
+          if (!existingNumero) setNumero(tipo, extracted);
+        } catch {}
       } catch (e: any) {
         Alert.alert("Error", e?.message ?? "No se pudo subir el PDF");
       } finally {
         setUploadingPdfTipo(null);
       }
     },
-    [canFacturar, uploadingPdfTipo, venta]
+    [canFacturar, facturaCurrentByTipo, facturaDraft, montoTouched, setNumero, totalEXENTO, totalIVA, uploadingPdfTipo, venta]
   );
 
   const openFacturaPdf = useCallback(
@@ -1682,8 +1755,8 @@ export default function VentaDetalleScreen() {
               <>
                 <Text style={[styles.sub, { color: C.sub }]}>
                   {canAnular
-                    ? "Completa numero + monto + PDF para anular la venta."
-                    : "Completa numero + monto + PDF para marcar como facturado."}
+                    ? "Sube el PDF primero; se autollenan numero (No:) y monto. Completa/ajusta lo necesario para anular."
+                    : "Sube el PDF primero; se autollenan numero (No:) y monto. Completa/ajusta lo necesario para facturar."}
                 </Text>
 
                 {facturaTipo1
@@ -1692,19 +1765,24 @@ export default function VentaDetalleScreen() {
                       const hasPdf = !!String(facturaDraft[tipo]?.path ?? facturaCurrentByTipo[tipo]?.path ?? "").trim();
                       const numero = String(facturaDraft[tipo]?.numero ?? facturaCurrentByTipo[tipo]?.numero ?? "").trim();
                       const monto = String(facturaDraft[tipo]?.monto ?? facturaCurrentByTipo[tipo]?.monto ?? "").trim();
-                      return (
-                        <View style={[styles.facturaCard, { borderColor: C.border }]}>
-                          <View style={styles.rowBetween}>
-                            <Text style={[styles.facturaTitle, { color: C.text }]}>Factura 1</Text>
-                            {hasPdf ? null : (
-                              <AppButton
-                                title={uploadingPdfTipo === tipo ? "Subiendo..." : "Subir PDF"}
-                                size="sm"
-                                onPress={() => pickAndUploadPdf(tipo)}
-                                disabled={!!uploadingPdfTipo || facturando || !numero}
-                              />
-                            )}
-                          </View>
+                       return (
+                         <View style={[styles.facturaCard, { borderColor: C.border }]}>
+                           <View style={styles.rowBetween}>
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                               <Text style={[styles.facturaTitle, { color: C.text }]}>
+                                 {tipo === "IVA" ? "Factura con IVA" : "Factura Exenta"}
+                               </Text>
+                              <Text style={[styles.facturaMeta, { color: C.sub, marginTop: 2 }]}>Factura 1</Text>
+                            </View>
+                             {hasPdf ? null : (
+                                <AppButton
+                                  title={uploadingPdfTipo === tipo ? "Subiendo..." : "Subir PDF"}
+                                  size="sm"
+                                  onPress={() => pickAndUploadPdf(tipo)}
+                                  disabled={!!uploadingPdfTipo || facturando}
+                                />
+                             )}
+                           </View>
 
                           <View style={styles.facturaInputsRow}>
                             <View style={{ flex: 1, minWidth: 0 }}>
@@ -1771,19 +1849,24 @@ export default function VentaDetalleScreen() {
                       const hasPdf = !!String(facturaDraft[tipo]?.path ?? facturaCurrentByTipo[tipo]?.path ?? "").trim();
                       const numero = String(facturaDraft[tipo]?.numero ?? facturaCurrentByTipo[tipo]?.numero ?? "").trim();
                       const monto = String(facturaDraft[tipo]?.monto ?? facturaCurrentByTipo[tipo]?.monto ?? "").trim();
-                      return (
-                        <View style={[styles.facturaCard, { borderColor: C.border }]}>
-                          <View style={styles.rowBetween}>
-                            <Text style={[styles.facturaTitle, { color: C.text }]}>Factura 2</Text>
-                            {hasPdf ? null : (
-                              <AppButton
-                                title={uploadingPdfTipo === tipo ? "Subiendo..." : "Subir PDF"}
-                                size="sm"
-                                onPress={() => pickAndUploadPdf(tipo)}
-                                disabled={!!uploadingPdfTipo || facturando || !numero}
-                              />
-                            )}
-                          </View>
+                       return (
+                         <View style={[styles.facturaCard, { borderColor: C.border }]}>
+                           <View style={styles.rowBetween}>
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                               <Text style={[styles.facturaTitle, { color: C.text }]}>
+                                 {tipo === "IVA" ? "Factura con IVA" : "Factura Exenta"}
+                               </Text>
+                              <Text style={[styles.facturaMeta, { color: C.sub, marginTop: 2 }]}>Factura 2</Text>
+                            </View>
+                             {hasPdf ? null : (
+                                <AppButton
+                                  title={uploadingPdfTipo === tipo ? "Subiendo..." : "Subir PDF"}
+                                  size="sm"
+                                  onPress={() => pickAndUploadPdf(tipo)}
+                                  disabled={!!uploadingPdfTipo || facturando}
+                                />
+                             )}
+                           </View>
 
                           <View style={styles.facturaInputsRow}>
                             <View style={{ flex: 1, minWidth: 0 }}>
