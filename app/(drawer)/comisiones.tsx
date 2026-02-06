@@ -1,5 +1,4 @@
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
-import { HeaderBackButton } from "@react-navigation/elements";
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -548,13 +547,7 @@ export default function ComisionesScreen() {
     <>
       <Stack.Screen
         options={{
-          headerShown: true,
           title: "Comisiones",
-          headerBackTitle: "Atrás",
-          gestureEnabled: false,
-          headerBackVisible: false,
-          headerBackButtonMenuEnabled: false,
-          headerLeft: (props: any) => <HeaderBackButton {...props} label="Atrás" onPress={() => goHome("/(drawer)/(tabs)")} />,
         }}
       />
 

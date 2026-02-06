@@ -255,51 +255,92 @@ export default function DrawerLayout() {
       <StatusBar style="light" />
         <Drawer
         detachInactiveScreens={false}
-        screenOptions={{
-          headerShown: true,
-          headerTitle: undefined,
-          headerStyle: { backgroundColor: header.bg },
-          headerTitleStyle: {
-            color: header.fg,
-            fontWeight: Platform.OS === "ios" ? "600" : "500",
-          },
-          headerTintColor: header.fg,
+        screenOptions={({ navigation }) => {
+          const showBack = !isTabsRoute;
+          const homePath = isFacturacion ? "/ventas" : "/";
 
-        // WEB only: permanent sidebar drawer (no overlay)
-          ...(isWeb
-            ? {
-              drawerType: "permanent" as const,
-              swipeEnabled: false,
-              overlayColor: "transparent",
-              drawerStyle: { backgroundColor: drawerBg, width: WEB_DRAWER_WIDTH },
-              sceneContainerStyle: {
-                maxWidth: 1400,
-                paddingHorizontal: 24,
-                marginLeft: "auto",
-                marginRight: "auto",
-              },
-            }
-            : {
-              // iOS: work around a react-navigation-drawer backdrop hit-testing bug
-              // that can leave an invisible overlay intercepting touches right after auth replace.
-              ...(isIOS
-                ? {
-                    overlayColor: "transparent",
-                    drawerType: "front" as const,
-                    swipeEnabled: false,
-                  }
-                : {}),
-              drawerStyle: { backgroundColor: drawerBg },
-            }),
+          return {
+            headerShown: true,
+            headerTitle: undefined,
+            headerStyle: { backgroundColor: header.bg },
+            headerTitleStyle: {
+              color: header.fg,
+              fontWeight: Platform.OS === "ios" ? "600" : "500",
+            },
+            headerTintColor: header.fg,
+            headerLeft: () => {
+              if (!showBack && isWeb) return null;
 
-        drawerActiveTintColor: drawerActiveTint,
-        drawerInactiveTintColor: drawerMuted,
-        drawerActiveBackgroundColor: drawerActiveBg,
-        drawerLabelStyle: {
-          fontSize: 16,
-          fontWeight: Platform.OS === "ios" ? "500" : "400",
-        },
-      }}
+              return (
+                <Pressable
+                  onPress={() => {
+                    if (showBack) {
+                      router.replace(homePath as any);
+                      return;
+                    }
+                    try {
+                      (navigation as any)?.openDrawer?.();
+                    } catch {
+                      // ignore
+                    }
+                  }}
+                  hitSlop={12}
+                  style={({ pressed }) => [
+                    {
+                      marginLeft: 10,
+                      padding: 8,
+                      borderRadius: 999,
+                    },
+                    pressed && { opacity: 0.85 },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={showBack ? "Volver al inicio" : "Abrir menu"}
+                >
+                  <Ionicons
+                    name={showBack ? "arrow-back" : "menu"}
+                    size={22}
+                    color={header.fg}
+                  />
+                </Pressable>
+              );
+            },
+
+            // WEB only: permanent sidebar drawer (no overlay)
+            ...(isWeb
+              ? {
+                  drawerType: "permanent" as const,
+                  swipeEnabled: false,
+                  overlayColor: "transparent",
+                  drawerStyle: { backgroundColor: drawerBg, width: WEB_DRAWER_WIDTH },
+                  sceneContainerStyle: {
+                    maxWidth: 1400,
+                    paddingHorizontal: 24,
+                    marginLeft: "auto",
+                    marginRight: "auto",
+                  },
+                }
+              : {
+                  // iOS: work around a react-navigation-drawer backdrop hit-testing bug
+                  // that can leave an invisible overlay intercepting touches right after auth replace.
+                  ...(isIOS
+                    ? {
+                        overlayColor: "transparent",
+                        drawerType: "front" as const,
+                        swipeEnabled: false,
+                      }
+                    : {}),
+                  drawerStyle: { backgroundColor: drawerBg },
+                }),
+
+            drawerActiveTintColor: drawerActiveTint,
+            drawerInactiveTintColor: drawerMuted,
+            drawerActiveBackgroundColor: drawerActiveBg,
+            drawerLabelStyle: {
+              fontSize: 16,
+              fontWeight: Platform.OS === "ios" ? "500" : "400",
+            },
+          };
+        }}
         drawerContent={(props) => (
           (() => {
             drawerNavRef.current = props.navigation;

@@ -17,14 +17,12 @@ import { alphaColor } from "../../../lib/ui";
 import { FB_DARK_DANGER } from "../../../src/theme/headerColors";
 
 type Role = "ADMIN" | "VENTAS" | "FACTURACION" | "BODEGA" | "";
-type Estado = "NUEVO" | "FACTURADO" | "EN_RUTA" | "ENTREGADO";
 
-type InvRow = {
-  id: number;
-  nombre: string;
-  marca: string | null;
-  stock_disponible: number;
-  fecha_exp_proxima: string | null;
+type VendedorMesTotal = {
+  vendedor_id: string | null;
+  vendedor_codigo: string | null;
+  vendedor_nombre: string;
+  monto: number;
 };
 
 type VentaMini = {
@@ -41,11 +39,10 @@ type AdminData = {
   solicitudes: number;
   recetasPendMes: number;
   ventasHoyTotal: number;
-  ventasHoyCounts: Record<Estado, number>;
   cxcSaldoTotal: number;
   cxcSaldoVencido: number;
-  stockLow: InvRow[];
-  expSoon: InvRow[];
+  ventasMesTotal: number;
+  ventasMesPorVendedor: VendedorMesTotal[];
 };
 
 type VentasData = {
@@ -108,6 +105,20 @@ function gtTodayRangeIso() {
   return {
     desde: `${base}T00:00:00-06:00`,
     hasta: `${base}T23:59:59-06:00`,
+  };
+}
+
+function gtMonthRangeIso(year: number, month: number) {
+  const y = Number(year);
+  const m = Math.max(1, Math.min(12, Number(month)));
+  const mm = pad2(m);
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const dd = pad2(lastDay);
+  const baseStart = `${y}-${mm}-01`;
+  const baseEnd = `${y}-${mm}-${dd}`;
+  return {
+    desde: `${baseStart}T00:00:00-06:00`,
+    hasta: `${baseEnd}T23:59:59-06:00`,
   };
 }
 
@@ -218,44 +229,29 @@ export default function Inicio() {
 
   const loadAdmin = useCallback(async () => {
     const { year, month } = gtYearMonth();
-    const expCutoff = isoCutoffDaysFromNowGt(30);
-
     const { desde: hoyDesde, hasta: hoyHasta } = gtTodayRangeIso();
 
-    const ventasHoyCounts: Record<Estado, number> = {
-      NUEVO: 0,
-      FACTURADO: 0,
-      EN_RUTA: 0,
-      ENTREGADO: 0,
-    };
+    const { desde: mesDesde, hasta: mesHasta } = gtMonthRangeIso(year, month);
 
-    const [solRes, recRes, cxcRes, hoyTotalRes, nuevoRes, factRes, rutaRes, entRes, stockRes, expRes] =
+    const [solRes, recRes, cxcRes, hoyTotalRes, ventasMesRes] =
       await Promise.allSettled([
         supabase
           .from("vw_ventas_solicitudes_pendientes_admin")
           .select("venta_id", { head: true, count: "exact" }),
         supabase.rpc("rpc_ventas_receta_pendiente_por_mes", { p_year: year, p_month: month }),
         supabase.rpc("rpc_cxc_ventas"),
-        supabase.from("ventas").select("id", { head: true, count: "exact" }).gte("fecha", hoyDesde).lte("fecha", hoyHasta),
-        supabase.from("ventas").select("id", { head: true, count: "exact" }).eq("estado", "NUEVO").gte("fecha", hoyDesde).lte("fecha", hoyHasta),
-        supabase.from("ventas").select("id", { head: true, count: "exact" }).eq("estado", "FACTURADO").gte("fecha", hoyDesde).lte("fecha", hoyHasta),
-        supabase.from("ventas").select("id", { head: true, count: "exact" }).eq("estado", "EN_RUTA").gte("fecha", hoyDesde).lte("fecha", hoyHasta),
-        supabase.from("ventas").select("id", { head: true, count: "exact" }).eq("estado", "ENTREGADO").gte("fecha", hoyDesde).lte("fecha", hoyHasta),
         supabase
-          .from("vw_inventario_productos")
-          .select("id,nombre,marca,stock_disponible,fecha_exp_proxima")
-          .eq("activo", true)
-          .lte("stock_disponible", 5)
-          .order("stock_disponible", { ascending: true })
-          .limit(6),
+          .from("ventas")
+          .select("id", { head: true, count: "exact" })
+          .gte("fecha", hoyDesde)
+          .lte("fecha", hoyHasta),
         supabase
-          .from("vw_inventario_productos")
-          .select("id,nombre,marca,stock_disponible,fecha_exp_proxima")
-          .eq("activo", true)
-          .not("fecha_exp_proxima", "is", null)
-          .lte("fecha_exp_proxima", expCutoff)
-          .order("fecha_exp_proxima", { ascending: true })
-          .limit(6),
+          .from("ventas")
+          .select("id,vendedor_id,vendedor_codigo,fecha")
+          .gte("fecha", mesDesde)
+          .lte("fecha", mesHasta)
+          .order("fecha", { ascending: false })
+          .limit(5000),
       ]);
 
     // solicitudes
@@ -283,28 +279,121 @@ export default function Inicio() {
       });
     }
 
-    // ventas counts
     const getCount = (res: any) => (res?.status === "fulfilled" ? Number(res.value?.count ?? 0) : 0);
     const ventasHoyTotal = getCount(hoyTotalRes);
-    ventasHoyCounts.NUEVO = getCount(nuevoRes);
-    ventasHoyCounts.FACTURADO = getCount(factRes);
-    ventasHoyCounts.EN_RUTA = getCount(rutaRes);
-    ventasHoyCounts.ENTREGADO = getCount(entRes);
 
-    const stockLow =
-      stockRes.status === "fulfilled" ? ((stockRes.value?.data ?? []) as any as InvRow[]) : [];
-    const expSoon =
-      expRes.status === "fulfilled" ? ((expRes.value?.data ?? []) as any as InvRow[]) : [];
+    // Total vendido del mes (por vendedor) - excluye ANULADO, sin filtrar por estado
+    const ventasMesRaw = ventasMesRes.status === "fulfilled" ? ((ventasMesRes.value?.data ?? []) as any[]) : [];
+    const ventaMeta = new Map<number, { vendedor_id: string | null; vendedor_codigo: string | null }>();
+    const idsAll = (ventasMesRaw ?? [])
+      .map((r: any) => {
+        const id = Number(r?.id);
+        if (!Number.isFinite(id) || id <= 0) return null;
+        const vendedor_id = r?.vendedor_id != null ? String(r.vendedor_id) : null;
+        const vendedor_codigo = r?.vendedor_codigo != null ? String(r.vendedor_codigo) : null;
+        ventaMeta.set(id, { vendedor_id, vendedor_codigo });
+        return id;
+      })
+      .filter((x) => x != null) as number[];
+
+    let ids = idsAll;
+    if (idsAll.length) {
+      const anulado = new Set<number>();
+      const CHUNK = 650;
+      for (let i = 0; i < idsAll.length; i += CHUNK) {
+        const part = idsAll.slice(i, i + CHUNK);
+        const { data: trows } = await supabase
+          .from("ventas_tags")
+          .select("venta_id,tag")
+          .in("venta_id", part)
+          .is("removed_at", null);
+
+        (trows ?? []).forEach((tr: any) => {
+          const vid = Number(tr?.venta_id);
+          const tag = String(tr?.tag ?? "").trim().toUpperCase();
+          if (Number.isFinite(vid) && vid > 0 && tag === "ANULADO") anulado.add(vid);
+        });
+      }
+      if (anulado.size) ids = idsAll.filter((x) => !anulado.has(x));
+    }
+
+    const montoByVendor = new Map<string, { monto: number; vendedor_id: string | null; vendedor_codigo: string | null }>();
+    const keyOf = (vendedor_id: string | null) => (vendedor_id ? vendedor_id : "__NONE__");
+
+    if (ids.length) {
+      const CHUNK = 650;
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const part = ids.slice(i, i + CHUNK);
+        const { data: drows, error } = await supabase
+          .from("ventas_detalle")
+          .select("venta_id,subtotal,cantidad,precio_venta_unit")
+          .in("venta_id", part);
+        if (error) throw error;
+        (drows ?? []).forEach((dr: any) => {
+          const vid = Number(dr?.venta_id);
+          if (!Number.isFinite(vid) || vid <= 0) return;
+          const meta = ventaMeta.get(vid);
+          const vendedor_id = meta?.vendedor_id ?? null;
+          const vendedor_codigo = meta?.vendedor_codigo ?? null;
+          const key = keyOf(vendedor_id);
+          const sub = dr?.subtotal;
+          const amount = sub != null ? safeNumber(sub) : safeNumber(dr?.cantidad) * safeNumber(dr?.precio_venta_unit);
+          const prev = montoByVendor.get(key) ?? { monto: 0, vendedor_id, vendedor_codigo };
+          prev.monto = safeNumber(prev.monto) + safeNumber(amount);
+          if (!prev.vendedor_codigo && vendedor_codigo) prev.vendedor_codigo = vendedor_codigo;
+          montoByVendor.set(key, prev);
+        });
+      }
+    }
+
+    const vendorIds = Array.from(montoByVendor.values())
+      .map((x) => x.vendedor_id)
+      .filter((x): x is string => !!x);
+    const uniqueVendorIds = Array.from(new Set(vendorIds));
+
+    const nameById = new Map<string, string>();
+    if (uniqueVendorIds.length) {
+      const CHUNK = 350;
+      for (let i = 0; i < uniqueVendorIds.length; i += CHUNK) {
+        const part = uniqueVendorIds.slice(i, i + CHUNK);
+        const { data } = await supabase.from("profiles").select("id,full_name").in("id", part);
+        (data ?? []).forEach((p: any) => {
+          const id = String(p?.id ?? "");
+          const nm = pickNameFromProfile(p);
+          if (id && nm) nameById.set(id, nm);
+        });
+      }
+    }
+
+    const ventasMesPorVendedor: VendedorMesTotal[] = Array.from(montoByVendor.values())
+      .map((x) => {
+        const vendedor_id = x.vendedor_id;
+        const vendedor_codigo = x.vendedor_codigo ?? null;
+        const nombre =
+          (vendedor_id ? nameById.get(vendedor_id) : "") ||
+          (vendedor_codigo ? String(vendedor_codigo) : "") ||
+          (vendedor_id ? String(vendedor_id).slice(0, 8) : "") ||
+          "Sin vendedor";
+        return {
+          vendedor_id,
+          vendedor_codigo,
+          vendedor_nombre: nombre,
+          monto: safeNumber(x.monto),
+        };
+      })
+      .filter((r) => r.monto > 0)
+      .sort((a, b) => b.monto - a.monto);
+
+    const ventasMesTotal = ventasMesPorVendedor.reduce((acc, r) => acc + safeNumber(r.monto), 0);
 
     const out: AdminData = {
       solicitudes,
       recetasPendMes,
       ventasHoyTotal,
-      ventasHoyCounts,
       cxcSaldoTotal,
       cxcSaldoVencido,
-      stockLow,
-      expSoon,
+      ventasMesTotal,
+      ventasMesPorVendedor,
     };
     return out;
   }, []);
@@ -683,7 +772,7 @@ export default function Inicio() {
     );
   };
 
-  const Bars = ({ items }: { items: { label: string; qty: number }[] }) => {
+  const Bars = ({ items, valueFmt }: { items: { label: string; qty: number }[]; valueFmt?: (n: number) => string }) => {
     const max = Math.max(1, ...items.map((i) => i.qty));
     return (
       <View style={{ marginTop: 10 }}>
@@ -697,7 +786,9 @@ export default function Inicio() {
               <View style={[s.barTrack, { backgroundColor: C.chipBg, borderColor: C.border }]}> 
                 <View style={[s.barFill, { backgroundColor: C.tint, width: `${Math.round(pct * 100)}%` }]} />
               </View>
-              <Text style={[s.barValue, { color: C.text }]}>{it.qty}</Text>
+              <Text style={[s.barValue, { color: C.text }]} numberOfLines={1}>
+                {valueFmt ? valueFmt(it.qty) : it.qty}
+              </Text>
             </View>
           );
         })}
@@ -834,7 +925,11 @@ export default function Inicio() {
   }) => (
     <View style={[s.card, { backgroundColor: C.card, borderColor: C.border }]}> 
       <View style={s.cardHeader}>
-        <Text style={[s.cardTitle, { color: C.text }]}>{title}</Text>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={[s.cardTitle, { color: C.text }]} numberOfLines={1} ellipsizeMode="tail">
+            {title}
+          </Text>
+        </View>
         {action ? (
           <Pressable onPress={action.onPress} style={({ pressed }) => [pressed ? { opacity: 0.85 } : null]}>
             <Text style={[s.cardAction, { color: C.tint }]}>{action.label}</Text>
@@ -892,6 +987,8 @@ export default function Inicio() {
 
     if (roleUp === "ADMIN") {
       const d = adminData;
+      const { year, month } = gtYearMonth();
+      const mon = monthAbbr[Math.max(0, Math.min(11, month - 1))] ?? String(month);
       return (
         <View style={{ padding: 16, paddingBottom: 16 + insets.bottom }}>
           <View style={s.kpiGrid}>
@@ -922,50 +1019,19 @@ export default function Inicio() {
           </View>
 
           <ListCard
-            title="Ventas por estado (hoy)"
-            action={{ label: "Ver", onPress: () => router.push("/ventas" as any) }}
+            title={`Total vendido ${mon} ${year}`}
+            action={{ label: "Ventas", onPress: () => router.push("/ventas" as any) }}
           >
-            <Bars
-              items={[
-                { label: "Nuevos", qty: d?.ventasHoyCounts.NUEVO ?? 0 },
-                { label: "Facturados", qty: d?.ventasHoyCounts.FACTURADO ?? 0 },
-                { label: "En ruta", qty: d?.ventasHoyCounts.EN_RUTA ?? 0 },
-                { label: "Entregados", qty: d?.ventasHoyCounts.ENTREGADO ?? 0 },
-              ]}
-            />
-          </ListCard>
-
-          <ListCard
-            title="Alertas inventario"
-            action={{ label: "Inventario", onPress: () => router.push("/inventario" as any) }}
-          >
-            <Text style={[s.sectionKicker, { color: C.sub }]}>{"Stock bajo (<= 5)"}</Text>
-            {(d?.stockLow ?? []).length ? (
-              (d?.stockLow ?? []).map((it) =>
-                renderRowLink({
-                  k: `stock-${it.id}`,
-                  title: `${it.nombre}${it.marca ? ` • ${it.marca}` : ""}`,
-                  sub: `Disponibles: ${it.stock_disponible}`,
-                  onPress: () => router.push({ pathname: "/producto-modal", params: { id: String(it.id) } } as any),
-                })
-              )
+            <Text style={[s.monthTotal, { color: C.sub }]} numberOfLines={1}>
+              Total mes: {d ? fmtQ(d.ventasMesTotal) : "—"}
+            </Text>
+            {(d?.ventasMesPorVendedor ?? []).length ? (
+              <Bars
+                valueFmt={(n) => fmtQ(n).replace("Q ", "Q")}
+                items={(d?.ventasMesPorVendedor ?? []).slice(0, 10).map((r) => ({ label: r.vendedor_nombre, qty: r.monto }))}
+              />
             ) : (
-              <Text style={[s.empty, { color: C.sub }]}>Sin alertas de stock</Text>
-            )}
-
-            <View style={{ height: 12 }} />
-            <Text style={[s.sectionKicker, { color: C.sub }]}>Vence pronto (30 dias)</Text>
-            {(d?.expSoon ?? []).length ? (
-              (d?.expSoon ?? []).map((it) =>
-                renderRowLink({
-                  k: `exp-${it.id}`,
-                  title: `${it.nombre}${it.marca ? ` • ${it.marca}` : ""}`,
-                  sub: `Exp: ${fmtDate(it.fecha_exp_proxima)}`,
-                  onPress: () => router.push({ pathname: "/producto-modal", params: { id: String(it.id) } } as any),
-                })
-              )
-            ) : (
-              <Text style={[s.empty, { color: C.sub }]}>Sin vencimientos cercanos</Text>
+              <Text style={[s.empty, { color: C.sub }]}>{d ? "Sin ventas este mes" : "Cargando..."}</Text>
             )}
           </ListCard>
         </View>
@@ -1183,7 +1249,9 @@ const s = StyleSheet.create({
   barLabel: { width: 130, fontSize: 12, fontWeight: "800" },
   barTrack: { flex: 1, height: 10, borderRadius: 999, borderWidth: 1, overflow: "hidden" },
   barFill: { height: "100%", borderRadius: 999 },
-  barValue: { width: 34, textAlign: "right", fontSize: 12, fontWeight: "900" },
+  barValue: { width: 78, textAlign: "right", fontSize: 12, fontWeight: "900" },
+
+  monthTotal: { marginTop: 10, fontSize: 13, fontWeight: "900" },
 
   lineTopRow: { marginTop: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   lineMeta: { fontSize: 12, fontWeight: "800" },

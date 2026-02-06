@@ -398,6 +398,29 @@ export default function CxcVentaDetalle() {
     [facturas?.length, row?.total, totalProductos]
   );
 
+  const pagadoPorFacturaId = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const p of pagos ?? []) {
+      const fid = p?.factura_id == null ? NaN : Number(p.factura_id);
+      if (!Number.isFinite(fid) || fid <= 0) continue;
+      const monto = safeNumber(p?.monto);
+      m.set(fid, (m.get(fid) ?? 0) + monto);
+    }
+    return m;
+  }, [pagos]);
+
+  const facturasPendientes = useMemo(() => {
+    const TOL = 0.000001;
+    return (facturas ?? []).filter((f: any) => {
+      const fid = Number(f?.id);
+      if (!Number.isFinite(fid) || fid <= 0) return false;
+      const total = facturaMonto(f);
+      const pagado = pagadoPorFacturaId.get(fid) ?? 0;
+      if (total == null) return true;
+      return total - pagado > TOL;
+    });
+  }, [facturas, facturaMonto, pagadoPorFacturaId]);
+
   const selectedFactura = useMemo(() => {
     if (!pagoFacturaId) return null;
     return facturasById.get(Number(pagoFacturaId)) ?? null;
@@ -421,6 +444,13 @@ export default function CxcVentaDetalle() {
       Alert.alert("Falta factura", "Selecciona la factura a la que aplicarás este pago.");
       return;
     }
+
+    const isPendiente = (facturasPendientes ?? []).some((ff: any) => Number(ff?.id) === Number(pagoFacturaId));
+    if (!isPendiente) {
+      Alert.alert("Factura no pendiente", "La factura seleccionada ya está totalmente pagada.");
+      return;
+    }
+
     const f = facturasById.get(Number(pagoFacturaId)) ?? null;
     if (!f || Number(f?.venta_id) !== Number(row.venta_id)) {
       Alert.alert("Factura inválida", "La factura seleccionada no pertenece a esta venta.");
@@ -848,10 +878,11 @@ export default function CxcVentaDetalle() {
                   title="Aplicar pago"
                   onPress={() => {
                     // limpiar selección para evitar aplicar a factura equivocada
-                    const only = (facturas ?? []).length === 1 ? Number((facturas as any[])[0]?.id) : null;
+                    const only = (facturasPendientes ?? []).length === 1 ? Number((facturasPendientes as any[])[0]?.id) : null;
                     setPagoFacturaId(Number.isFinite(only as any) && (only as any) > 0 ? (only as any) : null);
                     // set default metodo segun rol
                     setPagoMetodo(allowedMetodosPago[0]);
+                    setFacturaPickerOpen(false);
                     setPagoModal(true);
                   }}
                   disabled={false}
@@ -884,127 +915,207 @@ export default function CxcVentaDetalle() {
                   <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ paddingBottom: 12 }} showsVerticalScrollIndicator={false} automaticallyAdjustKeyboardInsets>
                     <TouchableWithoutFeedback onPress={() => {}} accessible={false}>
                       <View style={[styles.modalCard, styles.shadowCard, { backgroundColor: C.card, borderColor: C.border }]}> 
-                      <Text style={[styles.modalTitle, { color: C.text }]}>Aplicar pago</Text>
-                      <Text style={[styles.modalSub, { color: C.sub }]}>Saldo: {fmtQ(row?.saldo)}</Text>
+                      {facturaPickerOpen ? (
+                        <>
+                          <Text style={[styles.modalTitle, { color: C.text }]}>Seleccionar factura</Text>
+                          <Text style={[styles.modalSub, { color: C.sub }]}>El pago se aplicará a la factura elegida.</Text>
 
-                      <Text style={[styles.inputLabel, { color: C.sub, marginTop: 10 }]}>Factura</Text>
-                      <Pressable
-                        onPress={() => {
-                          Keyboard.dismiss();
-                          setFacturaPickerOpen(true);
-                        }}
-                        style={({ pressed }) => [
-                          styles.input,
-                          {
-                            borderColor: C.border,
-                            backgroundColor: C.inputBg,
-                            justifyContent: "center",
-                          },
-                          pressed && Platform.OS === "ios" ? { opacity: 0.92 } : null,
-                        ]}
-                      >
-                        <Text style={{ color: selectedFactura ? C.text : C.sub, fontWeight: "700" }} numberOfLines={1}>
-                          {selectedFactura ? facturaLabel(selectedFactura) : "Seleccionar factura"}
-                        </Text>
-                      </Pressable>
+                          {facturasPendientes.length === 0 ? (
+                            <Text style={{ color: C.sub, marginTop: 12, fontWeight: "700" }}>No hay facturas pendientes para esta venta.</Text>
+                          ) : (
+                            <ScrollView style={{ maxHeight: 340, marginTop: 12 }} keyboardShouldPersistTaps="handled">
+                              {facturasPendientes.map((f: any) => {
+                                const fid = Number(f?.id);
+                                const active = !!pagoFacturaId && fid === Number(pagoFacturaId);
+                                const numero = String(f?.numero_factura ?? "").trim() || `Factura #${fid || "—"}`;
+                                const tipo = String(f?.tipo ?? "").trim();
+                                const venc = fmtDate(f?.fecha_vencimiento);
+                                const monto = facturaMonto(f);
+                                const meta = [
+                                  tipo ? `Tipo: ${tipo}` : "",
+                                  monto != null && monto > 0 ? `Total: ${fmtQ(monto)}` : "",
+                                  venc !== "—" ? `Vence: ${venc}` : "",
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ");
+                                return (
+                                  <Pressable
+                                    key={String(fid)}
+                                    onPress={() => {
+                                      if (!fid) return;
+                                      setPagoFacturaId(fid);
+                                      setFacturaPickerOpen(false);
+                                    }}
+                                    style={({ pressed }) => [
+                                      {
+                                        borderWidth: StyleSheet.hairlineWidth,
+                                        borderColor: active ? alphaColor(C.primary, 0.35) || C.border : C.border,
+                                        backgroundColor: active ? C.mutedBg : "transparent",
+                                        borderRadius: 14,
+                                        paddingHorizontal: 12,
+                                        paddingVertical: 12,
+                                        marginBottom: 10,
+                                      },
+                                      pressed && Platform.OS === "ios" ? { opacity: 0.92 } : null,
+                                    ]}
+                                  >
+                                    <Text style={{ color: C.text, fontWeight: "800" }} numberOfLines={1}>
+                                      {numero}
+                                    </Text>
+                                    {meta ? (
+                                      <Text style={{ color: C.sub, marginTop: 4, fontWeight: "700" }} numberOfLines={2}>
+                                        {meta}
+                                      </Text>
+                                    ) : null}
+                                  </Pressable>
+                                );
+                              })}
+                            </ScrollView>
+                          )}
 
-                      <Text style={[styles.inputLabel, { color: C.sub }]}>Monto</Text>
-                      <TextInput value={pagoMonto} onChangeText={setPagoMonto} placeholder="0.00" placeholderTextColor={C.sub} keyboardType="decimal-pad" inputAccessoryViewID={Platform.OS === "ios" ? 'doneAccessory' : undefined} style={[styles.input, { color: C.text, borderColor: C.border, backgroundColor: C.inputBg }]} />
+                          <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+                            <AppButton
+                              title="Volver"
+                              variant="outline"
+                              onPress={() => {
+                                Keyboard.dismiss();
+                                setFacturaPickerOpen(false);
+                              }}
+                              style={{ flex: 1, minHeight: 48 } as any}
+                            />
+                          </View>
+                        </>
+                      ) : (
+                        <>
+                          <Text style={[styles.modalTitle, { color: C.text }]}>Aplicar pago</Text>
+                          <Text style={[styles.modalSub, { color: C.sub }]}>Saldo: {fmtQ(row?.saldo)}</Text>
 
-                      <Text style={[styles.inputLabel, { color: C.sub, marginTop: 10 }]}>Método</Text>
-                      <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-                        {allowedMetodosPago.map((m) => {
-                          const active = pagoMetodo === m;
-                          return (
-                            <Pressable key={m} onPress={() => { Keyboard.dismiss(); setPagoMetodo(m); }} style={({ pressed }) => [styles.chip, { borderColor: C.border, backgroundColor: active ? C.mutedBg : 'transparent' }, pressed && Platform.OS === 'ios' ? { opacity: 0.85 } : null]}>
-                              <Text style={{ color: C.text, fontWeight: '800', fontSize: 12 }}>{m}</Text>
-                            </Pressable>
-                          );
-                        })}
-                      </View>
-                      {normalizeUpper(role) !== "ADMIN" ? (
-                        <Text style={{ color: C.sub, marginTop: 6, fontWeight: "600", fontSize: 12 }}>
-                          Solo administradores pueden registrar pagos en efectivo.
-                        </Text>
-                      ) : null}
+                          {facturasPendientes.length === 0 ? (
+                            <Text style={{ color: C.sub, marginTop: 10, fontWeight: "700" }}>No hay facturas pendientes para esta venta.</Text>
+                          ) : null}
 
-                      <Text style={[styles.inputLabel, { color: C.sub, marginTop: 10 }]}>Referencia (opcional)</Text>
-                      <TextInput value={pagoReferencia} onChangeText={setPagoReferencia} placeholder="Ej: #boleta #cheque" placeholderTextColor={C.sub} style={[styles.input, { color: C.text, borderColor: C.border, backgroundColor: C.inputBg }]} />
-
-                      <Text style={[styles.inputLabel, { color: C.sub, marginTop: 10 }]}>Comentario (opcional)</Text>
-                      <TextInput value={pagoComentario} onChangeText={setPagoComentario} placeholder="Nota breve" placeholderTextColor={C.sub} style={[styles.input, { color: C.text, borderColor: C.border, backgroundColor: C.inputBg }]} />
-
-                      <View style={{ marginTop: 12 }}>
-                        <Text style={[styles.inputLabel, { color: C.sub }]}>Comprobante (requerido)</Text>
-
-                        <Pressable
-                          onPress={() => {
-                            Keyboard.dismiss();
-                            pickComprobante();
-                          }}
-                          style={({ pressed }) => {
-                            const has = !!pagoImg?.uri;
-                            const primaryBorder = alphaColor(C.primary, isDark ? 0.45 : 0.35) || C.border;
-                            const primaryBg = alphaColor(C.primary, isDark ? 0.14 : 0.08) || C.mutedBg;
-                            return [
-                              styles.comprobanteCta,
+                          <Text style={[styles.inputLabel, { color: C.sub, marginTop: 10 }]}>Factura</Text>
+                          <Pressable
+                            onPress={() => {
+                              Keyboard.dismiss();
+                              setFacturaPickerOpen(true);
+                            }}
+                            disabled={facturasPendientes.length === 0}
+                            style={({ pressed }) => [
+                              styles.input,
                               {
-                                borderColor: has ? C.border : primaryBorder,
-                                backgroundColor: has ? C.mutedBg : primaryBg,
+                                borderColor: C.border,
+                                backgroundColor: C.inputBg,
+                                justifyContent: "center",
+                                opacity: facturasPendientes.length === 0 ? 0.55 : 1,
                               },
                               pressed && Platform.OS === "ios" ? { opacity: 0.92 } : null,
-                            ];
-                          }}
-                        >
-                          <View style={styles.comprobanteCtaInner}>
-                            <View
-                              style={[
-                                styles.comprobanteBadge,
-                                {
-                                  backgroundColor: pagoImg?.uri ? C.okBg : (alphaColor(C.primary, isDark ? 0.14 : 0.08) || C.mutedBg),
-                                  borderColor: alphaColor(pagoImg?.uri ? C.ok : C.primary, isDark ? 0.32 : 0.22) || C.border,
-                                },
-                              ]}
-                            >
-                              <Text style={[styles.comprobanteBadgeText, { color: pagoImg?.uri ? C.ok : C.primary }]}>
-                                {pagoImg?.uri ? "OK" : "+"}
-                              </Text>
-                            </View>
+                            ]}
+                          >
+                            <Text style={{ color: selectedFactura ? C.text : C.sub, fontWeight: "700" }} numberOfLines={1}>
+                              {selectedFactura ? facturaLabel(selectedFactura) : "Seleccionar factura"}
+                            </Text>
+                          </Pressable>
 
-                            <View style={{ flex: 1, minWidth: 0 }}>
-                              <Text style={{ color: C.text, fontWeight: "900", fontSize: 14 }} numberOfLines={1}>
-                                {pagoImg?.uri ? "Comprobante adjunto" : "Agregar comprobante"}
-                              </Text>
-                              <Text style={{ color: C.sub, marginTop: 2, fontWeight: "700", fontSize: 12 }} numberOfLines={2}>
-                                {pagoImg?.uri ? "Toca para cambiar la imagen" : "Requerido para habilitar Guardar"}
-                              </Text>
-                            </View>
+                          <Text style={[styles.inputLabel, { color: C.sub }]}>Monto</Text>
+                          <TextInput value={pagoMonto} onChangeText={setPagoMonto} placeholder="0.00" placeholderTextColor={C.sub} keyboardType="decimal-pad" inputAccessoryViewID={Platform.OS === "ios" ? 'doneAccessory' : undefined} style={[styles.input, { color: C.text, borderColor: C.border, backgroundColor: C.inputBg }]} />
 
-                            {pagoImg?.uri ? (
-                              <Image source={{ uri: pagoImg.uri }} style={[styles.comprobanteThumb, { borderColor: C.border }]} />
-                            ) : null}
+                          <Text style={[styles.inputLabel, { color: C.sub, marginTop: 10 }]}>Método</Text>
+                          <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                            {allowedMetodosPago.map((m) => {
+                              const active = pagoMetodo === m;
+                              return (
+                                <Pressable key={m} onPress={() => { Keyboard.dismiss(); setPagoMetodo(m); }} style={({ pressed }) => [styles.chip, { borderColor: C.border, backgroundColor: active ? C.mutedBg : 'transparent' }, pressed && Platform.OS === 'ios' ? { opacity: 0.85 } : null]}>
+                                  <Text style={{ color: C.text, fontWeight: '800', fontSize: 12 }}>{m}</Text>
+                                </Pressable>
+                              );
+                            })}
                           </View>
-                        </Pressable>
+                          {normalizeUpper(role) !== "ADMIN" ? (
+                            <Text style={{ color: C.sub, marginTop: 6, fontWeight: "600", fontSize: 12 }}>
+                              Solo administradores pueden registrar pagos en efectivo.
+                            </Text>
+                          ) : null}
 
-                        <Text style={{ color: C.sub, marginTop: 8, fontWeight: "600", fontSize: 12 }}>
-                          {pagoImg?.uri ? "Listo. Se subirá junto con el pago." : "Debes adjuntar una imagen como comprobante."}
-                        </Text>
-                      </View>
+                          <Text style={[styles.inputLabel, { color: C.sub, marginTop: 10 }]}>Referencia (opcional)</Text>
+                          <TextInput value={pagoReferencia} onChangeText={setPagoReferencia} placeholder="Ej: #boleta #cheque" placeholderTextColor={C.sub} style={[styles.input, { color: C.text, borderColor: C.border, backgroundColor: C.inputBg }]} />
 
-                      <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
-                        <AppButton
-                          title="Cancelar"
-                          variant="outline"
-                          onPress={() => {
-                            Keyboard.dismiss();
-                            setFacturaPickerOpen(false);
-                            setPagoModal(false);
-                          }}
-                          disabled={savingPago}
-                          style={{ flex: 1, minHeight: 48 } as any}
-                        />
-                        <AppButton title="Guardar" variant="primary" onPress={() => { Keyboard.dismiss(); guardarPago(); }} loading={savingPago} disabled={savingPago || !pagoImg?.uri} style={{ flex: 1, minHeight: 48, backgroundColor: C.primary, borderColor: C.primary } as any} />
-                      </View>
+                          <Text style={[styles.inputLabel, { color: C.sub, marginTop: 10 }]}>Comentario (opcional)</Text>
+                          <TextInput value={pagoComentario} onChangeText={setPagoComentario} placeholder="Nota breve" placeholderTextColor={C.sub} style={[styles.input, { color: C.text, borderColor: C.border, backgroundColor: C.inputBg }]} />
+
+                          <View style={{ marginTop: 12 }}>
+                            <Text style={[styles.inputLabel, { color: C.sub }]}>Comprobante (requerido)</Text>
+
+                            <Pressable
+                              onPress={() => {
+                                Keyboard.dismiss();
+                                pickComprobante();
+                              }}
+                              style={({ pressed }) => {
+                                const has = !!pagoImg?.uri;
+                                const primaryBorder = alphaColor(C.primary, isDark ? 0.45 : 0.35) || C.border;
+                                const primaryBg = alphaColor(C.primary, isDark ? 0.14 : 0.08) || C.mutedBg;
+                                return [
+                                  styles.comprobanteCta,
+                                  {
+                                    borderColor: has ? C.border : primaryBorder,
+                                    backgroundColor: has ? C.mutedBg : primaryBg,
+                                  },
+                                  pressed && Platform.OS === "ios" ? { opacity: 0.92 } : null,
+                                ];
+                              }}
+                            >
+                              <View style={styles.comprobanteCtaInner}>
+                                <View
+                                  style={[
+                                    styles.comprobanteBadge,
+                                    {
+                                      backgroundColor: pagoImg?.uri ? C.okBg : (alphaColor(C.primary, isDark ? 0.14 : 0.08) || C.mutedBg),
+                                      borderColor: alphaColor(pagoImg?.uri ? C.ok : C.primary, isDark ? 0.32 : 0.22) || C.border,
+                                    },
+                                  ]}
+                                >
+                                  <Text style={[styles.comprobanteBadgeText, { color: pagoImg?.uri ? C.ok : C.primary }]}>
+                                    {pagoImg?.uri ? "OK" : "+"}
+                                  </Text>
+                                </View>
+
+                                <View style={{ flex: 1, minWidth: 0 }}>
+                                  <Text style={{ color: C.text, fontWeight: "900", fontSize: 14 }} numberOfLines={1}>
+                                    {pagoImg?.uri ? "Comprobante adjunto" : "Agregar comprobante"}
+                                  </Text>
+                                  <Text style={{ color: C.sub, marginTop: 2, fontWeight: "700", fontSize: 12 }} numberOfLines={2}>
+                                    {pagoImg?.uri ? "Toca para cambiar la imagen" : "Requerido para habilitar Guardar"}
+                                  </Text>
+                                </View>
+
+                                {pagoImg?.uri ? (
+                                  <Image source={{ uri: pagoImg.uri }} style={[styles.comprobanteThumb, { borderColor: C.border }]} />
+                                ) : null}
+                              </View>
+                            </Pressable>
+
+                            <Text style={{ color: C.sub, marginTop: 8, fontWeight: "600", fontSize: 12 }}>
+                              {pagoImg?.uri ? "Listo. Se subirá junto con el pago." : "Debes adjuntar una imagen como comprobante."}
+                            </Text>
+                          </View>
+
+                          <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+                            <AppButton
+                              title="Cancelar"
+                              variant="outline"
+                              onPress={() => {
+                                Keyboard.dismiss();
+                                setFacturaPickerOpen(false);
+                                setPagoModal(false);
+                              }}
+                              disabled={savingPago}
+                              style={{ flex: 1, minHeight: 48 } as any}
+                            />
+                            <AppButton title="Guardar" variant="primary" onPress={() => { Keyboard.dismiss(); guardarPago(); }} loading={savingPago} disabled={savingPago || !pagoImg?.uri || facturasPendientes.length === 0} style={{ flex: 1, minHeight: 48, backgroundColor: C.primary, borderColor: C.primary } as any} />
+                          </View>
+                        </>
+                      )}
                       </View>
                     </TouchableWithoutFeedback>
                   </ScrollView>
@@ -1014,82 +1125,6 @@ export default function CxcVentaDetalle() {
           </Modal>
         ) : null}
 
-        {/* Modal: Selector de factura */}
-        {facturaPickerOpen ? (
-          <Modal transparent visible={facturaPickerOpen} animationType="fade" onRequestClose={() => setFacturaPickerOpen(false)}>
-            <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-              <View style={[styles.modalBg, { backgroundColor: C.overlay }]}> 
-                <TouchableWithoutFeedback onPress={() => {}} accessible={false}>
-                  <View style={[styles.modalCard, styles.shadowCard, { backgroundColor: C.card, borderColor: C.border }]}> 
-                  <Text style={[styles.modalTitle, { color: C.text }]}>Seleccionar factura</Text>
-                  <Text style={[styles.modalSub, { color: C.sub }]}>El pago se aplicará a la factura elegida.</Text>
-
-                  {(facturas ?? []).length === 0 ? (
-                    <Text style={{ color: C.sub, marginTop: 12, fontWeight: "700" }}>No hay facturas para esta venta.</Text>
-                  ) : (
-                    <ScrollView style={{ maxHeight: 340, marginTop: 12 }} keyboardShouldPersistTaps="handled">
-                      {(facturas ?? []).map((f: any) => {
-                        const fid = Number(f?.id);
-                        const active = !!pagoFacturaId && fid === Number(pagoFacturaId);
-                        const numero = String(f?.numero_factura ?? "").trim() || `Factura #${fid || "—"}`;
-                        const tipo = String(f?.tipo ?? "").trim();
-                        const venc = fmtDate(f?.fecha_vencimiento);
-                        const monto = f?.monto_total == null ? null : safeNumber(f.monto_total);
-                        const meta = [tipo ? `Tipo: ${tipo}` : "", monto && monto > 0 ? `Total: ${fmtQ(monto)}` : "", venc !== "—" ? `Vence: ${venc}` : ""]
-                          .filter(Boolean)
-                          .join(" · ");
-                        return (
-                          <Pressable
-                            key={String(fid)}
-                            onPress={() => {
-                              if (!fid) return;
-                              setPagoFacturaId(fid);
-                              setFacturaPickerOpen(false);
-                            }}
-                            style={({ pressed }) => [
-                              {
-                                borderWidth: StyleSheet.hairlineWidth,
-                                borderColor: active ? alphaColor(C.primary, 0.35) || C.border : C.border,
-                                backgroundColor: active ? C.mutedBg : "transparent",
-                                borderRadius: 14,
-                                paddingHorizontal: 12,
-                                paddingVertical: 12,
-                                marginBottom: 10,
-                              },
-                              pressed && Platform.OS === "ios" ? { opacity: 0.92 } : null,
-                            ]}
-                          >
-                            <Text style={{ color: C.text, fontWeight: "800" }} numberOfLines={1}>
-                              {numero}
-                            </Text>
-                            {meta ? (
-                              <Text style={{ color: C.sub, marginTop: 4, fontWeight: "700" }} numberOfLines={2}>
-                                {meta}
-                              </Text>
-                            ) : null}
-                          </Pressable>
-                        );
-                      })}
-                    </ScrollView>
-                  )}
-
-                  <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
-                    <AppButton
-                      title="Cerrar"
-                      variant="outline"
-                      onPress={() => {
-                        Keyboard.dismiss();
-                        setFacturaPickerOpen(false);
-                      }}
-                      style={{ flex: 1, minHeight: 48 } as any}
-                    />
-                  </View>
-                  </View>
-                </TouchableWithoutFeedback>
-              </View>
-            </TouchableWithoutFeedback>
-          </Modal>
-        ) : null}
 
 
 

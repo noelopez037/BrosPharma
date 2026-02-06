@@ -1,5 +1,4 @@
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
-import { HeaderBackButton } from "@react-navigation/elements";
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -17,7 +16,6 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppButton } from "../../components/ui/app-button";
-import { goHome } from "../../lib/goHome";
 import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
@@ -163,6 +161,30 @@ export default function KardexScreen() {
     }, [loadRole])
   );
 
+  // Limpia la búsqueda al salir de la pantalla (resultados + estados UI de búsqueda/modales)
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        // resultados
+        setRows([]);
+        setErrorMsg(null);
+        setLoading(false);
+
+        // UI/inputs de búsqueda
+        setProdModalOpen(false);
+        setProdQ("");
+        setProdRows([]);
+        setProdError(null);
+        setProdLoading(false);
+        prodReqSeq.current += 1; // invalida requests en vuelo
+
+        // pickers iOS
+        setShowDesdeIOS(false);
+        setShowHastaIOS(false);
+      };
+    }, [])
+  );
+
   const fetchProductos = useCallback(async () => {
     const seq = ++prodReqSeq.current;
     setProdLoading(true);
@@ -296,15 +318,7 @@ export default function KardexScreen() {
         })
         .filter((x) => !!x.fecha);
 
-      // El backend ya ordena, pero mantenemos un sort defensivo.
-      list.sort((a: any, b: any) => {
-        const fa = String(a?.fecha ?? "");
-        const fb = String(b?.fecha ?? "");
-        const cmp = fa.localeCompare(fb);
-        if (cmp !== 0) return cmp;
-        return String(a?.tipo ?? "").localeCompare(String(b?.tipo ?? ""));
-      });
-
+      // El RPC ya viene ordenado (fecha + sort_grp + sort_id). No es necesario reordenar aquí.
       setRows(list);
     } catch (e: any) {
       setRows([]);
@@ -344,13 +358,8 @@ export default function KardexScreen() {
           options={{
             headerShown: true,
             title: "Kardex",
-             headerBackTitle: "Atrás",
-             gestureEnabled: false,
-             headerBackVisible: false,
-             headerBackButtonMenuEnabled: false,
-             headerLeft: (props: any) => <HeaderBackButton {...props} label="Atrás" onPress={() => goHome("/(drawer)/(tabs)")} />,
-           }}
-         />
+          }}
+        />
 
         <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
           <View style={s.center}>
@@ -368,13 +377,8 @@ export default function KardexScreen() {
           options={{
             headerShown: true,
             title: "Kardex",
-             headerBackTitle: "Atrás",
-             gestureEnabled: false,
-             headerBackVisible: false,
-             headerBackButtonMenuEnabled: false,
-             headerLeft: (props: any) => <HeaderBackButton {...props} label="Atrás" onPress={() => goHome("/(drawer)/(tabs)")} />,
-           }}
-         />
+          }}
+        />
 
         <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
           <View style={s.center}>
@@ -398,16 +402,16 @@ export default function KardexScreen() {
     const qtyText = isEntrada ? `+${entrada}` : `-${salida}`;
 
     const title = isCompra
-      ? (item?.proveedor ?? "Compra")
+      ? item?.proveedor ?? "Compra"
       : isVenta
-        ? (item?.cliente ?? "Venta")
+        ? item?.cliente ?? "Venta"
         : isDev
-          ? (item?.cliente ?? "Devolución")
-          : (item?.cliente ?? item?.proveedor ?? "Movimiento");
+          ? item?.cliente ?? "Devolución"
+          : item?.cliente ?? item?.proveedor ?? "Movimiento";
 
     const estado = String(item?.estado ?? "").trim();
 
-    const tipoLabel = isCompra ? "COMPRA" : isVenta ? "VENTA" : isDev ? "DEVOLUCION" : (tipo || "MOV");
+    const tipoLabel = isCompra ? "COMPRA" : isVenta ? "VENTA" : isDev ? "DEVOLUCION" : tipo || "MOV";
 
     const meta = [
       fmtFechaHora(item?.fecha),
@@ -440,11 +444,6 @@ export default function KardexScreen() {
         options={{
           headerShown: true,
           title: "Kardex",
-          headerBackTitle: "Atrás",
-          gestureEnabled: false,
-          headerBackVisible: false,
-          headerBackButtonMenuEnabled: false,
-          headerLeft: (props: any) => <HeaderBackButton {...props} label="Atrás" onPress={() => goHome("/(drawer)/(tabs)")} />,
         }}
       />
 
@@ -476,10 +475,7 @@ export default function KardexScreen() {
                     setShowDesdeIOS(false);
                     setShowHastaIOS(false);
                   }}
-                  style={({ pressed }) => [
-                    s.selectBox,
-                    pressed && Platform.OS === "ios" ? { opacity: 0.9 } : null,
-                  ]}
+                  style={({ pressed }) => [s.selectBox, pressed && Platform.OS === "ios" ? { opacity: 0.9 } : null]}
                 >
                   <Text style={s.selectTxt} numberOfLines={1}>
                     {producto ? productoLabel : "Seleccionar producto"}
@@ -607,73 +603,76 @@ export default function KardexScreen() {
                 </Pressable>
               </View>
 
-            <View style={s.searchWrap}>
-              <TextInput
-                value={prodQ}
-                onChangeText={setProdQ}
-                placeholder="Buscar por nombre..."
-                placeholderTextColor={colors.text + "66"}
-                style={s.searchInput}
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="search"
-              />
-              {prodQ.trim().length > 0 ? (
-                <Pressable onPress={() => setProdQ("")} hitSlop={10} style={s.clearBtn}>
-                  <Text style={s.clearTxt}>×</Text>
-                </Pressable>
-              ) : null}
-            </View>
+              <View style={s.searchWrap}>
+                <TextInput
+                  value={prodQ}
+                  onChangeText={setProdQ}
+                  placeholder="Buscar por nombre..."
+                  placeholderTextColor={colors.text + "66"}
+                  style={s.searchInput}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="search"
+                />
+                {prodQ.trim().length > 0 ? (
+                  <Pressable onPress={() => setProdQ("")} hitSlop={10} style={s.clearBtn}>
+                    <Text style={s.clearTxt}>×</Text>
+                  </Pressable>
+                ) : null}
+              </View>
 
-            <View style={s.switchRow}>
-              <Text style={s.switchLabel}>Solo activos</Text>
-              <Switch
-                value={soloActivos}
-                onValueChange={setSoloActivos}
-                trackColor={{ false: colors.border, true: "#34C759" }}
-                thumbColor={Platform.OS === "android" ? "#FFFFFF" : undefined}
-                style={Platform.OS === "android" ? { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] } : undefined}
-              />
-            </View>
+              <View style={s.switchRow}>
+                <Text style={s.switchLabel}>Solo activos</Text>
+                <Switch
+                  value={soloActivos}
+                  onValueChange={setSoloActivos}
+                  trackColor={{ false: colors.border, true: "#34C759" }}
+                  thumbColor={Platform.OS === "android" ? "#FFFFFF" : undefined}
+                  style={Platform.OS === "android" ? { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] } : undefined}
+                />
+              </View>
 
-            <FlatList
-              data={prodRows}
-              keyExtractor={(it) => String(it.id)}
-              keyboardShouldPersistTaps="handled"
-              renderItem={({ item }) => (
-                <Pressable
-                  onPress={() => {
-                    setProducto(item);
-                    setProdModalOpen(false);
-                  }}
-                  style={({ pressed }) => [s.prodRow, pressed && Platform.OS === "ios" ? { opacity: 0.9 } : null]}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.prodTitle} numberOfLines={1}>
-                      {item.nombre}
-                      {item.marca ? ` • ${item.marca}` : ""}
-                    </Text>
-                    {!item.activo ? <Text style={s.prodSub}>INACTIVO</Text> : null}
-                  </View>
-                </Pressable>
-              )}
-              ListEmptyComponent={
-                prodLoading ? (
-                  <View style={{ paddingVertical: 14 }}>
-                    <Text style={s.empty}>Buscando...</Text>
-                  </View>
-                ) : prodError ? (
-                  <View style={{ paddingVertical: 14 }}>
-                    <Text style={s.empty}>{prodError}</Text>
-                  </View>
-                ) : (
-                  <View style={{ paddingVertical: 14 }}>
-                    <Text style={s.empty}>Sin resultados</Text>
-                  </View>
-                )
-              }
-              style={{ marginTop: 10 }}
-            />
+              <FlatList
+                data={prodRows}
+                keyExtractor={(it) => String(it.id)}
+                keyboardShouldPersistTaps="handled"
+                renderItem={({ item }) => (
+                  <Pressable
+                    onPress={() => {
+                      setProducto(item);
+                      setProdModalOpen(false);
+                      // opcional: al elegir producto, limpia resultados anteriores para evitar confusión
+                      setRows([]);
+                      setErrorMsg(null);
+                    }}
+                    style={({ pressed }) => [s.prodRow, pressed && Platform.OS === "ios" ? { opacity: 0.9 } : null]}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.prodTitle} numberOfLines={1}>
+                        {item.nombre}
+                        {item.marca ? ` • ${item.marca}` : ""}
+                      </Text>
+                      {!item.activo ? <Text style={s.prodSub}>INACTIVO</Text> : null}
+                    </View>
+                  </Pressable>
+                )}
+                ListEmptyComponent={
+                  prodLoading ? (
+                    <View style={{ paddingVertical: 14 }}>
+                      <Text style={s.empty}>Buscando...</Text>
+                    </View>
+                  ) : prodError ? (
+                    <View style={{ paddingVertical: 14 }}>
+                      <Text style={s.empty}>{prodError}</Text>
+                    </View>
+                  ) : (
+                    <View style={{ paddingVertical: 14 }}>
+                      <Text style={s.empty}>Sin resultados</Text>
+                    </View>
+                  )
+                }
+                style={{ marginTop: 10 }}
+              />
             </View>
           </Modal>
         ) : null}

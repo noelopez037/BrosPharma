@@ -1,6 +1,5 @@
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { useFocusEffect, useTheme } from "@react-navigation/native";
-import { HeaderBackButton } from "@react-navigation/elements";
 import { Stack, router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -9,7 +8,6 @@ import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { AppButton } from "../components/ui/app-button";
 import { useGoHomeOnBack } from "../lib/useGoHomeOnBack";
-import { goHome } from "../lib/goHome";
 
 type VentaRow = {
   id: number;
@@ -418,9 +416,6 @@ export default function RecetasPendientesScreen() {
           title: "Recetas pendientes",
           headerBackTitle: "Atrás",
           gestureEnabled: false,
-          headerBackVisible: false,
-          headerBackButtonMenuEnabled: false,
-          headerLeft: (props: any) => <HeaderBackButton {...props} label="Atrás" onPress={() => goHome("/(drawer)/(tabs)")} />,
         }}
       />
 

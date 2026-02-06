@@ -1,7 +1,6 @@
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
-import React, { useCallback, useMemo, useState, useEffect, useRef } from "react";
-import { HeaderBackButton } from "@react-navigation/elements";
+import React, { useCallback, useMemo, useState, useEffect } from "react";
 import { Alert, FlatList, Platform, Pressable, StyleSheet, Text, TextInput, View, Modal, ScrollView } from "react-native";
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -263,9 +262,6 @@ export default function VentasAnuladasScreen() {
           title: "Anuladas",
           headerBackTitle: "Atrás",
           gestureEnabled: false,
-          headerBackVisible: false,
-          headerBackButtonMenuEnabled: false,
-          headerLeft: (props: any) => <HeaderBackButton {...props} label="Atrás" onPress={() => goHome("/(drawer)/(tabs)")} />,
         }}
       />
 
