@@ -1,7 +1,6 @@
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useMemo, useRef, useState } from "react";
-import { HeaderBackButton } from "@react-navigation/elements";
 import {
   Alert,
   Platform,
@@ -177,9 +176,6 @@ export default function ClienteDetalle() {
           title: "Cliente",
           headerShown: true,
           headerBackTitle: "Atrás",
-          headerBackVisible: false,
-          headerBackButtonMenuEnabled: false,
-          headerLeft: (props: any) => <HeaderBackButton {...props} label="Atrás" onPress={goBackSafe} />,
         }}
       />
 

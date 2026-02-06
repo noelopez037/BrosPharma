@@ -1,4 +1,3 @@
-import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
@@ -34,7 +33,7 @@ import { emitSolicitudesChanged } from "../lib/solicitudesEvents";
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
-import { FB_DARK_DANGER, getHeaderColors } from "../src/theme/headerColors";
+import { FB_DARK_DANGER } from "../src/theme/headerColors";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 
@@ -308,7 +307,6 @@ export default function VentaDetalleScreen() {
   const { colors } = useTheme();
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
-  const headerTint = useMemo(() => getHeaderColors(isDark).fg, [isDark]);
 
   const params = useLocalSearchParams<{ ventaId?: string; returnTo?: string }>();
   const ventaIdRaw = String(params?.ventaId ?? "");
@@ -783,13 +781,7 @@ export default function VentaDetalleScreen() {
     return null;
   }, [canFacturar, needsEXENTO, needsIVA]);
 
-  const factura1Ready = useMemo(() => {
-    if (!facturaTipo1) return false;
-    const d = facturaDraft[facturaTipo1];
-    const hasPdf = !!String(d?.path ?? facturaCurrentByTipo[facturaTipo1]?.path ?? "").trim();
-    const hasNum = !!String(d?.numero ?? facturaCurrentByTipo[facturaTipo1]?.numero ?? "").trim();
-    return hasPdf || hasNum;
-  }, [facturaCurrentByTipo, facturaDraft, facturaTipo1]);
+  const facturaRequiredCount = requiredTipos.length;
 
   const pickAndUploadReceta = useCallback(async () => {
     if (!venta) return;
@@ -945,23 +937,79 @@ export default function VentaDetalleScreen() {
 
         // 3) Extraer No: desde el PDF (fallback silencioso; el usuario puede escribirlo)
         try {
-          const { data, error } = await supabase.functions.invoke("invoice_extract", {
-            body: { path },
-          });
-          if (error) throw error;
-          const extracted = String((data as any)?.numero ?? "").trim();
-          if (!extracted) return;
+          const { data, error } = await supabase.functions.invoke("invoice_extract", { body: { path } });
+          console.log("[invoice_extract] invoke", { tipo, path, data, error });
 
-          const existingNumero = String(facturaDraft[tipo]?.numero ?? facturaCurrentByTipo[tipo]?.numero ?? "").trim();
-          if (!existingNumero) setNumero(tipo, extracted);
-        } catch {}
+          let payload: any = data as any;
+
+          // If Edge returned non-2xx (FunctionsHttpError), fetch directly to capture the body.
+          if (error && String((error as any)?.name ?? "") === "FunctionsHttpError") {
+            try {
+              const baseUrl = String(process.env.EXPO_PUBLIC_SUPABASE_URL ?? "").trim();
+              const anonKey = String(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "").trim();
+              if (baseUrl && anonKey) {
+                const { data: sess } = await supabase.auth.getSession();
+                const token = String(sess?.session?.access_token ?? anonKey);
+                const url = `${baseUrl.replace(/\/+$/, "")}/functions/v1/invoice_extract`;
+                const fr = await fetch(url, {
+                  method: "POST",
+                  headers: {
+                    "content-type": "application/json",
+                    apikey: anonKey,
+                    authorization: `Bearer ${token}`,
+                  },
+                  body: JSON.stringify({ path }),
+                });
+
+                const raw = await fr.text().catch(() => "");
+                let parsed: any = null;
+                try {
+                  parsed = raw ? JSON.parse(raw) : null;
+                } catch {
+                  parsed = raw;
+                }
+                console.log("[invoice_extract] fetch fallback", { tipo, path, status: fr.status, ok: fr.ok, body: parsed });
+                if (parsed && typeof parsed === "object") payload = parsed;
+              }
+            } catch (fe: any) {
+              console.log("[invoice_extract] fetch fallback error", { tipo, path, message: fe?.message, error: fe });
+            }
+          }
+
+          if (payload?.ok === false) {
+            Alert.alert("Aviso", "No se pudo leer No: del PDF, puedes escribirlo manualmente.");
+            return;
+          }
+
+          const extractedNumero = String(payload?.numero ?? "").trim();
+          if (!extractedNumero) return;
+
+          setFacturaDraft((prev) => {
+            const dbNumero = String(facturaCurrentByTipo[tipo]?.numero ?? "").trim();
+            const prevNumero = String(prev?.[tipo]?.numero ?? "").trim();
+            if (dbNumero || prevNumero) return prev;
+
+            const cur = prev[tipo] ?? {
+              tipo,
+              numero: "",
+              monto: "",
+              path: null,
+              originalName: null,
+              sizeBytes: null,
+            };
+
+            return { ...prev, [tipo]: { ...cur, numero: extractedNumero } };
+          });
+        } catch (e: any) {
+          console.log("[invoice_extract] error", { tipo, path, message: e?.message, error: e });
+        }
       } catch (e: any) {
         Alert.alert("Error", e?.message ?? "No se pudo subir el PDF");
       } finally {
         setUploadingPdfTipo(null);
       }
     },
-    [canFacturar, facturaCurrentByTipo, facturaDraft, montoTouched, setNumero, totalEXENTO, totalIVA, uploadingPdfTipo, venta]
+    [canFacturar, facturaCurrentByTipo, montoTouched, totalEXENTO, totalIVA, uploadingPdfTipo, venta]
   );
 
   const openFacturaPdf = useCallback(
@@ -1411,25 +1459,6 @@ export default function VentaDetalleScreen() {
           headerShown: true,
           title,
           headerBackTitle: "Atrás",
-          headerLeft: () => (
-            <Pressable
-              onPress={() => {
-                goBackSafe("/(drawer)/(tabs)/ventas");
-              }}
-              hitSlop={10}
-              style={({ pressed }) => [
-                { flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingVertical: 6 },
-                pressed ? { opacity: 0.7 } : null,
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel="Atrás"
-            >
-              <Ionicons name={Platform.OS === "ios" ? "chevron-back" : "arrow-back"} size={24} color={headerTint} />
-              {Platform.OS === "ios" ? (
-                <Text style={{ color: headerTint, fontSize: 16, fontWeight: "600", marginLeft: 2 }}>Atrás</Text>
-              ) : null}
-            </Pressable>
-          ),
         }}
       />
 
@@ -1759,36 +1788,47 @@ export default function VentaDetalleScreen() {
                     : "Sube el PDF primero; se autollenan numero (No:) y monto. Completa/ajusta lo necesario para facturar."}
                 </Text>
 
+                {!facturaRequiredCount ? null : (
+                  <Text style={[styles.sub, { color: C.sub, marginTop: 6 }]}
+                  >
+                    {facturaRequiredCount === 1
+                      ? "Esta venta requiere 1 factura (segun el tipo de productos)."
+                      : "Esta venta requiere 2 facturas (IVA y EXENTO)."}
+                  </Text>
+                )}
+
                 {facturaTipo1
                   ? (() => {
                       const tipo = facturaTipo1 as "IVA" | "EXENTO";
                       const hasPdf = !!String(facturaDraft[tipo]?.path ?? facturaCurrentByTipo[tipo]?.path ?? "").trim();
-                      const numero = String(facturaDraft[tipo]?.numero ?? facturaCurrentByTipo[tipo]?.numero ?? "").trim();
-                      const monto = String(facturaDraft[tipo]?.monto ?? facturaCurrentByTipo[tipo]?.monto ?? "").trim();
-                       return (
-                         <View style={[styles.facturaCard, { borderColor: C.border }]}>
-                           <View style={styles.rowBetween}>
+                      const numeroDb = String(facturaCurrentByTipo[tipo]?.numero ?? "").trim();
+                      const montoDb = String(facturaCurrentByTipo[tipo]?.monto ?? "").trim();
+                      const draftNumero = facturaDraft[tipo]?.numero;
+                      const draftMonto = facturaDraft[tipo]?.monto;
+                      return (
+                        <View style={[styles.facturaCard, { borderColor: C.border }]}>
+                          <View style={styles.rowBetween}>
                             <View style={{ flex: 1, minWidth: 0 }}>
-                               <Text style={[styles.facturaTitle, { color: C.text }]}>
-                                 {tipo === "IVA" ? "Factura con IVA" : "Factura Exenta"}
-                               </Text>
+                              <Text style={[styles.facturaTitle, { color: C.text }]}>
+                                {tipo === "IVA" ? "Factura con IVA" : "Factura Exenta"}
+                              </Text>
                               <Text style={[styles.facturaMeta, { color: C.sub, marginTop: 2 }]}>Factura 1</Text>
                             </View>
-                             {hasPdf ? null : (
-                                <AppButton
-                                  title={uploadingPdfTipo === tipo ? "Subiendo..." : "Subir PDF"}
-                                  size="sm"
-                                  onPress={() => pickAndUploadPdf(tipo)}
-                                  disabled={!!uploadingPdfTipo || facturando}
-                                />
-                             )}
-                           </View>
+                            {hasPdf ? null : (
+                              <AppButton
+                                title={uploadingPdfTipo === tipo ? "Subiendo..." : "Subir PDF"}
+                                size="sm"
+                                onPress={() => pickAndUploadPdf(tipo)}
+                                disabled={!!uploadingPdfTipo || facturando}
+                              />
+                            )}
+                          </View>
 
                           <View style={styles.facturaInputsRow}>
                             <View style={{ flex: 1, minWidth: 0 }}>
-                              <Text style={[styles.label, { color: C.sub }]}>Numero de factura</Text>
+                              <Text style={[styles.label, { color: C.sub }]}>Numero de factura *</Text>
                               <TextInput
-                                value={facturaDraft[tipo]?.numero ?? numero}
+                                value={draftNumero ?? numeroDb}
                                 onChangeText={(t: string) => setNumero(tipo, t)}
                                 onFocus={handleFocus}
                                 placeholder="Ej: 12345"
@@ -1800,7 +1840,7 @@ export default function VentaDetalleScreen() {
                             <View style={styles.facturaMontoCol}>
                               <Text style={[styles.label, { color: C.sub }]}>Monto de factura (Q)</Text>
                               <TextInput
-                                value={facturaDraft[tipo]?.monto ?? monto}
+                                value={draftMonto ?? montoDb}
                                 onChangeText={(t: string) => setMonto(tipo, t)}
                                 onFocus={handleFocus}
                                 placeholder="Ej: 1250.00"
@@ -1843,36 +1883,38 @@ export default function VentaDetalleScreen() {
                     })()
                   : null}
 
-                {facturaTipo2 && (factura1Ready || !!String(facturaDraft[facturaTipo2]?.path ?? facturaCurrentByTipo[facturaTipo2]?.path ?? "").trim())
+                {facturaTipo2
                   ? (() => {
                       const tipo = facturaTipo2 as "IVA" | "EXENTO";
                       const hasPdf = !!String(facturaDraft[tipo]?.path ?? facturaCurrentByTipo[tipo]?.path ?? "").trim();
-                      const numero = String(facturaDraft[tipo]?.numero ?? facturaCurrentByTipo[tipo]?.numero ?? "").trim();
-                      const monto = String(facturaDraft[tipo]?.monto ?? facturaCurrentByTipo[tipo]?.monto ?? "").trim();
-                       return (
-                         <View style={[styles.facturaCard, { borderColor: C.border }]}>
-                           <View style={styles.rowBetween}>
+                      const numeroDb = String(facturaCurrentByTipo[tipo]?.numero ?? "").trim();
+                      const montoDb = String(facturaCurrentByTipo[tipo]?.monto ?? "").trim();
+                      const draftNumero = facturaDraft[tipo]?.numero;
+                      const draftMonto = facturaDraft[tipo]?.monto;
+                      return (
+                        <View style={[styles.facturaCard, { borderColor: C.border }]}>
+                          <View style={styles.rowBetween}>
                             <View style={{ flex: 1, minWidth: 0 }}>
-                               <Text style={[styles.facturaTitle, { color: C.text }]}>
-                                 {tipo === "IVA" ? "Factura con IVA" : "Factura Exenta"}
-                               </Text>
+                              <Text style={[styles.facturaTitle, { color: C.text }]}>
+                                {tipo === "IVA" ? "Factura con IVA" : "Factura Exenta"}
+                              </Text>
                               <Text style={[styles.facturaMeta, { color: C.sub, marginTop: 2 }]}>Factura 2</Text>
                             </View>
-                             {hasPdf ? null : (
-                                <AppButton
-                                  title={uploadingPdfTipo === tipo ? "Subiendo..." : "Subir PDF"}
-                                  size="sm"
-                                  onPress={() => pickAndUploadPdf(tipo)}
-                                  disabled={!!uploadingPdfTipo || facturando}
-                                />
-                             )}
-                           </View>
+                            {hasPdf ? null : (
+                              <AppButton
+                                title={uploadingPdfTipo === tipo ? "Subiendo..." : "Subir PDF"}
+                                size="sm"
+                                onPress={() => pickAndUploadPdf(tipo)}
+                                disabled={!!uploadingPdfTipo || facturando}
+                              />
+                            )}
+                          </View>
 
                           <View style={styles.facturaInputsRow}>
                             <View style={{ flex: 1, minWidth: 0 }}>
-                              <Text style={[styles.label, { color: C.sub }]}>Numero de factura</Text>
+                              <Text style={[styles.label, { color: C.sub }]}>Numero de factura *</Text>
                               <TextInput
-                                value={facturaDraft[tipo]?.numero ?? numero}
+                                value={draftNumero ?? numeroDb}
                                 onChangeText={(t: string) => setNumero(tipo, t)}
                                 onFocus={handleFocus}
                                 placeholder="Ej: 12346"
@@ -1884,7 +1926,7 @@ export default function VentaDetalleScreen() {
                             <View style={styles.facturaMontoCol}>
                               <Text style={[styles.label, { color: C.sub }]}>Monto de factura (Q)</Text>
                               <TextInput
-                                value={facturaDraft[tipo]?.monto ?? monto}
+                                value={draftMonto ?? montoDb}
                                 onChangeText={(t: string) => setMonto(tipo, t)}
                                 onFocus={handleFocus}
                                 placeholder="Ej: 1250.00"

@@ -1,7 +1,6 @@
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { HeaderBackButton } from "@react-navigation/elements";
 import {
   Alert,
   FlatList,
@@ -296,9 +295,6 @@ export default function VentasSolicitudesScreen() {
           title: "Solicitudes",
           headerBackTitle: "Atrás",
           gestureEnabled: false,
-          headerBackVisible: false,
-          headerBackButtonMenuEnabled: false,
-          headerLeft: (props: any) => <HeaderBackButton {...props} label="Atrás" onPress={() => goHome("/(drawer)/(tabs)")} />,
         }}
       />
 

@@ -2,7 +2,6 @@ import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { HeaderBackButton } from "@react-navigation/elements";
 import {
   Platform,
   Pressable,
@@ -16,7 +15,6 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
-import { goHome } from "../../lib/goHome";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 
@@ -196,12 +194,6 @@ export default function ClientesScreen() {
       <Stack.Screen
         options={{
           title: "Clientes",
-          headerShown: true,
-          headerBackTitle: "Atrás",
-          gestureEnabled: false,
-          headerBackVisible: false,
-          headerBackButtonMenuEnabled: false,
-          headerLeft: (props: any) => <HeaderBackButton {...props} label="Atrás" onPress={() => goHome("/(drawer)/(tabs)")} />,
         }}
       />
 

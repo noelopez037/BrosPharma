@@ -312,6 +312,8 @@ function buildEstadoCuentaHtml({ logoBase64, header, totals, rows }: { logoBase6
           font-size: 11px;
           color: var(--muted);
           letter-spacing: 0.2px;
+          line-height: 1.2;
+          min-height: 28px;
         }
 
         .card .value {

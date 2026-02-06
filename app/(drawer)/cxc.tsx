@@ -2,7 +2,6 @@ import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/d
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { HeaderBackButton } from "@react-navigation/elements";
 import {
   Alert,
   FlatList,
@@ -528,13 +527,7 @@ export default function CuentasPorCobrarScreen() {
     <>
       <Stack.Screen
         options={{
-          headerShown: true,
           title: "Cuentas por cobrar",
-          headerBackTitle: "Atrás",
-          gestureEnabled: false,
-          headerBackVisible: false,
-          headerBackButtonMenuEnabled: false,
-          headerLeft: (props: any) => <HeaderBackButton {...props} label="Atrás" onPress={() => goHome("/(drawer)/(tabs)")} />,
         }}
       />
 

@@ -1,78 +1,144 @@
 // @ts-nocheck
 // Supabase Edge Function: invoice_extract
 //
-// Input:  { path: string }
-// Output: { ok: true, numero: string | null }
-//
-// Extracts invoice number from a DIGITAL PDF (no OCR) by looking for:
-//   /\bNo:\s*([0-9]{4,})\b/i
+// Contract: ALWAYS returns HTTP 200 + JSON.
+// - 200 { ok:true, numero:string|null }
+// - 200 { ok:false, error:"PDF_PARSE_FAILED"|"DOWNLOAD_FAILED"|"MISSING_PATH" }
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { getDocument } from "https://esm.sh/pdfjs-dist@4.10.38/legacy/build/pdf.mjs";
+
+import pdf from "https://esm.sh/pdf-parse@1.1.1?deno";
 
 const BUCKET = "Ventas-Docs";
 
-function json(data: unknown, init: ResponseInit = {}) {
-  const headers = new Headers(init.headers);
-  headers.set("content-type", "application/json; charset=utf-8");
-  headers.set("access-control-allow-origin", "*");
-  headers.set("access-control-allow-headers", "authorization, x-client-info, apikey, content-type");
-  headers.set("access-control-allow-methods", "POST, OPTIONS");
-  return new Response(JSON.stringify(data), { ...init, headers });
+const CORS_HEADERS: Record<string, string> = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-headers": "authorization, x-client-info, apikey, content-type",
+  "access-control-allow-methods": "GET, POST, OPTIONS",
+};
+
+function json(obj: unknown) {
+  const headers = new Headers({
+    "content-type": "application/json; charset=utf-8",
+    ...CORS_HEADERS,
+  });
+  return new Response(JSON.stringify(obj), { status: 200, headers });
 }
 
-async function extractPdfText(pdfBytes: Uint8Array): Promise<string> {
-  // pdfjs in Edge Functions: disable worker.
-  const loadingTask = getDocument({ data: pdfBytes, disableWorker: true } as any);
-  const pdf = await loadingTask.promise;
-  let out = "";
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    const items = (content as any)?.items ?? [];
-    const pageText = items
-      .map((it: any) => String(it?.str ?? ""))
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (pageText) out += (out ? "\n" : "") + pageText;
+function errorDetails(e: any) {
+  if (!e) return null;
+  if (typeof e === "string") return { message: e };
+  return {
+    name: e?.name,
+    message: e?.message,
+    stack: e?.stack,
+    status: e?.status,
+    statusCode: e?.statusCode,
+    code: e?.code,
+  };
+}
+
+function normalizePath(input: unknown): string {
+  let path = String(input ?? "").trim();
+  path = path.replace(/^\/+/, "");
+  if (path.startsWith(`${BUCKET}/`)) path = path.slice(`${BUCKET}/`.length);
+  if (path.startsWith("Ventas-Docs/")) path = path.slice("Ventas-Docs/".length);
+  path = path.replace(/^\/+/, "");
+  return path;
+}
+
+function encodePathSegments(p: string): string {
+  return p
+    .split("/")
+    .filter((s) => s.length > 0)
+    .map((s) => encodeURIComponent(s))
+    .join("/");
+}
+
+async function downloadPdfBytes(path: string): Promise<{ ok: true; bytes: Uint8Array } | { ok: false; details?: any }> {
+  const url = String(Deno.env.get("SUPABASE_URL") ?? "").trim();
+  const serviceKey = String(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
+
+  if (!url || !serviceKey) {
+    return { ok: false, details: { error: "MISSING_ENV" } };
   }
-  return out;
+
+  const objUrl = `${url.replace(/\/+$/, "")}/storage/v1/object/${BUCKET}/${encodePathSegments(path)}`;
+  const res = await fetch(objUrl, {
+    method: "GET",
+    headers: {
+      authorization: `Bearer ${serviceKey}`,
+      apikey: serviceKey,
+      accept: "application/pdf",
+    },
+  }).catch((e) => {
+    throw new Error(`FETCH_FAILED: ${e?.message ?? String(e)}`);
+  });
+
+  if (!res.ok) {
+    let bodyText = "";
+    try {
+      bodyText = await res.text();
+    } catch {}
+    return { ok: false, details: { status: res.status, statusText: res.statusText, body: bodyText } };
+  }
+
+  const ab = await res.arrayBuffer();
+  return { ok: true, bytes: new Uint8Array(ab) };
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return json({ ok: true }, { status: 200 });
-  if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, { status: 405 });
-
+  // Always return 200 JSON (even on failures).
   try {
-    const { path } = (await req.json().catch(() => ({}))) as { path?: string };
-    const cleanPath = String(path ?? "").trim().replace(/^\/+/, "");
-    if (!cleanPath) return json({ ok: false, error: "Missing path" }, { status: 400 });
+    if (req.method === "OPTIONS") return json({ ok: true });
 
-    const url = Deno.env.get("SUPABASE_URL") ?? "";
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-    if (!url || !serviceKey) return json({ ok: false, error: "Missing env" }, { status: 500 });
+    let path = "";
+    if (req.method === "GET") {
+      const url = new URL(req.url);
+      path = normalizePath(url.searchParams.get("path"));
+    } else {
+      const body = (await req.json().catch(() => ({}))) as { path?: string };
+      path = normalizePath(body?.path);
+    }
+    if (!path) return json({ ok: false, error: "MISSING_PATH" });
 
-    const supabase = createClient(url, serviceKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
+    console.log("[invoice_extract] path", path);
 
-    const { data: blob, error } = await supabase.storage.from(BUCKET).download(cleanPath);
-    if (error) throw error;
-    if (!blob) return json({ ok: true, numero: null }, { status: 200 });
+    // Download PDF using service role (no client cookies).
+    let pdfBytes: Uint8Array | null = null;
+    try {
+      const dl = await downloadPdfBytes(path);
+      if (!dl.ok) {
+        console.error("[invoice_extract] download failed", dl.details);
+        return json({ ok: false, error: "DOWNLOAD_FAILED" });
+      }
+      pdfBytes = dl.bytes;
+    } catch (e) {
+      console.error("[invoice_extract] download error", e?.stack ?? e);
+      return json({ ok: false, error: "DOWNLOAD_FAILED" });
+    }
 
-    const ab = await blob.arrayBuffer();
-    const text = await extractPdfText(new Uint8Array(ab));
+    // Parse PDF -> text (no OCR).
+    let text = "";
+    try {
+      const parsed = await pdf(pdfBytes);
+      text = String(parsed?.text ?? "");
+    } catch (e) {
+      console.error("[invoice_extract] pdf parse failed", e?.stack ?? e);
+      return json({ ok: false, error: "PDF_PARSE_FAILED" });
+    }
 
-    const m = text.match(/\bNo:\s*([0-9]{4,})\b/i);
+    console.log("[invoice_extract] text_length", text.length);
+
+    const re = /(?:\bNo\b|N[º°o])\s*[:#.]?\s*([0-9]{4,20})\b/i;
+    const m = text.match(re);
     const numero = m?.[1] ? String(m[1]).trim() : null;
-    return json({ ok: true, numero }, { status: 200 });
-  } catch {
-    // Non-blocking for UI: treat errors as "not found".
-    return json({ ok: true, numero: null }, { status: 200 });
+    console.log("[invoice_extract] numero", numero ?? null);
+
+    return json({ ok: true, numero });
+  } catch (e) {
+    console.error("[invoice_extract] unexpected", e?.stack ?? e);
+    // Keep the union small for callers.
+    return json({ ok: false, error: "PDF_PARSE_FAILED" });
   }
 });
-
-// Deploy:
-//   supabase functions deploy invoice_extract
