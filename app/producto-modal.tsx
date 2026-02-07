@@ -169,15 +169,23 @@ export default function ProductoModal() {
   const [viewerOpen, setViewerOpen] = useState(false);
   const [savingPhoto, setSavingPhoto] = useState(false);
 
+  const [closing, setClosing] = useState(false);
+
   const translateY = useRef(new Animated.Value(0)).current;
 
   const closeWithAnim = useCallback(() => {
+    if (closing) return;
+    setClosing(true);
     Animated.timing(translateY, {
       toValue: 800,
       duration: 180,
       useNativeDriver: true,
-    }).start(() => router.back());
-  }, [translateY]);
+    }).start(() => {
+      router.back();
+      // evitar que quede interceptando si el screen sigue montado 1 frame
+      setTimeout(() => setClosing(false), 0);
+    });
+  }, [closing, translateY]);
 
   const resetWithAnim = useCallback(() => {
     Animated.spring(translateY, {
@@ -294,8 +302,26 @@ export default function ProductoModal() {
     useCallback(() => {
       fetchAll();
       translateY.setValue(0);
+      setClosing(false);
+      return () => {
+        setViewerOpen(false);
+        setClosing(false);
+      };
     }, [fetchAll, translateY])
   );
+
+  useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => {
+      setViewerOpen(false);
+      setClosing(false);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
 
   const headFromView = rows[0] ?? null;
   const headFromViewImagePath = (headFromView as any)?.image_path ?? null;
@@ -337,7 +363,11 @@ export default function ProductoModal() {
 
   return (
     <View style={s.modalRoot}>
-      <Pressable style={s.backdrop} onPress={closeWithAnim} />
+      <Pressable
+        pointerEvents={closing ? "none" : "auto"}
+        style={s.backdrop}
+        onPress={closeWithAnim}
+      />
 
       <Animated.View
         style={[
@@ -446,36 +476,43 @@ export default function ProductoModal() {
       </Animated.View>
 
       {viewerOpen ? (
-        <Modal visible={viewerOpen} transparent onRequestClose={() => setViewerOpen(false)}>
-          <View style={s.viewerTopBar}>
-            <Pressable
-              onPress={() => setViewerOpen(false)}
-              style={({ pressed }) => [s.viewerBtn, pressed && { opacity: 0.8 }]}
-            >
-              <Text style={s.viewerBtnText}>Cerrar</Text>
-            </Pressable>
+        <Modal
+          visible={viewerOpen}
+          transparent
+          presentationStyle="overFullScreen"
+          onRequestClose={() => setViewerOpen(false)}
+        >
+          <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+            <View style={s.viewerTopBar}>
+              <Pressable
+                onPress={() => setViewerOpen(false)}
+                style={({ pressed }) => [s.viewerBtn, pressed && { opacity: 0.8 }]}
+              >
+                <Text style={s.viewerBtnText}>Cerrar</Text>
+              </Pressable>
 
-            <Pressable
-              onPress={onSavePhoto}
-              disabled={!imageUrl || savingPhoto}
-              style={({ pressed }) => [
-                s.viewerBtn,
-                (!imageUrl || savingPhoto) && { opacity: 0.5 },
-                pressed && { opacity: 0.8 },
-              ]}
-            >
-              <Text style={s.viewerBtnText}>{savingPhoto ? "Guardando..." : "Guardar"}</Text>
-            </Pressable>
+              <Pressable
+                onPress={onSavePhoto}
+                disabled={!imageUrl || savingPhoto}
+                style={({ pressed }) => [
+                  s.viewerBtn,
+                  (!imageUrl || savingPhoto) && { opacity: 0.5 },
+                  pressed && { opacity: 0.8 },
+                ]}
+              >
+                <Text style={s.viewerBtnText}>{savingPhoto ? "Guardando..." : "Guardar"}</Text>
+              </Pressable>
+            </View>
+
+            <ImageViewer
+              imageUrls={imageUrl ? [{ url: imageUrl }] : []}
+              enableSwipeDown
+              onSwipeDown={() => setViewerOpen(false)}
+              backgroundColor="rgba(0,0,0,0.95)"
+              renderIndicator={() => <View />}
+              saveToLocalByLongPress={false}
+            />
           </View>
-
-          <ImageViewer
-            imageUrls={imageUrl ? [{ url: imageUrl }] : []}
-            enableSwipeDown
-            onSwipeDown={() => setViewerOpen(false)}
-            backgroundColor="rgba(0,0,0,0.95)"
-            renderIndicator={() => <View />}
-            saveToLocalByLongPress={false}
-          />
         </Modal>
       ) : null}
     </View>
