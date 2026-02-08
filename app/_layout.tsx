@@ -13,6 +13,8 @@ import { StatusBar } from "expo-status-bar";
 import React, { useEffect, useMemo } from "react";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 
+import RootLayout from "./_layout_root";
+
 import { CompraDraftProvider } from "../lib/compraDraft";
 import { VentaDraftProvider } from "../lib/ventaDraft";
 import { ThemePrefProvider, useThemePref } from "../lib/themePreference";
@@ -129,12 +131,14 @@ function AppShell() {
   );
 }
 
-export default function RootLayout() {
+export default function Layout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider initialMetrics={initialWindowMetrics}>
         <ThemePrefProvider>
-          <AppShell />
+          <RootLayout>
+            <AppShell />
+          </RootLayout>
         </ThemePrefProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

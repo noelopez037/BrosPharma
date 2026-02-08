@@ -4,6 +4,7 @@ import { Stack, router } from "expo-router";
 import React, { memo, useCallback, useMemo, useRef, useState } from "react";
 import {
   FlatList,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -14,6 +15,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../../lib/supabase";
+import { ProductoModalContent } from "../../../components/producto/ProductoModalContent";
 
 type Row = {
   id: number;
@@ -100,6 +102,9 @@ export default function InventarioScreen() {
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const [productoOpen, setProductoOpen] = useState(false);
+  const [productoId, setProductoId] = useState<number | null>(null);
+
   const loadingMoreRef = useRef(false);
   const requestSeq = useRef(0);
 
@@ -155,6 +160,10 @@ export default function InventarioScreen() {
     useCallback(() => {
       return () => {
         setQ("");
+
+        // Tabs mantienen la pantalla montada: cerrar overlays al perder foco
+        setProductoOpen(false);
+        setProductoId(null);
       };
     }, [])
   );
@@ -240,8 +249,14 @@ export default function InventarioScreen() {
     }
   }, [fetchPage, hasMore, page, initialLoading]);
 
+  const closeProducto = useCallback(() => {
+    setProductoOpen(false);
+    setProductoId(null);
+  }, []);
+
   const onPressItem = useCallback((id: number) => {
-    router.push({ pathname: "/producto-modal", params: { id: String(id) } });
+    setProductoId(id);
+    setProductoOpen(true);
   }, []);
 
   const renderItem = useCallback(
@@ -341,6 +356,17 @@ export default function InventarioScreen() {
           }
         />
       </SafeAreaView>
+
+      {productoOpen && productoId != null ? (
+        <Modal
+          visible
+          transparent
+          presentationStyle="overFullScreen"
+          onRequestClose={closeProducto}
+        >
+          <ProductoModalContent productoId={productoId} onClose={closeProducto} />
+        </Modal>
+      ) : null}
     </>
   );
 }
