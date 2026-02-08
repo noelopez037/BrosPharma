@@ -1,15 +1,16 @@
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useEffect } from "react";
 import {
   DrawerContentScrollView
 } from "@react-navigation/drawer";
 import { Drawer } from "expo-router/drawer";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { Platform, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
-import { router, usePathname } from "expo-router";
-import { getFocusedRouteNameFromRoute } from "@react-navigation/native";
+import { router, useNavigation, usePathname } from "expo-router";
+import { DrawerActions, getFocusedRouteNameFromRoute } from "@react-navigation/native";
 import { supabase } from "../../lib/supabase";
 import { onSolicitudesChanged } from "../../lib/solicitudesEvents";
 import { useThemePref } from "../../lib/themePreference";
@@ -28,6 +29,7 @@ export default function DrawerLayout() {
 
   const { mode, setMode } = useThemePref();
   const pathname = usePathname();
+  const navigation = useNavigation();
   const isDark = mode === "dark";
 
   const isWeb = Platform.OS === "web";
@@ -38,6 +40,18 @@ export default function DrawerLayout() {
   // This prevents returning to Tabs with the drawer still open.
   const drawerNavRef = useRef<any>(null);
   const didMountRef = useRef(false);
+
+  // Fix para iOS: forzar drawer cerrado al montar
+  useEffect(() => {
+    if (Platform.OS === "ios") {
+      // Pequeno delay para asegurar que el drawer esta montado
+      const timer = setTimeout(() => {
+        navigation.dispatch(DrawerActions.closeDrawer());
+      }, 100);
+
+      return () => clearTimeout(timer);
+    }
+  }, []);
 
   const [userName, setUserName] = useState<string>("");
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
@@ -254,8 +268,8 @@ export default function DrawerLayout() {
     <>
       <StatusBar style="light" />
         <Drawer
-        detachInactiveScreens={false}
-        screenOptions={({ navigation }) => {
+         detachInactiveScreens={false}
+        screenOptions={({ navigation: drawerNavigation }) => {
           const showBack = !isTabsRoute;
           const homePath = isFacturacion ? "/ventas" : "/";
 
@@ -279,7 +293,7 @@ export default function DrawerLayout() {
                       return;
                     }
                     try {
-                      (navigation as any)?.openDrawer?.();
+                      (drawerNavigation as any)?.openDrawer?.();
                     } catch {
                       // ignore
                     }
@@ -320,13 +334,11 @@ export default function DrawerLayout() {
                   },
                 }
               : {
-                  // iOS: work around a react-navigation-drawer backdrop hit-testing bug
-                  // that can leave an invisible overlay intercepting touches right after auth replace.
                   ...(isIOS
                     ? {
-                        overlayColor: "transparent",
                         drawerType: "front" as const,
-                        swipeEnabled: false,
+                        swipeEdgeWidth: 50,
+                        overlayColor: "rgba(0,0,0,0.5)",
                       }
                     : {}),
                   drawerStyle: { backgroundColor: drawerBg },

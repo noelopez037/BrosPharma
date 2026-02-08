@@ -1,8 +1,6 @@
-// app/producto-modal.tsx
-import { useFocusEffect } from "@react-navigation/native";
 import * as FileSystem from "expo-file-system/legacy";
 import * as MediaLibrary from "expo-media-library";
-import { router, useLocalSearchParams } from "expo-router";
+import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
@@ -19,14 +17,18 @@ import {
 } from "react-native";
 import ImageViewer from "react-native-image-zoom-viewer";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { supabase } from "../lib/supabase";
-import { useThemePref } from "../lib/themePreference";
-import { AppButton } from "../components/ui/app-button";
-import { HEADER_BG } from "../src/theme/headerColors";
+
+import { supabase } from "../../lib/supabase";
+import { useThemePref } from "../../lib/themePreference";
+import { AppButton } from "../ui/app-button";
+import { HEADER_BG } from "../../src/theme/headerColors";
 
 const BUCKET = "productos";
 
-/* ===================== TYPES ===================== */
+type Props = {
+  productoId: number;
+  onClose: () => void;
+};
 
 type LoteRow = {
   producto_id: number;
@@ -60,8 +62,6 @@ type ProductoHead = {
   marca_normalizada: string | null;
 };
 
-/* ===================== HELPERS ===================== */
-
 function fmtDate(iso: string | null) {
   return iso ? iso.slice(0, 10) : "—";
 }
@@ -88,7 +88,6 @@ type SysColors = {
 };
 
 function getSysColors(isDark: boolean): SysColors {
-  // Paleta única controlada por TU toggle (iOS y Android)
   if (isDark) {
     return {
       BG: "#000000",
@@ -113,8 +112,6 @@ function getSysColors(isDark: boolean): SysColors {
     VIEWER_TOPBAR: "rgba(0,0,0,0.35)",
   };
 }
-
-/* ===================== SAVE TO PHOTOS ===================== */
 
 async function saveImageToPhotos(imageUrl: string) {
   if (!imageUrl) throw new Error("URL de imagen inválida");
@@ -145,35 +142,38 @@ async function saveImageToPhotos(imageUrl: string) {
   } catch {}
 }
 
-/* ===================== COMPONENT ===================== */
-
-export default function ProductoModal() {
+export function ProductoModalContent({ productoId, onClose }: Props) {
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
-
   const C = useMemo(() => getSysColors(isDark), [isDark]);
   const s = useMemo(() => styles(C), [C]);
-
   const insets = useSafeAreaInsets();
 
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const productoId = Number(id);
+  const aliveRef = useRef(true);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
 
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<LoteRow[]>([]);
   const [headProd, setHeadProd] = useState<ProductoHead | null>(null);
-
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
 
   const [viewerOpen, setViewerOpen] = useState(false);
   const [savingPhoto, setSavingPhoto] = useState(false);
-
   const [closing, setClosing] = useState(false);
 
   const translateY = useRef(new Animated.Value(0)).current;
 
   const closeWithAnim = useCallback(() => {
+    if (viewerOpen) {
+      setViewerOpen(false);
+      return;
+    }
     if (closing) return;
     setClosing(true);
     Animated.timing(translateY, {
@@ -181,9 +181,9 @@ export default function ProductoModal() {
       duration: 180,
       useNativeDriver: true,
     }).start(() => {
-      router.back();
+      onClose();
     });
-  }, [closing, translateY]);
+  }, [closing, onClose, translateY, viewerOpen]);
 
   const resetWithAnim = useCallback(() => {
     Animated.spring(translateY, {
@@ -217,23 +217,18 @@ export default function ProductoModal() {
 
     const uid = session?.user?.id ?? null;
     if (!uid) {
-      setIsAdmin(false);
+      if (aliveRef.current) setIsAdmin(false);
       return;
     }
 
-    const { data: prof } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", uid)
-      .maybeSingle();
-
+    const { data: prof } = await supabase.from("profiles").select("role").eq("id", uid).maybeSingle();
+    if (!aliveRef.current) return;
     setIsAdmin((prof?.role ?? "").toUpperCase() === "ADMIN");
   }, []);
 
   const fetchProductoHead = useCallback(async () => {
     const { data, error } = await supabase
       .from("productos")
-      // NOTE: la columna legacy "marca" (texto) ya no existe; usamos marcas via FK
       .select(
         "id,nombre,marca_id,image_path,activo,tiene_iva,requiere_receta,marcas:marcas!productos_marca_id_fk(nombre)"
       )
@@ -241,6 +236,7 @@ export default function ProductoModal() {
       .maybeSingle();
 
     if (error || !data) {
+      if (!aliveRef.current) return;
       setHeadProd(null);
       setImageUrl(null);
       return;
@@ -251,6 +247,7 @@ export default function ProductoModal() {
         ((data as any)?.marcas?.[0]?.nombre as string | undefined) ??
         null);
 
+    if (!aliveRef.current) return;
     setHeadProd({
       id: data.id,
       nombre: data.nombre,
@@ -265,8 +262,10 @@ export default function ProductoModal() {
     const imgPath = data.image_path;
     if (imgPath) {
       const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(imgPath);
+      if (!aliveRef.current) return;
       setImageUrl(pub.publicUrl ?? null);
     } else {
+      if (!aliveRef.current) return;
       setImageUrl(null);
     }
   }, [productoId]);
@@ -281,32 +280,42 @@ export default function ProductoModal() {
       .order("fecha_exp", { ascending: true });
 
     if (error) {
+      if (!aliveRef.current) return;
       setRows([]);
       return;
     }
+    if (!aliveRef.current) return;
     setRows((data ?? []) as LoteRow[]);
   }, [productoId]);
 
   const fetchAll = useCallback(async () => {
+    if (!aliveRef.current) return;
     setLoading(true);
     try {
       await Promise.all([fetchRole(), fetchProductoHead(), fetchLotes()]);
     } finally {
+      if (!aliveRef.current) return;
       setLoading(false);
     }
-  }, [fetchRole, fetchProductoHead, fetchLotes]);
+  }, [fetchLotes, fetchProductoHead, fetchRole]);
 
-  useFocusEffect(
-    useCallback(() => {
-      fetchAll();
-      translateY.setValue(0);
-      setClosing(false);
-      return () => {
-        setViewerOpen(false);
-        setClosing(false);
-      };
-    }, [fetchAll, translateY])
-  );
+  useEffect(() => {
+    translateY.setValue(0);
+    setClosing(false);
+    setViewerOpen(false);
+    setSavingPhoto(false);
+    setRows([]);
+    setHeadProd(null);
+    setImageUrl(null);
+
+    fetchAll().catch(() => {
+      if (!aliveRef.current) return;
+      setRows([]);
+      setHeadProd(null);
+      setImageUrl(null);
+      setLoading(false);
+    });
+  }, [fetchAll, productoId, translateY]);
 
   useEffect(() => {
     const {
@@ -315,7 +324,6 @@ export default function ProductoModal() {
       setViewerOpen(false);
       setClosing(false);
     });
-
     return () => {
       subscription.unsubscribe();
     };
@@ -324,22 +332,19 @@ export default function ProductoModal() {
   const headFromView = rows[0] ?? null;
   const headFromViewImagePath = (headFromView as any)?.image_path ?? null;
 
-  // Si el head falló (p.ej. por cambios de schema) pero la vista trae image_path,
-  // usarlo como fallback para que no se quede en "SIN FOTO".
   useEffect(() => {
     if (imageUrl) return;
     const path = headProd?.image_path ?? headFromViewImagePath;
     if (!path) return;
     const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(path);
+    if (!aliveRef.current) return;
     setImageUrl(pub.publicUrl ?? null);
   }, [headProd?.image_path, headFromViewImagePath, imageUrl]);
 
   const displayNombre = headProd?.nombre ?? headFromView?.nombre ?? "";
   const displayMarca = headProd?.marca_normalizada ?? headFromView?.marca ?? null;
-
   const precioMin = headFromView?.precio_min_venta ?? null;
 
-  // ✅ FIX: no mostrar lotes vacíos (0 o null). También cubre si viene como string.
   const lotes = rows.filter((r) => Number((r as any).stock_disponible_lote ?? 0) > 0);
   const totalDisponible = lotes.reduce(
     (acc, r) => acc + Number((r as any).stock_disponible_lote ?? 0),
@@ -359,13 +364,17 @@ export default function ProductoModal() {
     }
   }, [imageUrl, savingPhoto]);
 
+  const onEditProducto = useCallback(() => {
+    if (!isAdmin) return;
+    onClose();
+    setTimeout(() => {
+      router.replace({ pathname: "/producto-edit", params: { id: String(productoId) } });
+    }, 0);
+  }, [isAdmin, onClose, productoId]);
+
   return (
     <View style={s.modalRoot}>
-      <Pressable
-        pointerEvents={closing ? "none" : "auto"}
-        style={s.backdrop}
-        onPress={closeWithAnim}
-      />
+      <Pressable pointerEvents={closing ? "none" : "auto"} style={s.backdrop} onPress={closeWithAnim} />
 
       <Animated.View
         style={[
@@ -414,12 +423,7 @@ export default function ProductoModal() {
                     title="Editar producto"
                     variant="outline"
                     size="sm"
-                    onPress={() =>
-                      router.replace({
-                        pathname: "/producto-edit",
-                        params: { id: String(productoId) },
-                      })
-                    }
+                    onPress={onEditProducto}
                     style={s.editBtn}
                   />
                 ) : null}
@@ -585,22 +589,6 @@ const styles = (C: SysColors) =>
     editBtn: {
       alignSelf: "flex-start",
       marginTop: 12,
-    },
-
-    btn: {
-      marginTop: 12,
-      borderWidth: 1,
-      borderColor: C.BLUE as any,
-      backgroundColor: Platform.OS === "ios" ? C.CARD : "transparent",
-      paddingVertical: 10,
-      paddingHorizontal: 12,
-      borderRadius: 12,
-      alignSelf: "flex-start",
-    },
-    btnText: {
-      color: C.BLUE as any,
-      fontSize: 16,
-      fontWeight: Platform.OS === "ios" ? "600" : "700",
     },
 
     imageBox: { width: 96, height: 96 },
