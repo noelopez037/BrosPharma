@@ -1,7 +1,7 @@
 import * as FileSystem from "expo-file-system/legacy";
 import * as MediaLibrary from "expo-media-library";
 import { router } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   ColorValue,
@@ -60,6 +60,19 @@ type ProductoHead = {
   tiene_iva: boolean;
   requiere_receta: boolean;
   marca_normalizada: string | null;
+};
+
+type ProductoCacheEntry = {
+  headProd: ProductoHead | null;
+  rows: LoteRow[];
+  imageUrl: string | null;
+  cachedAt: number;
+};
+
+type RoleCacheEntry = {
+  uid: string | null;
+  isAdmin: boolean;
+  cachedAt: number;
 };
 
 function fmtDate(iso: string | null) {
@@ -142,6 +155,24 @@ async function saveImageToPhotos(imageUrl: string) {
   } catch {}
 }
 
+const LoteItem = memo(function LoteItem({ item, s }: { item: LoteRow; s: ReturnType<typeof styles> }) {
+  return (
+    <View style={s.loteCard}>
+      <View style={{ flex: 1 }}>
+        <Text style={s.loteTitle}>{item.lote ?? "—"}</Text>
+        <Text style={s.loteSub}>Exp: {fmtDate(item.fecha_exp)}</Text>
+      </View>
+
+      <View style={{ alignItems: "flex-end" }}>
+        <Text style={s.loteNum}>{item.stock_disponible_lote}</Text>
+        <Text style={s.loteSub}>
+          Total {item.stock_total_lote} • Res {item.stock_reservado_lote}
+        </Text>
+      </View>
+    </View>
+  );
+});
+
 export function ProductoModalContent({ productoId, onClose }: Props) {
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
@@ -150,6 +181,10 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
   const insets = useSafeAreaInsets();
 
   const aliveRef = useRef(true);
+  const requestIdRef = useRef(0);
+  const closingRef = useRef(false);
+  const roleCacheRef = useRef<RoleCacheEntry | null>(null);
+  const productoCacheRef = useRef<Map<number, ProductoCacheEntry>>(new Map());
   useEffect(() => {
     aliveRef.current = true;
     return () => {
@@ -167,6 +202,10 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
   const [savingPhoto, setSavingPhoto] = useState(false);
   const [closing, setClosing] = useState(false);
 
+  useEffect(() => {
+    closingRef.current = closing;
+  }, [closing]);
+
   const translateY = useRef(new Animated.Value(0)).current;
 
   const closeWithAnim = useCallback(() => {
@@ -176,6 +215,7 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
     }
     if (closing) return;
     setClosing(true);
+    closingRef.current = true;
     Animated.timing(translateY, {
       toValue: 800,
       duration: 180,
@@ -216,17 +256,25 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
     } = await supabase.auth.getSession();
 
     const uid = session?.user?.id ?? null;
+    const roleCache = roleCacheRef.current;
+    if (roleCache && roleCache.uid === uid) return roleCache.isAdmin;
     if (!uid) {
-      if (aliveRef.current) setIsAdmin(false);
-      return;
+      roleCacheRef.current = { uid: null, isAdmin: false, cachedAt: Date.now() };
+      return false;
     }
 
     const { data: prof } = await supabase.from("profiles").select("role").eq("id", uid).maybeSingle();
-    if (!aliveRef.current) return;
-    setIsAdmin((prof?.role ?? "").toUpperCase() === "ADMIN");
+    const isAdminNext = (prof?.role ?? "").toUpperCase() === "ADMIN";
+    roleCacheRef.current = { uid, isAdmin: isAdminNext, cachedAt: Date.now() };
+    return isAdminNext;
   }, []);
 
   const fetchProductoHead = useCallback(async () => {
+    const cached = productoCacheRef.current.get(productoId);
+    if (cached?.headProd) {
+      return { headProd: cached.headProd, imageUrl: cached.imageUrl };
+    }
+
     const { data, error } = await supabase
       .from("productos")
       .select(
@@ -236,10 +284,7 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
       .maybeSingle();
 
     if (error || !data) {
-      if (!aliveRef.current) return;
-      setHeadProd(null);
-      setImageUrl(null);
-      return;
+      return { headProd: null as ProductoHead | null, imageUrl: null as string | null };
     }
 
     const marcaNorm =
@@ -247,8 +292,7 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
         ((data as any)?.marcas?.[0]?.nombre as string | undefined) ??
         null);
 
-    if (!aliveRef.current) return;
-    setHeadProd({
+    const headNext: ProductoHead = {
       id: data.id,
       nombre: data.nombre,
       marca_id: data.marca_id ?? null,
@@ -257,20 +301,23 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
       tiene_iva: !!data.tiene_iva,
       requiere_receta: !!data.requiere_receta,
       marca_normalizada: marcaNorm,
-    });
+    };
 
     const imgPath = data.image_path;
     if (imgPath) {
       const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(imgPath);
-      if (!aliveRef.current) return;
-      setImageUrl(pub.publicUrl ?? null);
+      return { headProd: headNext, imageUrl: pub.publicUrl ?? null };
     } else {
-      if (!aliveRef.current) return;
-      setImageUrl(null);
+      return { headProd: headNext, imageUrl: null };
     }
   }, [productoId]);
 
   const fetchLotes = useCallback(async () => {
+    const cached = productoCacheRef.current.get(productoId);
+    if (cached?.rows?.length) {
+      return cached.rows;
+    }
+
     const { data, error } = await supabase
       .from("vw_producto_lotes_detalle")
       .select(
@@ -280,41 +327,70 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
       .order("fecha_exp", { ascending: true });
 
     if (error) {
-      if (!aliveRef.current) return;
-      setRows([]);
-      return;
+      return [] as LoteRow[];
     }
-    if (!aliveRef.current) return;
-    setRows((data ?? []) as LoteRow[]);
+    return (data ?? []) as LoteRow[];
   }, [productoId]);
 
   const fetchAll = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
     if (!aliveRef.current) return;
+    if (closingRef.current) return;
     setLoading(true);
     try {
-      await Promise.all([fetchRole(), fetchProductoHead(), fetchLotes()]);
+      const [isAdminNext, headRes, lotesRes] = await Promise.all([
+        fetchRole(),
+        fetchProductoHead(),
+        fetchLotes(),
+      ]);
+
+      if (!aliveRef.current) return;
+      if (closingRef.current) return;
+      if (requestId !== requestIdRef.current) return;
+
+      setIsAdmin(isAdminNext);
+      setHeadProd(headRes.headProd);
+      setRows(lotesRes);
+      setImageUrl(headRes.imageUrl);
+
+      productoCacheRef.current.set(productoId, {
+        headProd: headRes.headProd,
+        rows: lotesRes,
+        imageUrl: headRes.imageUrl,
+        cachedAt: Date.now(),
+      });
     } finally {
       if (!aliveRef.current) return;
+      if (closingRef.current) return;
+      if (requestId !== requestIdRef.current) return;
       setLoading(false);
     }
-  }, [fetchLotes, fetchProductoHead, fetchRole]);
+  }, [fetchLotes, fetchProductoHead, fetchRole, productoId]);
 
   useEffect(() => {
     translateY.setValue(0);
     setClosing(false);
+    closingRef.current = false;
     setViewerOpen(false);
     setSavingPhoto(false);
     setRows([]);
     setHeadProd(null);
     setImageUrl(null);
 
-    fetchAll().catch(() => {
-      if (!aliveRef.current) return;
-      setRows([]);
-      setHeadProd(null);
-      setImageUrl(null);
-      setLoading(false);
+    let raf = 0;
+    raf = requestAnimationFrame(() => {
+      fetchAll().catch(() => {
+        if (!aliveRef.current) return;
+        if (closingRef.current) return;
+        setRows([]);
+        setHeadProd(null);
+        setImageUrl(null);
+        setLoading(false);
+      });
     });
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, [fetchAll, productoId, translateY]);
 
   useEffect(() => {
@@ -341,15 +417,46 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
     setImageUrl(pub.publicUrl ?? null);
   }, [headProd?.image_path, headFromViewImagePath, imageUrl]);
 
-  const displayNombre = headProd?.nombre ?? headFromView?.nombre ?? "";
-  const displayMarca = headProd?.marca_normalizada ?? headFromView?.marca ?? null;
-  const precioMin = headFromView?.precio_min_venta ?? null;
+  const { displayNombre, displayMarca, precioMin, lotes, totalDisponible } = useMemo(() => {
+    const nombre = headProd?.nombre ?? headFromView?.nombre ?? "";
+    const marca = headProd?.marca_normalizada ?? headFromView?.marca ?? null;
+    const min = (headFromView as any)?.precio_min_venta ?? null;
+    const lotesDisponibles: LoteRow[] = [];
+    let total = 0;
 
-  const lotes = rows.filter((r) => Number((r as any).stock_disponible_lote ?? 0) > 0);
-  const totalDisponible = lotes.reduce(
-    (acc, r) => acc + Number((r as any).stock_disponible_lote ?? 0),
-    0
+    for (const r of rows) {
+      const disp = Number((r as any).stock_disponible_lote ?? 0);
+      if (disp > 0) {
+        lotesDisponibles.push(r);
+        total += disp;
+      }
+    }
+
+    return {
+      displayNombre: nombre,
+      displayMarca: marca,
+      precioMin: min as number | null,
+      lotes: lotesDisponibles,
+      totalDisponible: total,
+    };
+  }, [headFromView, headProd?.marca_normalizada, headProd?.nombre, rows]);
+
+  const listContentStyle = useMemo(() => ({ paddingBottom: 8 }), []);
+  const keyExtractor = useCallback(
+    (it: LoteRow) => String(it.lote_id ?? `${it.producto_id}-${it.lote}`),
+    []
   );
+  const renderItem = useCallback(({ item }: { item: LoteRow }) => <LoteItem item={item} s={s} />, [s]);
+  const listEmpty = useMemo(
+    () => (
+      <View style={{ paddingVertical: 12 }}>
+        <Text style={s.loteSub}>No hay lotes disponibles.</Text>
+      </View>
+    ),
+    [s]
+  );
+
+  const openViewer = useCallback(() => setViewerOpen(true), []);
 
   const onSavePhoto = useCallback(async () => {
     if (!imageUrl || savingPhoto) return;
@@ -368,7 +475,8 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
     if (!isAdmin) return;
     onClose();
     setTimeout(() => {
-      router.replace({ pathname: "/producto-edit", params: { id: String(productoId) } });
+      // Importante: usar push para conservar historial y permitir volver con router.back()
+      router.push({ pathname: "/producto-edit", params: { id: String(productoId) } } as any);
     }, 0);
   }, [isAdmin, onClose, productoId]);
 
@@ -432,7 +540,7 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
               <View style={s.imageBox}>
                 {imageUrl ? (
                   <Pressable
-                    onPress={() => setViewerOpen(true)}
+                    onPress={openViewer}
                     style={({ pressed }) => [pressed && { opacity: 0.9 }]}
                   >
                     <Image source={{ uri: imageUrl }} style={s.image} />
@@ -449,29 +557,16 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
 
             <FlatList
               data={lotes}
-              keyExtractor={(it) => String(it.lote_id ?? `${it.producto_id}-${it.lote}`)}
-              contentContainerStyle={{ paddingBottom: 8 }}
+              keyExtractor={keyExtractor}
+              contentContainerStyle={listContentStyle}
               automaticallyAdjustKeyboardInsets
-              renderItem={({ item }) => (
-                <View style={s.loteCard}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.loteTitle}>{item.lote ?? "—"}</Text>
-                    <Text style={s.loteSub}>Exp: {fmtDate(item.fecha_exp)}</Text>
-                  </View>
-
-                  <View style={{ alignItems: "flex-end" }}>
-                    <Text style={s.loteNum}>{item.stock_disponible_lote}</Text>
-                    <Text style={s.loteSub}>
-                      Total {item.stock_total_lote} • Res {item.stock_reservado_lote}
-                    </Text>
-                  </View>
-                </View>
-              )}
-              ListEmptyComponent={
-                <View style={{ paddingVertical: 12 }}>
-                  <Text style={s.loteSub}>No hay lotes disponibles.</Text>
-                </View>
-              }
+              renderItem={renderItem}
+              ListEmptyComponent={listEmpty}
+              initialNumToRender={8}
+              maxToRenderPerBatch={10}
+              updateCellsBatchingPeriod={40}
+              windowSize={7}
+              removeClippedSubviews={Platform.OS === "android"}
             />
           </>
         )}

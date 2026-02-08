@@ -38,6 +38,24 @@ type VentaRow = {
   receta_cargada: boolean;
 };
 
+type VentasCache = { rows: VentaRow[]; tags: Record<string, string[]>; ts: number };
+
+const CACHE_TTL_MS = 20000;
+
+function sameRowsQuick(a: VentaRow[] | null | undefined, b: VentaRow[]) {
+  if (!a) return false;
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  const al = a.length;
+  if (!al) return true;
+  const a0 = Number(a[0]?.id ?? 0);
+  const b0 = Number(b[0]?.id ?? 0);
+  if (a0 !== b0) return false;
+  const aL = Number(a[al - 1]?.id ?? 0);
+  const bL = Number(b[al - 1]?.id ?? 0);
+  return aL === bL;
+}
+
 function normalizeUpper(v: any) {
   return String(v ?? "").trim().toUpperCase();
 }
@@ -159,6 +177,15 @@ export default function Ventas() {
   // y se entra/cambia de tab antes de que termine el fetch.
   const [loadedEstado, setLoadedEstado] = useState<Estado | null>(null);
 
+  const rowsRawRef = useRef<VentaRow[]>([]);
+  const loadedEstadoRef = useRef<Estado | null>(null);
+  React.useEffect(() => {
+    rowsRawRef.current = rowsRaw;
+  }, [rowsRaw]);
+  React.useEffect(() => {
+    loadedEstadoRef.current = loadedEstado;
+  }, [loadedEstado]);
+
   const [initialLoading, setInitialLoading] = useState(true);
   const [listLoading, setListLoading] = useState(false);
   const [pullRefreshing, setPullRefreshing] = useState(false);
@@ -170,7 +197,7 @@ export default function Ventas() {
 
   const dotsReqSeq = useRef(0);
 
-  const cacheRef = useRef<Record<string, { rows: VentaRow[]; tags: Record<string, string[]> }>>({});
+  const cacheRef = useRef<Record<string, VentasCache>>({});
   const reqSeq = useRef(0);
 
   const dotsCacheRef = useRef<{
@@ -187,6 +214,10 @@ export default function Ventas() {
   const verseOpacity = useRef(new Animated.Value(0)).current;
   const verseTranslateY = useRef(new Animated.Value(18)).current;
   const verseScale = useRef(new Animated.Value(0.96)).current;
+
+  const [revalidating, setRevalidating] = useState(false);
+  const [revalidatingEstado, setRevalidatingEstado] = useState<Estado | null>(null);
+  const revalidateSeq = useRef(0);
 
   const loadRole = useCallback(async (): Promise<Role> => {
     const { data: auth } = await supabase.auth.getUser();
@@ -261,9 +292,6 @@ export default function Ventas() {
       const silent = !!opts?.silent;
       if (!silent) {
         setListLoading(true);
-        setLoadedEstado(null);
-        setRowsRaw([]);
-        setTagsByVenta({});
       }
 
       try {
@@ -279,12 +307,15 @@ export default function Ventas() {
         if (error) throw error;
 
         const rows = (data ?? []) as any as VentaRow[];
-        setRowsRaw(rows);
+        const prev = loadedEstadoRef.current === targetEstado ? rowsRawRef.current : null;
+        if (!sameRowsQuick(prev, rows)) {
+          setRowsRaw(rows);
+        }
 
         const ids = rows.map((r) => Number(r.id)).filter((x) => Number.isFinite(x) && x > 0);
         if (!ids.length) {
           setTagsByVenta({});
-          cacheRef.current[targetEstado] = { rows, tags: {} };
+          cacheRef.current[targetEstado] = { rows, tags: {}, ts: Date.now() };
           setLoadedEstado(targetEstado);
           return;
         }
@@ -307,16 +338,14 @@ export default function Ventas() {
         });
 
         setTagsByVenta(map);
-        cacheRef.current[targetEstado] = { rows, tags: map };
+        cacheRef.current[targetEstado] = { rows, tags: map, ts: Date.now() };
         setLoadedEstado(targetEstado);
       } catch (e) {
         // Si falla la carga, no dejes la UI pegada en "Cargando...".
-        if (mySeq === reqSeq.current && !silent) {
-          setLoadedEstado(targetEstado);
-        }
+        if (mySeq === reqSeq.current) setLoadedEstado(targetEstado);
         throw e;
       } finally {
-        if (!silent && mySeq === reqSeq.current) setListLoading(false);
+        if (mySeq === reqSeq.current) setListLoading(false);
       }
     },
     []
@@ -324,10 +353,40 @@ export default function Ventas() {
 
   const fetchAll = useCallback(async () => {
     const roleP = loadRole();
-    const ventasP = fetchVentas(estado);
+
+    const now = Date.now();
+    const cached = cacheRef.current[estado];
+    const cacheFresh = !!cached && now - cached.ts <= CACHE_TTL_MS;
+
+    if (cacheFresh) {
+      setListLoading(false);
+      setRowsRaw(cached.rows);
+      setTagsByVenta(cached.tags);
+      setLoadedEstado(estado);
+
+      const myReval = ++revalidateSeq.current;
+      setRevalidatingEstado(estado);
+      setRevalidating(true);
+      fetchVentas(estado, { silent: true })
+        .catch(() => {})
+        .finally(() => {
+          if (myReval === revalidateSeq.current) {
+            setRevalidating(false);
+            setRevalidatingEstado(null);
+          }
+        });
+    } else {
+      // Cache vencido: evita mostrar data vieja.
+      setLoadedEstado(null);
+      await fetchVentas(estado, { silent: false });
+    }
+
     await roleP;
-    await ventasP;
-    await refreshDots();
+
+    // Respeta TTL de dots sin disparar rpc innecesario.
+    const dotsCached = dotsCacheRef.current;
+    const dotsFresh = !!dotsCached.data && Date.now() - dotsCached.timestamp < 25000;
+    if (!dotsFresh) await refreshDots();
   }, [estado, fetchVentas, loadRole, refreshDots]);
 
   const onPullRefresh = useCallback(() => {
@@ -553,13 +612,55 @@ export default function Ventas() {
   );
 
   const listEmptyComponent = useMemo(() => {
-    const label = initialLoading || listLoading || loadedEstado !== estado ? "Cargando..." : "Sin ventas";
-    return (
-      <Text style={{ padding: 16, color: C.sub, fontWeight: "700" }}>
-        {label}
-      </Text>
-    );
-  }, [C.sub, estado, initialLoading, listLoading, loadedEstado]);
+    const now = Date.now();
+    const cached = cacheRef.current[estado];
+    const cacheFresh = !!cached && now - cached.ts <= CACHE_TTL_MS;
+    const showSkeleton =
+      visibleRows.length === 0 &&
+      ((initialLoading && loadedEstado !== estado) || (listLoading && !cacheFresh));
+
+    if (showSkeleton) {
+      const skelBg = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)";
+      const skelHi = isDark ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.12)";
+      const items = Array.from({ length: 7 }).map((_, idx) => (
+        <View
+          key={`sk-${idx}`}
+          style={[
+            s.card,
+            {
+              borderColor: C.border,
+              backgroundColor: C.card,
+              overflow: "hidden",
+            },
+          ]}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <View
+              style={{
+                height: 18,
+                borderRadius: 10,
+                backgroundColor: skelHi,
+                flex: 1,
+                marginRight: 10,
+              }}
+            />
+            <View style={{ height: 28, width: 88, borderRadius: 999, backgroundColor: skelBg }} />
+          </View>
+          <View style={{ height: 10 }} />
+          <View style={{ height: 14, width: "56%", borderRadius: 8, backgroundColor: skelBg }} />
+          <View style={{ height: 12 }} />
+          <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+            <View style={{ height: 26, width: 110, borderRadius: 999, backgroundColor: skelBg }} />
+            <View style={{ height: 26, width: 84, borderRadius: 999, backgroundColor: skelBg }} />
+            <View style={{ height: 26, width: 96, borderRadius: 999, backgroundColor: skelBg }} />
+          </View>
+        </View>
+      ));
+      return <View>{items}</View>;
+    }
+
+    return <Text style={{ padding: 16, color: C.sub, fontWeight: "700" }}>Sin ventas</Text>;
+  }, [C.border, C.card, C.sub, estado, initialLoading, isDark, listLoading, loadedEstado, visibleRows.length]);
 
   return (
     <SafeAreaView style={[s.safe, { backgroundColor: C.bg }]} edges={["bottom"]}>
@@ -615,9 +716,42 @@ export default function Ventas() {
                 key={t.key}
                 onPress={() => {
                   if (t.key === estado) return;
-                  setEstado(t.key);
-                  fetchVentas(t.key, { silent: false }).catch(() => {});
-                  refreshDots().catch(() => {});
+
+                  const nextEstado = t.key;
+                  setEstado(nextEstado);
+
+                  const now = Date.now();
+                  const cached = cacheRef.current[nextEstado];
+                  const cacheFresh = !!cached && now - cached.ts <= CACHE_TTL_MS;
+
+                  if (cacheFresh) {
+                    setListLoading(false);
+                    setRowsRaw(cached.rows);
+                    setTagsByVenta(cached.tags);
+                    setLoadedEstado(nextEstado);
+
+                    const myReval = ++revalidateSeq.current;
+                    setRevalidatingEstado(nextEstado);
+                    setRevalidating(true);
+                    fetchVentas(nextEstado, { silent: true })
+                      .catch(() => {})
+                      .finally(() => {
+                        if (myReval === revalidateSeq.current) {
+                          setRevalidating(false);
+                          setRevalidatingEstado(null);
+                        }
+                      });
+                  } else {
+                    setRevalidating(false);
+                    setRevalidatingEstado(null);
+                    setLoadedEstado(null);
+                    setListLoading(true);
+                    fetchVentas(nextEstado, { silent: false }).catch(() => {});
+                  }
+
+                  const dotsCached = dotsCacheRef.current;
+                  const dotsFresh = !!dotsCached.data && Date.now() - dotsCached.timestamp < 25000;
+                  if (!dotsFresh) refreshDots().catch(() => {});
                 }}
                 style={({ pressed }) => [
                   s.tab,
@@ -668,7 +802,6 @@ export default function Ventas() {
       </View>
 
       <FlatList
-        key={`ventas-${estado}`}
         data={visibleRows}
         keyExtractor={keyExtractor}
         refreshing={pullRefreshing}
@@ -683,6 +816,20 @@ export default function Ventas() {
         keyboardDismissMode="on-drag"
         automaticallyAdjustKeyboardInsets
         renderItem={renderItem}
+        ListHeaderComponent={
+          <View pointerEvents="none" style={{ height: 18, marginBottom: 8, justifyContent: "center" }}>
+            <Text
+              style={{
+                color: C.sub,
+                fontWeight: "800",
+                fontSize: 12,
+                opacity: revalidating && revalidatingEstado === estado && visibleRows.length ? 1 : 0,
+              }}
+            >
+              Actualizando...
+            </Text>
+          </View>
+        }
         ListEmptyComponent={listEmptyComponent}
       />
 

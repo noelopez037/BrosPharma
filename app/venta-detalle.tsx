@@ -716,8 +716,10 @@ export default function VentaDetalleScreen() {
     return requiredTipos.every((t) => {
       const d = facturaDraft[t];
       const hasPdf = !!String(d?.path ?? facturaCurrentByTipo[t]?.path ?? "").trim();
-      const hasNum = !!String(d?.numero ?? facturaCurrentByTipo[t]?.numero ?? "").trim();
-      const hasMonto = isValidMonto(String(d?.monto ?? facturaCurrentByTipo[t]?.monto ?? "").trim());
+      const numeroCandidate = String(d?.numero ?? "").trim() || String(facturaCurrentByTipo[t]?.numero ?? "").trim();
+      const montoCandidate = String(d?.monto ?? "").trim() || String(facturaCurrentByTipo[t]?.monto ?? "").trim();
+      const hasNum = !!numeroCandidate;
+      const hasMonto = isValidMonto(montoCandidate);
       return hasPdf && hasNum && hasMonto;
     });
   }, [facturaCurrentByTipo, facturaDraft, requiredTipos]);
@@ -731,9 +733,9 @@ export default function VentaDetalleScreen() {
     for (const tipo of requiredTipos) {
       const uiLabel = `Factura ${requiredTipos.indexOf(tipo) + 1}`;
       const d = facturaDraft[tipo] ?? null;
-      const numero = String(d?.numero ?? facturaCurrentByTipo[tipo]?.numero ?? "").trim();
+      const numero = String(d?.numero ?? "").trim() || String(facturaCurrentByTipo[tipo]?.numero ?? "").trim();
       const path = String(d?.path ?? facturaCurrentByTipo[tipo]?.path ?? "").trim();
-      const montoRaw = String(d?.monto ?? facturaCurrentByTipo[tipo]?.monto ?? "").trim();
+      const montoRaw = String(d?.monto ?? "").trim() || String(facturaCurrentByTipo[tipo]?.monto ?? "").trim();
       const monto = parseMontoInput(montoRaw);
       if (!numero || !path || !Number.isFinite(monto) || monto <= 0) {
         throw new Error(`Completa numero, monto y PDF para ${uiLabel}.`);
@@ -761,9 +763,14 @@ export default function VentaDetalleScreen() {
     return requiredTipos.some((t) => {
       const cur = facturaCurrentByTipo[t] ?? { path: "", numero: "", monto: "" };
       const d = facturaDraft[t] ?? ({ path: "", numero: "", monto: "" } as any);
-      const dp = String((d as any).path ?? "").trim();
-      const dn = String((d as any).numero ?? "").trim();
-      const dm = String((d as any).monto ?? "").trim();
+      const dpRaw = String((d as any).path ?? "").trim();
+      const dnRaw = String((d as any).numero ?? "").trim();
+      const dmRaw = String((d as any).monto ?? "").trim();
+
+      const dp = dpRaw || cur.path;
+      const dn = dnRaw || cur.numero;
+      const dm = dmRaw || cur.monto;
+
       return dp !== cur.path || dn !== cur.numero || dm !== cur.monto;
     });
   }, [facturaCurrentByTipo, facturaDraft, requiredTipos]);
@@ -859,9 +866,11 @@ export default function VentaDetalleScreen() {
   }, [canEditRecetas, fetchRecetas, fetchVenta, scrollRef, uploading, venta, returnTo]);
 
   const setNumero = useCallback((tipo: "IVA" | "EXENTO", val: string) => {
+    // Factura No: is always numeric.
+    const clean = String(val ?? "").replace(/\D+/g, "");
     setFacturaDraft((prev) => {
       const cur = prev[tipo] ?? { tipo, numero: "", monto: "", path: null, originalName: null, sizeBytes: null };
-      return { ...prev, [tipo]: { ...cur, numero: val } };
+      return { ...prev, [tipo]: { ...cur, numero: clean } };
     });
   }, []);
 
@@ -937,52 +946,35 @@ export default function VentaDetalleScreen() {
 
         // 3) Extraer No: desde el PDF (fallback silencioso; el usuario puede escribirlo)
         try {
-          const { data, error } = await supabase.functions.invoke("invoice_extract", { body: { path } });
+          const { data: sessData } = await supabase.auth.getSession();
+          const accessToken = sessData?.session?.access_token;
+          if (!accessToken) throw new Error("Missing access token");
+
+          const { data, error } = await supabase.functions.invoke("invoice_extract", {
+            body: { path },
+            headers: { Authorization: `Bearer ${accessToken}` },
+          });
           console.log("[invoice_extract] invoke", { tipo, path, data, error });
 
           let payload: any = data as any;
 
-          // If Edge returned non-2xx (FunctionsHttpError), fetch directly to capture the body.
-          if (error && String((error as any)?.name ?? "") === "FunctionsHttpError") {
-            try {
-              const baseUrl = String(process.env.EXPO_PUBLIC_SUPABASE_URL ?? "").trim();
-              const anonKey = String(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "").trim();
-              if (baseUrl && anonKey) {
-                const { data: sess } = await supabase.auth.getSession();
-                const token = String(sess?.session?.access_token ?? anonKey);
-                const url = `${baseUrl.replace(/\/+$/, "")}/functions/v1/invoice_extract`;
-                const fr = await fetch(url, {
-                  method: "POST",
-                  headers: {
-                    "content-type": "application/json",
-                    apikey: anonKey,
-                    authorization: `Bearer ${token}`,
-                  },
-                  body: JSON.stringify({ path }),
-                });
-
-                const raw = await fr.text().catch(() => "");
-                let parsed: any = null;
-                try {
-                  parsed = raw ? JSON.parse(raw) : null;
-                } catch {
-                  parsed = raw;
-                }
-                console.log("[invoice_extract] fetch fallback", { tipo, path, status: fr.status, ok: fr.ok, body: parsed });
-                if (parsed && typeof parsed === "object") payload = parsed;
-              }
-            } catch (fe: any) {
-              console.log("[invoice_extract] fetch fallback error", { tipo, path, message: fe?.message, error: fe });
-            }
-          }
-
           if (payload?.ok === false) {
-            Alert.alert("Aviso", "No se pudo leer No: del PDF, puedes escribirlo manualmente.");
+            const code = String(payload?.error ?? "").trim();
+            Alert.alert(
+              "Aviso",
+              code
+                ? `No se pudo leer No: del PDF (${code}). Puedes escribirlo manualmente.`
+                : "No se pudo leer No: del PDF, puedes escribirlo manualmente."
+            );
             return;
           }
 
           const extractedNumero = String(payload?.numero ?? "").trim();
-          if (!extractedNumero) return;
+          if (!extractedNumero) {
+            // If the call succeeded but extraction returned nothing, inform the user.
+            Alert.alert("Aviso", "No se encontro el No: en el PDF. Puedes escribirlo manualmente.");
+            return;
+          }
 
           setFacturaDraft((prev) => {
             const dbNumero = String(facturaCurrentByTipo[tipo]?.numero ?? "").trim();
@@ -1805,6 +1797,8 @@ export default function VentaDetalleScreen() {
                       const montoDb = String(facturaCurrentByTipo[tipo]?.monto ?? "").trim();
                       const draftNumero = facturaDraft[tipo]?.numero;
                       const draftMonto = facturaDraft[tipo]?.monto;
+                      const numeroValue = String(draftNumero ?? "").trim() ? String(draftNumero) : numeroDb;
+                      const montoValue = String(draftMonto ?? "").trim() ? String(draftMonto) : montoDb;
                       return (
                         <View style={[styles.facturaCard, { borderColor: C.border }]}>
                           <View style={styles.rowBetween}>
@@ -1828,7 +1822,7 @@ export default function VentaDetalleScreen() {
                             <View style={{ flex: 1, minWidth: 0 }}>
                               <Text style={[styles.label, { color: C.sub }]}>Numero de factura *</Text>
                               <TextInput
-                                value={draftNumero ?? numeroDb}
+                                value={numeroValue}
                                 onChangeText={(t: string) => setNumero(tipo, t)}
                                 onFocus={handleFocus}
                                 placeholder="Ej: 12345"
@@ -1840,7 +1834,7 @@ export default function VentaDetalleScreen() {
                             <View style={styles.facturaMontoCol}>
                               <Text style={[styles.label, { color: C.sub }]}>Monto de factura (Q)</Text>
                               <TextInput
-                                value={draftMonto ?? montoDb}
+                                value={montoValue}
                                 onChangeText={(t: string) => setMonto(tipo, t)}
                                 onFocus={handleFocus}
                                 placeholder="Ej: 1250.00"
@@ -1891,6 +1885,8 @@ export default function VentaDetalleScreen() {
                       const montoDb = String(facturaCurrentByTipo[tipo]?.monto ?? "").trim();
                       const draftNumero = facturaDraft[tipo]?.numero;
                       const draftMonto = facturaDraft[tipo]?.monto;
+                      const numeroValue = String(draftNumero ?? "").trim() ? String(draftNumero) : numeroDb;
+                      const montoValue = String(draftMonto ?? "").trim() ? String(draftMonto) : montoDb;
                       return (
                         <View style={[styles.facturaCard, { borderColor: C.border }]}>
                           <View style={styles.rowBetween}>
@@ -1914,7 +1910,7 @@ export default function VentaDetalleScreen() {
                             <View style={{ flex: 1, minWidth: 0 }}>
                               <Text style={[styles.label, { color: C.sub }]}>Numero de factura *</Text>
                               <TextInput
-                                value={draftNumero ?? numeroDb}
+                                value={numeroValue}
                                 onChangeText={(t: string) => setNumero(tipo, t)}
                                 onFocus={handleFocus}
                                 placeholder="Ej: 12346"
@@ -1926,7 +1922,7 @@ export default function VentaDetalleScreen() {
                             <View style={styles.facturaMontoCol}>
                               <Text style={[styles.label, { color: C.sub }]}>Monto de factura (Q)</Text>
                               <TextInput
-                                value={draftMonto ?? montoDb}
+                                value={montoValue}
                                 onChangeText={(t: string) => setMonto(tipo, t)}
                                 onFocus={handleFocus}
                                 placeholder="Ej: 1250.00"
