@@ -1,6 +1,6 @@
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { router } from "expo-router";
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Pressable,
   RefreshControl,
@@ -153,6 +153,8 @@ export default function Inicio() {
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
 
+  const CACHE_TTL_MS = 60000;
+
   const C = useMemo(() => {
     const bg = colors.background ?? (isDark ? "#000" : "#fff");
     const card = colors.card ?? (isDark ? "#121214" : "#fff");
@@ -172,7 +174,8 @@ export default function Inicio() {
   const [userLabel, setUserLabel] = useState<string>("");
 
   const [refreshing, setRefreshing] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(false);
+  const [bgRefreshing, setBgRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [adminData, setAdminData] = useState<AdminData | null>(null);
@@ -183,11 +186,29 @@ export default function Inicio() {
 
   const profileSeqRef = useRef(0);
   const loadSeqRef = useRef(0);
+  const bgSeqRef = useRef(0);
+  const initSeqRef = useRef(0);
   const cacheRef = useRef<{ role: Role; ts: number; data: any } | null>(null);
+  const roleCheckedEverRef = useRef(false);
+  const lastDashboardRoleRef = useRef<Role>("");
+
+  const adminDataRef = useRef<AdminData | null>(null);
+  const ventasDataRef = useRef<VentasData | null>(null);
+  const factDataRef = useRef<FacturadorData | null>(null);
+
+  useEffect(() => {
+    adminDataRef.current = adminData;
+  }, [adminData]);
+  useEffect(() => {
+    ventasDataRef.current = ventasData;
+  }, [ventasData]);
+  useEffect(() => {
+    factDataRef.current = factData;
+  }, [factData]);
 
   const loadProfile = useCallback(async (): Promise<{ uid: string | null; role: Role; label: string } | null> => {
     const seq = ++profileSeqRef.current;
-    setRoleChecked(false);
+    if (!roleCheckedEverRef.current) setRoleChecked(false);
     setErrorMsg(null);
 
     try {
@@ -223,7 +244,10 @@ export default function Inicio() {
       setUserLabel("");
       return { uid: null, role: "", label: "" };
     } finally {
-      if (seq === profileSeqRef.current) setRoleChecked(true);
+      if (seq === profileSeqRef.current) {
+        setRoleChecked(true);
+        roleCheckedEverRef.current = true;
+      }
     }
   }, []);
 
@@ -613,26 +637,49 @@ export default function Inicio() {
   }, []);
 
   const loadAll = useCallback(
-    async (opts?: { force?: boolean; roleOverride?: Role; uidOverride?: string | null }) => {
+    async (opts?: {
+      force?: boolean;
+      roleOverride?: Role;
+      uidOverride?: string | null;
+      silent?: boolean;
+      skipCache?: boolean;
+    }) => {
       const force = !!opts?.force;
+      const skipCache = !!opts?.skipCache;
+      const silent = !!opts?.silent;
+      void silent; // UI decides how to show progress; keep signature for callers.
       const seq = ++loadSeqRef.current;
       setErrorMsg(null);
-      setLoading(true);
+      let hadVisibleDataForRole = false;
       try {
         const r = (opts?.roleOverride ?? (normalizeUpper(role) as Role)) || "";
         const id = opts?.uidOverride ?? uid;
 
+        hadVisibleDataForRole =
+          r === "ADMIN"
+            ? !!adminDataRef.current
+            : r === "VENTAS"
+              ? !!ventasDataRef.current
+              : r === "FACTURACION"
+                ? !!factDataRef.current
+                : false;
+
+        // Solo limpiar data si el rol realmente cambió (evitar wipes en revalidación)
+        if (r !== lastDashboardRoleRef.current) {
+          lastDashboardRoleRef.current = r;
+          if (adminDataRef.current) setAdminData(null);
+          if (ventasDataRef.current) setVentasData(null);
+          if (factDataRef.current) setFactData(null);
+        }
+
         if (!r) {
-          setAdminData(null);
-          setVentasData(null);
-          setFactData(null);
           return;
         }
 
-        // Cache simple para evitar martillar al cambiar de tab
+        // Cache por rol (stale-while-revalidate: el caller decide si revalidar con skipCache)
         const cached = cacheRef.current;
         const now = Date.now();
-        if (!force && cached && cached.role === r && now - cached.ts < 25000) {
+        if (!force && !skipCache && cached && cached.role === r && now - cached.ts < CACHE_TTL_MS) {
           if (r === "ADMIN") setAdminData(cached.data as AdminData);
           if (r === "VENTAS") setVentasData(cached.data as VentasData);
           if (r === "FACTURACION") setFactData(cached.data as FacturadorData);
@@ -643,8 +690,8 @@ export default function Inicio() {
           const data = await loadAdmin();
           if (seq !== loadSeqRef.current) return;
           setAdminData(data);
-          setVentasData(null);
-          setFactData(null);
+          if (ventasDataRef.current) setVentasData(null);
+          if (factDataRef.current) setFactData(null);
           cacheRef.current = { role: r, ts: Date.now(), data };
           return;
         }
@@ -654,8 +701,8 @@ export default function Inicio() {
           const data = await loadVentas(id);
           if (seq !== loadSeqRef.current) return;
           setVentasData(data);
-          setAdminData(null);
-          setFactData(null);
+          if (adminDataRef.current) setAdminData(null);
+          if (factDataRef.current) setFactData(null);
           cacheRef.current = { role: r, ts: Date.now(), data };
           return;
         }
@@ -664,24 +711,24 @@ export default function Inicio() {
           const data = await loadFacturador();
           if (seq !== loadSeqRef.current) return;
           setFactData(data);
-          setAdminData(null);
-          setVentasData(null);
+          if (adminDataRef.current) setAdminData(null);
+          if (ventasDataRef.current) setVentasData(null);
           cacheRef.current = { role: r, ts: Date.now(), data };
           return;
         }
 
         // Otros roles: sin dashboard por ahora
-        setAdminData(null);
-        setVentasData(null);
-        setFactData(null);
+        if (adminDataRef.current) setAdminData(null);
+        if (ventasDataRef.current) setVentasData(null);
+        if (factDataRef.current) setFactData(null);
       } catch (e: any) {
         if (seq !== loadSeqRef.current) return;
-        setAdminData(null);
-        setVentasData(null);
-        setFactData(null);
+        // Si hay data visible, conservarla y solo mostrar error no invasivo.
+        // Si no habia data para el rol, no forzar wipes (initialLoading/skeleton ya cubre la vacio).
+        if (!hadVisibleDataForRole) {
+          // Dejar estado como esta (normalmente null) para evitar layout jumps.
+        }
         setErrorMsg(String(e?.message ?? "No se pudo cargar Inicio"));
-      } finally {
-        if (seq === loadSeqRef.current) setLoading(false);
       }
     },
     [loadAdmin, loadFacturador, loadVentas, role, uid]
@@ -700,10 +747,51 @@ export default function Inicio() {
           return;
         }
 
-        await loadAll({
-          roleOverride: prof?.role,
-          uidOverride: prof?.uid,
-        });
+        const r = (prof?.role ?? "") as Role;
+        const now = Date.now();
+        const cached = cacheRef.current;
+        const cacheValid = !!(cached && cached.role === r && now - cached.ts < CACHE_TTL_MS);
+
+        if (cacheValid) {
+          // Pintar cache inmediato (sin loading grande) + revalidar en background
+          if (r !== lastDashboardRoleRef.current) {
+            lastDashboardRoleRef.current = r;
+            if (adminDataRef.current) setAdminData(null);
+            if (ventasDataRef.current) setVentasData(null);
+            if (factDataRef.current) setFactData(null);
+          }
+          if (r === "ADMIN") setAdminData(cached!.data as AdminData);
+          if (r === "VENTAS") setVentasData(cached!.data as VentasData);
+          if (r === "FACTURACION") setFactData(cached!.data as FacturadorData);
+          setInitialLoading(false);
+
+          const bgSeq = ++bgSeqRef.current;
+          setBgRefreshing(true);
+          loadAll({
+            roleOverride: prof?.role,
+            uidOverride: prof?.uid,
+            silent: true,
+            skipCache: true,
+          }).finally(() => {
+            if (!alive) return;
+            if (bgSeqRef.current === bgSeq) setBgRefreshing(false);
+          });
+          return;
+        }
+
+        // Sin cache: skeleton inicial y carga normal
+        setBgRefreshing(false);
+        const initSeq = ++initSeqRef.current;
+        setInitialLoading(true);
+        try {
+          await loadAll({
+            roleOverride: prof?.role,
+            uidOverride: prof?.uid,
+          });
+        } finally {
+          if (!alive) return;
+          if (initSeqRef.current === initSeq) setInitialLoading(false);
+        }
       })();
       return () => {
         alive = false;
@@ -719,6 +807,8 @@ export default function Inicio() {
         force: true,
         roleOverride: prof?.role,
         uidOverride: prof?.uid,
+        silent: true,
+        skipCache: true,
       });
     } finally {
       setRefreshing(false);
@@ -960,11 +1050,63 @@ export default function Inicio() {
     </Pressable>
   );
 
+  const renderSkeleton = () => {
+    const sk =
+      alphaColor(String(C.text), isDark ? 0.1 : 0.08) ||
+      (isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)");
+
+    const SkBlock = ({ w, h, r }: { w: number | `${number}%`; h: number; r?: number }) => (
+      <View
+        style={{
+          width: w,
+          height: h,
+          borderRadius: r ?? 10,
+          backgroundColor: sk,
+        }}
+      />
+    );
+
+    const SkKpi = () => (
+      <View style={[s.kpi, { borderColor: C.border, backgroundColor: C.card }]}>
+        <SkBlock w="62%" h={12} r={8} />
+        <View style={{ height: 10 }} />
+        <SkBlock w="46%" h={18} r={10} />
+        <View style={{ height: 8 }} />
+        <SkBlock w="72%" h={12} r={8} />
+      </View>
+    );
+
+    const SkCard = () => (
+      <View style={[s.card, { backgroundColor: C.card, borderColor: C.border }]}>
+        <SkBlock w="48%" h={14} r={9} />
+        <View style={{ height: 12 }} />
+        <SkBlock w="92%" h={12} r={8} />
+        <View style={{ height: 10 }} />
+        <SkBlock w="86%" h={12} r={8} />
+        <View style={{ height: 10 }} />
+        <SkBlock w="78%" h={12} r={8} />
+      </View>
+    );
+
+    return (
+      <View style={{ padding: 16, paddingBottom: 16 + insets.bottom }}>
+        <View style={s.kpiGrid}>
+          <SkKpi />
+          <SkKpi />
+          <SkKpi />
+          <SkKpi />
+        </View>
+        <SkCard />
+        <SkCard />
+      </View>
+    );
+  };
+
   const renderBody = () => {
     if (!roleChecked) {
       return (
         <View style={{ padding: 16 }}>
-          <View style={[s.notice, { borderColor: C.border, backgroundColor: C.card }]}> 
+          <View style={[s.notice, { borderColor: C.border, backgroundColor: C.card }]}>
             <Text style={[s.noticeTitle, { color: C.text }]}>Cargando...</Text>
             <Text style={[s.noticeSub, { color: C.sub }]}>Preparando tu dashboard</Text>
           </View>
@@ -975,7 +1117,7 @@ export default function Inicio() {
     if (!role) {
       return (
         <View style={{ padding: 16 }}>
-          <View style={[s.notice, { borderColor: C.border, backgroundColor: C.card }]}> 
+          <View style={[s.notice, { borderColor: C.border, backgroundColor: C.card }]}>
             <Text style={[s.noticeTitle, { color: C.text }]}>Sesión no disponible</Text>
             <Text style={[s.noticeSub, { color: C.sub }]}>Inicia sesión para ver tu Inicio.</Text>
           </View>
@@ -984,6 +1126,17 @@ export default function Inicio() {
     }
 
     const roleUp = normalizeUpper(role) as Role;
+
+    const hasRoleData =
+      roleUp === "ADMIN"
+        ? !!adminData
+        : roleUp === "VENTAS"
+          ? !!ventasData
+          : roleUp === "FACTURACION"
+            ? !!factData
+            : false;
+    const showSkeleton = roleChecked && !!roleUp && initialLoading && !refreshing && !hasRoleData;
+    if (showSkeleton) return renderSkeleton();
 
     if (roleUp === "ADMIN") {
       const d = adminData;
@@ -1031,7 +1184,7 @@ export default function Inicio() {
                 items={(d?.ventasMesPorVendedor ?? []).slice(0, 10).map((r) => ({ label: r.vendedor_nombre, qty: r.monto }))}
               />
             ) : (
-              <Text style={[s.empty, { color: C.sub }]}>{d ? "Sin ventas este mes" : "Cargando..."}</Text>
+              <Text style={[s.empty, { color: C.sub }]}>{d ? "Sin ventas este mes" : "—"}</Text>
             )}
           </ListCard>
         </View>
@@ -1098,7 +1251,7 @@ export default function Inicio() {
                 currentMonthLabel={mon}
               />
             ) : (
-              <Text style={[s.empty, { color: C.sub }]}>Cargando...</Text>
+              <Text style={[s.empty, { color: C.sub }]}>—</Text>
             )}
           </ListCard>
 
@@ -1172,7 +1325,7 @@ export default function Inicio() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.tint as any} />}
       >
         {Header}
-        {loading && roleChecked ? (
+        {bgRefreshing && roleChecked && !refreshing ? (
           <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
             <Text style={{ color: C.sub, fontWeight: "800" }}>Actualizando...</Text>
           </View>

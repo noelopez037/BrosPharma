@@ -3,5 +3,8 @@
     "source.fixAll": "explicit",
     "source.organizeImports": "explicit",
     "source.sortMembers": "explicit"
-  }
+  },
+  "deno.enable": true,
+  "deno.enablePaths": ["supabase/functions/invoice_extract"],
+  "deno.config": "./supabase/functions/invoice_extract/deno.json"
 }

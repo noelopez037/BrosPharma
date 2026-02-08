@@ -7,12 +7,14 @@
 // - Pesos de fuente más moderados en Android (600/700 se ve muy “pesado” en muchos dispositivos)
 
 import { useTheme } from "@react-navigation/native";
-import { Stack, useLocalSearchParams } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useHeaderHeight } from "@react-navigation/elements";
+import { router, Stack, useLocalSearchParams } from "expo-router";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   ColorValue,
   FlatList,
+  InteractionManager,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -63,8 +65,11 @@ function alpha(hexColor: string, a: number) {
 export default function ProductoEdit() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
   const DONE_ID = "doneAccessory";
   const { scrollRef, handleFocus } = useKeyboardAutoScroll(110);
+
+  const reqSeq = useRef(0);
 
   // Colores “nativos”/correctos por plataforma:
   const PRIMARY: ColorValue = String(colors.primary ?? "#153c9e") as any;
@@ -118,73 +123,92 @@ export default function ProductoEdit() {
   }, []);
 
   useEffect(() => {
-    let mounted = true;
+    const seq = ++reqSeq.current;
+    setLoading(true);
 
-    const load = async () => {
-      setLoading(true);
+    const task: any = InteractionManager.runAfterInteractions(() => {
+      void (async () => {
+        try {
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
 
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+          const uid = session?.user?.id ?? null;
+          if (!uid) {
+            Alert.alert("Sin sesión", "Debes iniciar sesión");
+            goBackSafe("/(drawer)/(tabs)/inventario");
+            return;
+          }
 
-      const uid = session?.user?.id ?? null;
-      if (!uid) {
-        Alert.alert("Sin sesión", "Debes iniciar sesión");
-        goBackSafe("/(drawer)/(tabs)/inventario");
-        return;
-      }
+          const { data: prof } = await supabase.from("profiles").select("role").eq("id", uid).maybeSingle();
+          const admin = (prof?.role ?? "").toUpperCase() === "ADMIN";
+          if (seq !== reqSeq.current) return;
+          setIsAdmin(admin);
 
-      const { data: prof } = await supabase.from("profiles").select("role").eq("id", uid).maybeSingle();
-      const admin = (prof?.role ?? "").toUpperCase() === "ADMIN";
-      setIsAdmin(admin);
+          if (!admin) {
+            Alert.alert("Sin permiso", "Solo ADMIN puede editar productos");
+            goBackSafe("/(drawer)/(tabs)/inventario");
+            return;
+          }
 
-      if (!admin) {
-        Alert.alert("Sin permiso", "Solo ADMIN puede editar productos");
-        goBackSafe("/(drawer)/(tabs)/inventario");
-        return;
-      }
+          const prodP = supabase
+            .from("productos")
+            .select("id,nombre,marca_id,requiere_receta,tiene_iva,activo")
+            .eq("id", productoId)
+            .single();
 
-      await loadMarcas();
+          const ovP = supabase
+            .from("producto_precio_override")
+            .select("precio_compra_override,motivo")
+            .eq("producto_id", productoId)
+            .maybeSingle();
 
-      const { data: prod, error: e1 } = await supabase
-        .from("productos")
-        .select("id,nombre,marca_id,requiere_receta,tiene_iva,activo")
-        .eq("id", productoId)
-        .single();
-      if (e1) throw e1;
+          const [, prodRes, ovRes] = await Promise.all([loadMarcas(), prodP, ovP]);
+          if (seq !== reqSeq.current) return;
 
-      const { data: ov } = await supabase
-        .from("producto_precio_override")
-        .select("precio_compra_override,motivo")
-        .eq("producto_id", productoId)
-        .maybeSingle();
+          if (prodRes.error) throw prodRes.error;
+          if ((ovRes as any)?.error) throw (ovRes as any).error;
+          const p = prodRes.data as ProductoRow;
 
-      if (!mounted) return;
+          setNombre(p.nombre ?? "");
+          setMarcaId(p.marca_id ?? null);
+          setRequiereReceta(!!p.requiere_receta);
+          setTieneIva(!!p.tiene_iva);
+          setActivo(!!p.activo);
 
-      const p = prod as ProductoRow;
+          if (ovRes?.data?.precio_compra_override != null) setPrecioCompra(String(ovRes.data.precio_compra_override));
+          else setPrecioCompra("");
+          setMotivo(ovRes?.data?.motivo ?? "");
 
-      setNombre(p.nombre ?? "");
-      setMarcaId(p.marca_id ?? null);
-      setRequiereReceta(!!p.requiere_receta);
-      setTieneIva(!!p.tiene_iva);
-      setActivo(!!p.activo);
-
-      if (ov?.precio_compra_override != null) setPrecioCompra(String(ov.precio_compra_override));
-      else setPrecioCompra("");
-      setMotivo(ov?.motivo ?? "");
-
-      setLoading(false);
-    };
-
-    load().catch((err) => {
-      Alert.alert("Error", err?.message ?? "No se pudo cargar");
-      setLoading(false);
+          setLoading(false);
+        } catch (err: any) {
+          if (seq !== reqSeq.current) return;
+          Alert.alert("Error", err?.message ?? "No se pudo cargar");
+          setLoading(false);
+        }
+      })();
     });
 
     return () => {
-      mounted = false;
+      // Invalida respuestas viejas (evita que una respuesta atrasada pise el estado)
+      reqSeq.current++;
+      task?.cancel?.();
     };
   }, [productoId, loadMarcas]);
+
+  const onBack = useCallback(() => {
+    // Preferimos router.back(); si no hay historial, caemos a una ruta segura.
+    try {
+      const can = typeof (router as any)?.canGoBack === "function" ? (router as any).canGoBack() : false;
+      if (can) router.back();
+      else router.replace("/(drawer)/(tabs)/inventario" as any);
+    } catch {
+      router.replace("/(drawer)/(tabs)/inventario" as any);
+    }
+  }, []);
+
+  // Si algun layout global oculta el header, mostramos un boton inline.
+  const showInlineBack = headerHeight <= 0;
 
   const crearMarca = async () => {
     const nm = nuevaMarcaNombre.trim();
@@ -260,15 +284,30 @@ export default function ProductoEdit() {
     }
   };
 
-  if (loading) {
-    return (
-      <SafeAreaView style={s.safe} edges={["bottom"]}>
-        <View style={s.center}>
-          <Text style={{ color: String(colors.text ?? "#000") + "88", fontWeight: "700" }}>Cargando...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  const Skeleton = useMemo(
+    () => (
+      <ScrollView
+        contentContainerStyle={s.container}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        automaticallyAdjustKeyboardInsets
+      >
+        {showInlineBack ? (
+          <Pressable onPress={onBack} style={({ pressed }) => [s.inlineBack, pressed && { opacity: 0.7 }]}>
+            <Text style={s.inlineBackText}>{"<- Atrás"}</Text>
+          </Pressable>
+        ) : null}
+
+        <View style={s.skelBlockLg} />
+        <View style={s.skelBlockSm} />
+        <View style={s.skelBlockLg} />
+        <View style={s.skelBlockLg} />
+        <View style={s.skelBlockLg} />
+        <View style={s.skelBtn} />
+      </ScrollView>
+    ),
+    [onBack, s, showInlineBack]
+  );
 
   // Switch colors (para Android se vea “del theme” y no el verde default)
   const switchTrackOn =
@@ -287,30 +326,45 @@ export default function ProductoEdit() {
 
   return (
     <>
-      <Stack.Screen options={{ title: "Editar producto", headerShown: true, headerBackTitle: "Atrás" }} />
+      <Stack.Screen
+        options={{
+          title: "Editar producto",
+          headerShown: true,
+          headerBackTitle: "Atrás",
+        }}
+      />
 
       <SafeAreaView style={[s.safe, { paddingBottom: insets.bottom }]} edges={["bottom"]}>
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
-        >
-          <ScrollView
-            ref={scrollRef}
-            contentContainerStyle={s.container}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-            automaticallyAdjustKeyboardInsets
+        {loading ? (
+          Skeleton
+        ) : (
+          <KeyboardAvoidingView
+            style={{ flex: 1 }}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
           >
-            <Text style={s.label}>Nombre</Text>
-            <TextInput
-              value={nombre}
-              onChangeText={setNombre}
-              onFocus={handleFocus}
-              style={s.input}
-              placeholder="Nombre"
-              placeholderTextColor={colors.text + "66"}
-            />
+            <ScrollView
+              ref={scrollRef}
+              contentContainerStyle={s.container}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              automaticallyAdjustKeyboardInsets
+            >
+              {showInlineBack ? (
+                <Pressable onPress={onBack} style={({ pressed }) => [s.inlineBack, pressed && { opacity: 0.7 }]}>
+                  <Text style={s.inlineBackText}>{"<- Atrás"}</Text>
+                </Pressable>
+              ) : null}
+
+              <Text style={s.label}>Nombre</Text>
+              <TextInput
+                value={nombre}
+                onChangeText={setNombre}
+                onFocus={handleFocus}
+                style={s.input}
+                placeholder="Nombre"
+                placeholderTextColor={colors.text + "66"}
+              />
 
             <Text style={s.label}>Marca (opcional)</Text>
 
@@ -394,21 +448,25 @@ export default function ProductoEdit() {
 
             <AppButton title="Guardar" onPress={onSave} loading={saving} />
 
-            <View style={{ height: 12 }} />
-          </ScrollView>
-        </KeyboardAvoidingView>
+              <View style={{ height: 12 }} />
+            </ScrollView>
+          </KeyboardAvoidingView>
+        )}
 
-        {/* Modal: Seleccionar marca */}
-        <KeyboardAwareModal
-          visible={marcaModalOpen}
-          onClose={() => {
-            setMarcaModalOpen(false);
-            setMarcaQuery("");
-          }}
-          cardStyle={{ backgroundColor: colors.card, borderColor: colors.border }}
-          backdropOpacity={0.35}
-        >
-          <Text style={s.modalTitle}>Seleccionar marca</Text>
+        {/* Modales solo cuando la pantalla ya esta lista (evita trabajo extra en el primer paint) */}
+        {!loading ? (
+          <>
+            {/* Modal: Seleccionar marca */}
+            <KeyboardAwareModal
+              visible={marcaModalOpen}
+              onClose={() => {
+                setMarcaModalOpen(false);
+                setMarcaQuery("");
+              }}
+              cardStyle={{ backgroundColor: colors.card, borderColor: colors.border }}
+              backdropOpacity={0.35}
+            >
+              <Text style={s.modalTitle}>Seleccionar marca</Text>
 
           <TextInput
             value={marcaQuery}
@@ -451,16 +509,16 @@ export default function ProductoEdit() {
             )}
             ListEmptyComponent={<Text style={[s.helper, { marginTop: 8 }]}>Sin resultados</Text>}
           />
-        </KeyboardAwareModal>
+            </KeyboardAwareModal>
 
-        {/* Modal: Nueva marca */}
-        <KeyboardAwareModal
-          visible={nuevaMarcaOpen}
-          onClose={() => setNuevaMarcaOpen(false)}
-          cardStyle={{ backgroundColor: colors.card, borderColor: colors.border }}
-          backdropOpacity={0.35}
-        >
-          <Text style={s.modalTitle}>Nueva marca</Text>
+            {/* Modal: Nueva marca */}
+            <KeyboardAwareModal
+              visible={nuevaMarcaOpen}
+              onClose={() => setNuevaMarcaOpen(false)}
+              cardStyle={{ backgroundColor: colors.card, borderColor: colors.border }}
+              backdropOpacity={0.35}
+            >
+              <Text style={s.modalTitle}>Nueva marca</Text>
 
           <TextInput
             value={nuevaMarcaNombre}
@@ -490,9 +548,11 @@ export default function ProductoEdit() {
               <Text style={s.modalBtnPrimaryText}>Crear</Text>
             </Pressable>
           </View>
-        </KeyboardAwareModal>
+            </KeyboardAwareModal>
 
-        <DoneAccessory nativeID={DONE_ID} />
+            <DoneAccessory nativeID={DONE_ID} />
+          </>
+        ) : null}
       </SafeAreaView>
     </>
   );
@@ -510,6 +570,35 @@ const styles = (colors: any, PRIMARY: ColorValue) =>
     },
 
     center: { flex: 1, alignItems: "center", justifyContent: "center" },
+
+    inlineBack: { alignSelf: "flex-start", paddingVertical: 8, paddingHorizontal: 2, marginBottom: 6 },
+    inlineBackText: {
+      color: colors.text,
+      fontFamily: FONT_FAMILY,
+      fontWeight: Platform.OS === "android" ? "600" : "600",
+    },
+
+    skelBlockLg: {
+      height: 44,
+      borderRadius: 12,
+      backgroundColor: alpha(String(colors.text ?? "#000000"), 0.08) as any,
+      borderWidth: 1,
+      borderColor: alpha(String(colors.text ?? "#000000"), 0.06) as any,
+      marginTop: 10,
+    },
+    skelBlockSm: {
+      height: 18,
+      borderRadius: 10,
+      backgroundColor: alpha(String(colors.text ?? "#000000"), 0.06) as any,
+      marginTop: 16,
+      width: "55%",
+    },
+    skelBtn: {
+      height: 46,
+      borderRadius: 14,
+      backgroundColor: alpha(String(colors.primary ?? "#153c9e"), 0.22) as any,
+      marginTop: 18,
+    },
 
     label: {
       color: colors.text + "AA",

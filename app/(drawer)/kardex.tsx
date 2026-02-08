@@ -165,6 +165,9 @@ export default function KardexScreen() {
   useFocusEffect(
     useCallback(() => {
       return () => {
+        // filtros
+        setProducto(null);
+
         // resultados
         setRows([]);
         setErrorMsg(null);
