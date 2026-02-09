@@ -4,10 +4,11 @@ import "react-native-reanimated";
 
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
-import { Platform } from "react-native";
+import { AppState, type AppStateStatus, Platform } from "react-native";
 import { enableScreens } from "react-native-screens";
 
 import { ThemeProvider } from "@react-navigation/native";
+import * as Notifications from "expo-notifications";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect, useMemo } from "react";
@@ -132,6 +133,28 @@ function AppShell() {
 }
 
 export default function Layout() {
+  useEffect(() => {
+    const clearBadge = async () => {
+      try {
+        await Notifications.setBadgeCountAsync(0);
+      } catch (error) {
+        if (__DEV__) console.warn("[badge] failed to clear badge", error);
+      }
+    };
+
+    void clearBadge();
+
+    const sub = AppState.addEventListener("change", (nextState: AppStateStatus) => {
+      if (nextState === "active") {
+        void clearBadge();
+      }
+    });
+
+    return () => {
+      sub.remove();
+    };
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider initialMetrics={initialWindowMetrics}>
