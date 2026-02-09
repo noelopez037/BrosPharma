@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import * as Application from "expo-application";
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import Constants from "expo-constants";
@@ -11,6 +12,7 @@ type RegisterPushTokenDebugInfo = {
   projectId?: string;
   permissions?: Notifications.PermissionStatus;
   tokenPreview?: string;
+  deviceIdPreview?: string;
   hadStoredToken?: boolean;
   usedThrottle?: "success" | "failure";
 };
@@ -30,6 +32,7 @@ type RegisterPushTokenResult =
     };
 
 const STORAGE_PREFIX = "pushToken:lastRegistered:";
+const DEVICE_ID_STORAGE_KEY = "pushToken:deviceId:v1";
 
 const SUCCESS_THROTTLE_MS = 10 * 60 * 1000;
 const FAILURE_BACKOFF_MS = 60 * 1000;
@@ -50,18 +53,83 @@ function getExpoProjectId(): string | undefined {
   return fromEas ?? fromExtra ?? fromEnv;
 }
 
-async function getStoredTokenForUser(userId: string): Promise<string | null> {
+function generateUuidV4(): string {
+  const c = (globalThis as any)?.crypto;
+  if (c?.randomUUID) return String(c.randomUUID());
+
+  // Fallback: not cryptographically strong, but persisted and only used when native IDs unavailable.
+  const bytes = new Array(16).fill(0).map(() => Math.floor(Math.random() * 256));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(
+    16,
+    20
+  )}-${hex.slice(20)}`;
+}
+
+async function getStableDeviceId(): Promise<string> {
   try {
-    const v = await AsyncStorage.getItem(`${STORAGE_PREFIX}${userId}`);
+    if (Platform.OS === "ios") {
+      const idfv = await Application.getIosIdForVendorAsync();
+      const v = String(idfv ?? "").trim();
+      if (v) return v;
+    }
+
+    if (Platform.OS === "android") {
+      const androidId =
+        typeof (Application as any).getAndroidId === "function"
+          ? await (Application as any).getAndroidId()
+          : (Application as any).androidId;
+      const v = String(androidId ?? "").trim();
+      if (v) return v;
+    }
+  } catch {
+    // fall through to persisted UUID
+  }
+
+  try {
+    const existing = await AsyncStorage.getItem(DEVICE_ID_STORAGE_KEY);
+    const v = String(existing ?? "").trim();
+    if (v) return v;
+  } catch {
+    // ignore
+  }
+
+  const created = generateUuidV4();
+  AsyncStorage.setItem(DEVICE_ID_STORAGE_KEY, created).catch(() => {});
+  return created;
+}
+
+function logDevResult(res: RegisterPushTokenResult): void {
+  if (!__DEV__) return;
+  if (res.ok) {
+    console.info("[push] registerPushToken:result", {
+      ...res,
+      expoToken: res.expoToken ? `...${res.expoToken.slice(-6)}` : "",
+    });
+    return;
+  }
+
+  console.info("[push] registerPushToken:result", res);
+}
+
+async function getStoredTokenForUser(userId: string, deviceId: string): Promise<string | null> {
+  try {
+    const v = await AsyncStorage.getItem(`${STORAGE_PREFIX}${userId}:${deviceId}`);
     return v ? String(v) : null;
   } catch {
     return null;
   }
 }
 
-async function setStoredTokenForUser(userId: string, token: string): Promise<void> {
+async function setStoredTokenForUser(
+  userId: string,
+  deviceId: string,
+  token: string
+): Promise<void> {
   try {
-    await AsyncStorage.setItem(`${STORAGE_PREFIX}${userId}`, token);
+    await AsyncStorage.setItem(`${STORAGE_PREFIX}${userId}:${deviceId}`, token);
   } catch {
     // ignore
   }
@@ -146,7 +214,7 @@ export async function registerPushToken(opts: {
           reason: "permission_denied",
           debug: opts.debug ? debugInfo : undefined,
         };
-        if (__DEV__) console.info("[push] registerPushToken:result", res);
+        logDevResult(res);
         return res;
       }
 
@@ -158,7 +226,7 @@ export async function registerPushToken(opts: {
           reason: "token_unavailable",
           debug: opts.debug ? debugInfo : undefined,
         };
-        if (__DEV__) console.info("[push] registerPushToken:result", res);
+        logDevResult(res);
         return res;
       }
 
@@ -187,7 +255,7 @@ export async function registerPushToken(opts: {
             reason: projectHint,
             error,
           });
-          console.info("[push] registerPushToken:result", res);
+          logDevResult(res);
         }
         return res;
       }
@@ -201,11 +269,14 @@ export async function registerPushToken(opts: {
           reason: "token_unavailable",
           debug: opts.debug ? debugInfo : undefined,
         };
-        if (__DEV__) console.info("[push] registerPushToken:result", res);
+        logDevResult(res);
         return res;
       }
 
-      const stored = await getStoredTokenForUser(opts.userId);
+      const deviceId = await getStableDeviceId();
+      debugInfo.deviceIdPreview = deviceId ? `...${deviceId.slice(-6)}` : undefined;
+
+      const stored = await getStoredTokenForUser(opts.userId, deviceId);
       debugInfo.hadStoredToken = stored === expoToken;
       if (stored === expoToken) {
         lastSuccessAtByUser.set(opts.userId, Date.now());
@@ -215,7 +286,7 @@ export async function registerPushToken(opts: {
           didUpsert: false,
           debug: opts.debug ? debugInfo : undefined,
         };
-        if (__DEV__) console.info("[push] registerPushToken:result", res);
+        logDevResult(res);
         return res;
       }
 
@@ -226,11 +297,12 @@ export async function registerPushToken(opts: {
         .upsert(
           {
             user_id: opts.userId,
+            device_id: deviceId,
             expo_token: expoToken,
             platform,
             enabled: true,
           },
-          { onConflict: "expo_token" }
+          { onConflict: "user_id,device_id" }
         );
 
       if (error) {
@@ -241,11 +313,11 @@ export async function registerPushToken(opts: {
           error,
           debug: opts.debug ? debugInfo : undefined,
         };
-        if (__DEV__) console.info("[push] registerPushToken:result", res);
+        logDevResult(res);
         return res;
       }
 
-      await setStoredTokenForUser(opts.userId, expoToken);
+      await setStoredTokenForUser(opts.userId, deviceId, expoToken);
       lastSuccessAtByUser.set(opts.userId, Date.now());
       const res: RegisterPushTokenResult = {
         ok: true,
@@ -253,7 +325,7 @@ export async function registerPushToken(opts: {
         didUpsert: true,
         debug: opts.debug ? debugInfo : undefined,
       };
-      if (__DEV__) console.info("[push] registerPushToken:result", res);
+      logDevResult(res);
       return res;
     } catch (error) {
       lastFailureAtByUser.set(opts.userId, Date.now());
@@ -263,7 +335,7 @@ export async function registerPushToken(opts: {
         error,
         debug: opts.debug ? debugInfo : undefined,
       };
-      if (__DEV__) console.info("[push] registerPushToken:result", res);
+      logDevResult(res);
       return res;
     } finally {
       inFlight = null;
