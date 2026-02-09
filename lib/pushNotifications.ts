@@ -1,10 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import * as Application from "expo-application";
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
+
+import { supabase } from "./supabase";
 
 type RegisterPushTokenDebugInfo = {
   platform: "ios" | "android" | "web" | "unknown";
@@ -343,4 +345,45 @@ export async function registerPushToken(opts: {
   })();
 
   return inFlight;
+}
+
+function isMissingUpdatedAtColumnError(error: PostgrestError): boolean {
+  const msg = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
+  return msg.includes("updated_at") && (msg.includes("schema cache") || msg.includes("does not exist"));
+}
+
+export async function disablePushForThisDevice(): Promise<void> {
+  if (Platform.OS !== "ios" && Platform.OS !== "android") return;
+
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const userId = sessionData.session?.user?.id ?? "";
+    if (!userId) return;
+
+    const deviceId = String(await getStableDeviceId()).trim();
+    if (!deviceId) return;
+
+    const isoNow = new Date().toISOString();
+    const { error } = await supabase
+      .from("user_push_tokens")
+      .update({ enabled: false, updated_at: isoNow })
+      .eq("user_id", userId)
+      .eq("device_id", deviceId);
+
+    if (!error) return;
+
+    if (isMissingUpdatedAtColumnError(error)) {
+      const { error: retryError } = await supabase
+        .from("user_push_tokens")
+        .update({ enabled: false })
+        .eq("user_id", userId)
+        .eq("device_id", deviceId);
+      if (!retryError) return;
+      throw retryError;
+    }
+
+    throw error;
+  } catch (err: unknown) {
+    if (__DEV__) console.warn("[push] disable token failed", err);
+  }
 }

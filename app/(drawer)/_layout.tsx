@@ -12,6 +12,7 @@ import { StatusBar } from "expo-status-bar";
 import { router, useNavigation, usePathname } from "expo-router";
 import { DrawerActions, getFocusedRouteNameFromRoute } from "@react-navigation/native";
 import { supabase } from "../../lib/supabase";
+import { disablePushForThisDevice } from "../../lib/pushNotifications";
 import { onSolicitudesChanged } from "../../lib/solicitudesEvents";
 import { useThemePref } from "../../lib/themePreference";
 import { alphaColor } from "../../lib/ui";
@@ -256,6 +257,12 @@ export default function DrawerLayout() {
   }, [userName]);
 
   const handleLogout = async () => {
+    try {
+      await disablePushForThisDevice();
+    } catch {
+      // never block logout
+    }
+
     try {
       await supabase.auth.signOut();
       router.replace("/login");
