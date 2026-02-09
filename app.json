@@ -4,12 +4,13 @@
     "slug": "BrosPharma",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/app-icon.png",
     "scheme": "brospharma",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
+      "icon": "./assets/images/app-icon.png",
       "bundleIdentifier": "com.anonymous.BrosPharma",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
@@ -17,9 +18,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./assets/images/app-icon.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
@@ -44,7 +44,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/images/android-icon-monochrome.png",
+          "icon": "./assets/images/app-icon.png",
           "color": "#153c9e"
         }
       ],

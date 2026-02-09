@@ -23,6 +23,7 @@ import { AppButton } from "../components/ui/app-button";
 import { DoneAccessory } from "../components/ui/done-accessory";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
 import { supabase } from "../lib/supabase";
+import { dispatchNotifs } from "../lib/notif-dispatch";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
 import { useVentaDraft } from "../lib/ventaDraft";
@@ -411,6 +412,10 @@ export default function VentaNuevaScreen() {
         if (error) throw error;
 
         const ventaId = isEdit ? Number(editId) : ((data as any)?.venta_id ?? null);
+
+        if (!isEdit && ventaId) {
+          dispatchNotifs(20).catch((e: any) => console.warn("[notif] dispatch failed", e?.message ?? e));
+        }
 
         // Si el usuario adjunto receta en el formulario, subirla ahora (no bloquea la venta si falla).
         let recetaOk = true;

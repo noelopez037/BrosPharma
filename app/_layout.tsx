@@ -28,6 +28,15 @@ import { getHeaderColors } from "../src/theme/headerColors";
 // in nested navigators right after auth transitions.
 enableScreens(Platform.OS !== "ios");
 
+Notifications.setNotificationHandler({
+  handleNotification: async () =>
+    ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    } as any),
+} as any);
+
 function AppShell() {
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
@@ -37,6 +46,21 @@ function AppShell() {
 
   useEffect(() => {
     let alive = true;
+
+    const pushSubs: { remove: () => void }[] = [];
+    if (__DEV__ && (Platform.OS === "ios" || Platform.OS === "android")) {
+      pushSubs.push(
+        Notifications.addNotificationReceivedListener((notification) => {
+          console.info("[push] received", notification.request.content);
+        })
+      );
+
+      pushSubs.push(
+        Notifications.addNotificationResponseReceivedListener((response) => {
+          console.info("[push] response", response.notification.request.content);
+        })
+      );
+    }
 
     const tryRegister = async () => {
       const { data } = await supabase.auth.getSession();
@@ -72,6 +96,7 @@ function AppShell() {
     return () => {
       alive = false;
       sub?.subscription?.unsubscribe();
+      for (const s of pushSubs) s.remove();
     };
   }, []);
 
