@@ -928,13 +928,10 @@ export default function CxcVentaDetalle() {
                                 const fid = Number(f?.id);
                                 const active = !!pagoFacturaId && fid === Number(pagoFacturaId);
                                 const numero = String(f?.numero_factura ?? "").trim() || `Factura #${fid || "—"}`;
-                                const tipo = String(f?.tipo ?? "").trim();
                                 const venc = fmtDate(f?.fecha_vencimiento);
                                 const monto = facturaMonto(f);
                                 const meta = [
-                                  tipo ? `Tipo: ${tipo}` : "",
                                   monto != null && monto > 0 ? `Total: ${fmtQ(monto)}` : "",
-                                  venc !== "—" ? `Vence: ${venc}` : "",
                                 ]
                                   .filter(Boolean)
                                   .join(" · ");
