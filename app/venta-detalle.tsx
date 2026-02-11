@@ -310,10 +310,30 @@ export default function VentaDetalleScreen() {
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
 
-  const params = useLocalSearchParams<{ ventaId?: string; returnTo?: string }>();
+  const params = useLocalSearchParams<{
+    ventaId?: string;
+    returnTo?: string;
+    notif?: string;
+    accion?: string;
+    nota?: string;
+    clienteNombre?: string;
+    vendedorCodigo?: string;
+  }>();
   const ventaIdRaw = String(params?.ventaId ?? "");
   const ventaId = Number(ventaIdRaw);
   const returnTo = String(params?.returnTo ?? "");
+
+  const notifKind = String(params?.notif ?? "").trim().toUpperCase();
+  const notifAccion = String(params?.accion ?? "").trim().toUpperCase();
+  const notifNota = String(params?.nota ?? "").trim();
+  const notifCliente = String(params?.clienteNombre ?? "").trim();
+  const notifVendedorCodigo = String(params?.vendedorCodigo ?? "").trim();
+  const shouldShowSolicitudBanner = notifKind === "VENTA_SOLICITUD_ADMIN";
+  const [solicitudBannerOpen, setSolicitudBannerOpen] = useState<boolean>(shouldShowSolicitudBanner);
+
+  React.useEffect(() => {
+    setSolicitudBannerOpen(shouldShowSolicitudBanner);
+  }, [shouldShowSolicitudBanner, ventaIdRaw]);
 
   const C = useMemo(
     () => ({
@@ -1300,6 +1320,8 @@ export default function VentaDetalleScreen() {
       });
       if (error) throw error;
 
+      void dispatchNotifs(20).catch((e: any) => console.warn("[notif] dispatch failed", e?.message ?? e));
+
       // ADMIN: auto-aprobar (no requiere aprobacion manual)
       if (roleUp === "ADMIN") {
         const { error: ae } = await supabase.rpc("rpc_admin_resolver_solicitud", {
@@ -1461,6 +1483,40 @@ export default function VentaDetalleScreen() {
             keyboardDismissMode="on-drag"
             automaticallyAdjustKeyboardInsets
           >
+
+            {solicitudBannerOpen && shouldShowSolicitudBanner ? (
+              <View style={[styles.notifBanner, { borderColor: C.border, backgroundColor: C.warnBg }]}
+              >
+                <View style={styles.rowBetween}>
+                  <Text style={[styles.notifTitle, { color: C.warnText }]} numberOfLines={2}>
+                    Solicitud de {(notifAccion === "ANULACION" || notifAccion === "EDICION") ? notifAccion : "ACCION"} pendiente
+                  </Text>
+                  <Pressable
+                    onPress={() => setSolicitudBannerOpen(false)}
+                    hitSlop={10}
+                    style={({ pressed }) => [styles.notifClose, pressed ? { opacity: 0.8 } : null]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Cerrar aviso"
+                  >
+                    <Text style={[styles.notifCloseText, { color: C.warnText }]}>X</Text>
+                  </Pressable>
+                </View>
+
+                {notifNota ? (
+                  <Text style={[styles.notifSub, { color: C.text }]}>
+                    Nota: {notifNota}
+                  </Text>
+                ) : null}
+
+                {(notifCliente || notifVendedorCodigo) ? (
+                  <Text style={[styles.notifMeta, { color: C.sub }]} numberOfLines={2}>
+                    {(notifCliente ? `Cliente: ${notifCliente}` : "").trim()}
+                    {(notifCliente && notifVendedorCodigo) ? " • " : ""}
+                    {(notifVendedorCodigo ? `Vendedor: ${notifVendedorCodigo}` : "").trim()}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
 
           {!Number.isFinite(ventaId) || ventaId <= 0 ? (
             <View style={[styles.card, { borderColor: C.border, backgroundColor: C.card }]}>
@@ -2342,6 +2398,13 @@ const styles = StyleSheet.create({
 
   warn: { marginTop: 10, borderWidth: 1, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 8 },
   warnText: { fontSize: 12, fontWeight: "900" },
+
+  notifBanner: { marginTop: 4, borderWidth: 1, borderRadius: 14, padding: 12 },
+  notifTitle: { fontSize: 13, fontWeight: "900" },
+  notifSub: { marginTop: 8, fontSize: 13, fontWeight: "700", lineHeight: 18 },
+  notifMeta: { marginTop: 8, fontSize: 12, fontWeight: "700" },
+  notifClose: { paddingHorizontal: 8, paddingVertical: 6, borderRadius: 10 },
+  notifCloseText: { fontSize: 14, fontWeight: "900", includeFontPadding: false },
 
   lineRow: { paddingTop: 12, marginTop: 12, borderTopWidth: 1, flexDirection: "row", gap: 12 },
   lineTitle: { fontSize: 14, fontWeight: "800" },

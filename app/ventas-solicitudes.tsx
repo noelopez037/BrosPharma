@@ -1,10 +1,11 @@
 import { useFocusEffect, useTheme } from "@react-navigation/native";
-import { Stack } from "expo-router";
+import { Stack, router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   FlatList,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -14,6 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppButton } from "../components/ui/app-button";
 import { emitSolicitudesChanged } from "../lib/solicitudesEvents";
+import { navigateToVentaFromNotif } from "../lib/notifNavigation";
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
@@ -31,7 +33,7 @@ type SolicitudRow = {
   vendedor_id: string | null;
 
   solicitud_tag: string | null;
-  solicitud_accion: "ANULACION" | "EDICION" | null;
+  solicitud_accion: "ANULACION" | "EDICION" | "REFACTURACION" | null;
   solicitud_nota: string | null;
   solicitud_at: string | null;
   solicitud_by: string | null;
@@ -51,6 +53,7 @@ function fmtDateTime(iso: string | null | undefined) {
 function actionLabel(a: SolicitudRow["solicitud_accion"]) {
   if (a === "ANULACION") return "Anulacion";
   if (a === "EDICION") return "Edicion";
+  if (a === "REFACTURACION") return "Refacturacion";
   return "Solicitud";
 }
 
@@ -68,6 +71,7 @@ function isPaymentEditRequest(row: SolicitudRow | null | undefined) {
 
 function actionTone(a: SolicitudRow["solicitud_accion"]) {
   if (a === "EDICION") return "amber" as const;
+  if (a === "REFACTURACION") return "amber" as const;
   return "red" as const;
 }
 
@@ -104,7 +108,7 @@ export default function VentasSolicitudesScreen() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [actingVentaId, setActingVentaId] = useState<number | null>(null);
 
-  const canView = role === "ADMIN" || role === "VENTAS";
+  const canView = role === "ADMIN";
   const canResolve = role === "ADMIN";
 
   const loadRole = useCallback(async () => {
@@ -325,9 +329,30 @@ export default function VentasSolicitudesScreen() {
             const pillText = tone === "red" ? C.danger : C.amber;
             const isActing = actingVentaId === Number(item.venta_id);
 
+            const vendor = vendedoresById[String(item.vendedor_id ?? "")] ?? null;
+            const vendorCode = String(vendor?.codigo ?? "").trim();
+
+            const openVenta = () => {
+              navigateToVentaFromNotif(router as any, Number(item.venta_id), {
+                ensureBaseRoute: false,
+                notif: "VENTA_SOLICITUD_ADMIN",
+                accion: item.solicitud_accion,
+                nota: item.solicitud_nota,
+                clienteNombre: item.cliente_nombre,
+                vendedorCodigo: vendorCode || null,
+              });
+            };
+
             return (
-              <View style={[styles.cardItem, { borderColor: C.border, backgroundColor: C.card }]}
-              >
+              <View style={{ marginHorizontal: 16, marginTop: 12 }}>
+                <Pressable
+                  onPress={openVenta}
+                  style={({ pressed }) => [
+                    styles.cardItem,
+                    { borderColor: C.border, backgroundColor: C.card },
+                    pressed ? { opacity: 0.92 } : null,
+                  ]}
+                >
                 <View style={styles.rowTop}>
                   <View style={[styles.pill, { backgroundColor: pillBg, borderColor: C.border }]}>
                     <Text style={[styles.pillText, { color: pillText }]}>{actionLabel(item.solicitud_accion)}</Text>
@@ -338,16 +363,21 @@ export default function VentasSolicitudesScreen() {
                 <Text style={[styles.title, { color: C.text }]} numberOfLines={1}>
                   {item.cliente_nombre ?? "—"}
                 </Text>
-                <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
-                  Venta #{item.venta_id} • Estado: {item.estado ?? "—"}
-                </Text>
+                  <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
+                    Venta #{item.venta_id} • Estado: {item.estado ?? "—"}
+                  </Text>
+
+                {item.solicitud_tag ? (
+                  <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
+                    Tag: {String(item.solicitud_tag)}
+                  </Text>
+                ) : null}
 
                 {item.vendedor_id ? (
                   <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
                     Vendedor: {(() => {
-                      const v = vendedoresById[String(item.vendedor_id)] ?? null;
-                      const code = String(v?.codigo ?? "").trim();
-                      const name = String(v?.nombre ?? "").trim();
+                      const code = vendorCode;
+                      const name = String(vendor?.nombre ?? "").trim();
                       if (code) return code;
                       if (name) return name;
                       return String(item.vendedor_id).slice(0, 8);
@@ -377,6 +407,7 @@ export default function VentasSolicitudesScreen() {
                     />
                   </View>
                 )}
+                </Pressable>
               </View>
             );
           }}
@@ -401,7 +432,7 @@ const styles = StyleSheet.create({
     paddingVertical: Platform.select({ ios: 12, android: 10, default: 10 }),
     fontSize: 16,
   },
-  cardItem: { marginHorizontal: 16, marginTop: 12, borderWidth: 1, borderRadius: 16, padding: 14 },
+  cardItem: { borderWidth: 1, borderRadius: 16, padding: 14 },
   rowTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 },
   pill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
   pillText: { fontSize: 12, fontWeight: "800" },

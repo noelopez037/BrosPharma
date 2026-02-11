@@ -228,6 +228,35 @@ async function fetchExpoTokensForUsersDedupeDevice(ctx: SupabaseCtx, userIds: st
   return Array.from(new Set(Array.from(pickedByDevice.values())));
 }
 
+async function fetchAdminUserIds(ctx: SupabaseCtx): Promise<string[]> {
+  const out: string[] = [];
+  const pageSize = 1000;
+  let offset = 0;
+
+  for (;;) {
+    const qs = new URLSearchParams();
+    qs.set("select", "id");
+    qs.append("role", "eq.ADMIN");
+    qs.set("limit", String(pageSize));
+    qs.set("offset", String(offset));
+
+    const res = await sbFetch(ctx, `/rest/v1/profiles?${qs.toString()}`, { method: "GET" });
+    const rows = await sbJson<Array<{ id?: unknown }>>(res);
+    if (!Array.isArray(rows) || rows.length === 0) break;
+
+    for (const r of rows) {
+      const id = typeof r?.id === "string" ? r.id.trim() : "";
+      if (id) out.push(id);
+    }
+
+    if (rows.length < pageSize) break;
+    offset += pageSize;
+    if (offset > 20_000) break;
+  }
+
+  return Array.from(new Set(out));
+}
+
 function coerceVentaId(row: OutboxRow): string {
   const ref = (row as { ref_id?: unknown })?.ref_id;
   if (typeof ref === "number" && Number.isFinite(ref)) return String(Math.trunc(ref));
@@ -290,6 +319,8 @@ Deno.serve(async (req: Request) => {
 
   let cachedDestinatarios: Array<{ user_id: string; role: string }> | null = null;
   let cachedTokens: string[] | null = null;
+  let cachedAdminUserIds: string[] | null = null;
+  let cachedAdminTokens: string[] | null = null;
 
   const getTokensForVentaNuevos = async (): Promise<string[]> => {
     if (cachedTokens) return cachedTokens;
@@ -302,6 +333,16 @@ Deno.serve(async (req: Request) => {
 
     console.log("[notif-dispatch] venta_nuevos", "destinatarios", userIds.length, "tokens", cachedTokens.length);
     return cachedTokens;
+  };
+
+  const getTokensForAdmins = async (): Promise<string[]> => {
+    if (cachedAdminTokens) return cachedAdminTokens;
+
+    cachedAdminUserIds = await fetchAdminUserIds(ctx);
+    cachedAdminTokens = await fetchExpoTokensForUsersDedupeDevice(ctx, cachedAdminUserIds);
+
+    console.log("[notif-dispatch] admins", "users", cachedAdminUserIds.length, "tokens", cachedAdminTokens.length);
+    return cachedAdminTokens;
   };
 
   for (const row of rows) {
@@ -387,6 +428,60 @@ Deno.serve(async (req: Request) => {
           const messages: ExpoPushMessage[] = tokens.map((to) => ({
             to,
             title: "Venta facturada",
+            body,
+            sound: "default",
+            badge: 1,
+            data,
+          }));
+
+          const sendRes = await expoSend(messages);
+          if (!sendRes.ok) throw new Error(sendRes.error);
+        }
+
+        await sbRpc(ctx, "rpc_notif_outbox_mark_processed", { p_id: id });
+        result.processed++;
+        continue;
+      }
+
+      if (type === "VENTA_SOLICITUD_ADMIN") {
+        const ventaId = coerceVentaId(row);
+        const tokens = await getTokensForAdmins();
+        console.log("[notif-dispatch] dispatch", type, "outbox", id, "tokens", tokens.length);
+
+        const p = (payload && typeof payload === "object") ? (payload as JsonRecord) : {};
+        const accionUp = String(p.accion ?? "").trim().toUpperCase();
+        const clienteNombre = typeof p.cliente_nombre === "string" ? p.cliente_nombre.trim() : "";
+        const vendedorCodigo = typeof p.vendedor_codigo === "string" ? p.vendedor_codigo.trim() : "";
+        const nota = typeof p.nota === "string" ? p.nota.trim() : "";
+        const tag = typeof p.tag === "string" ? p.tag.trim() : "";
+        const estado = typeof p.estado === "string" ? p.estado.trim() : "";
+
+        const target = clienteNombre || `Venta #${ventaId}`;
+        const body =
+          accionUp === "EDICION"
+            ? `Solicitud de edición: ${target}`
+            : accionUp === "ANULACION"
+              ? `Solicitud de anulación: ${target}`
+              : accionUp === "REFACTURACION"
+                ? `Solicitud de refacturación: ${target}`
+                : `Solicitud pendiente: ${target}`;
+
+        if (tokens.length > 0) {
+          const data: Record<string, unknown> = {
+            kind: "VENTA_SOLICITUD_ADMIN",
+            to: "/(drawer)/(tabs)/ventas",
+            venta_id: ventaId,
+          };
+          if (accionUp) data.accion = accionUp;
+          if (tag) data.tag = tag;
+          if (nota) data.nota = nota;
+          if (estado) data.estado = estado;
+          if (clienteNombre) data.cliente_nombre = clienteNombre;
+          if (vendedorCodigo) data.vendedor_codigo = vendedorCodigo;
+
+          const messages: ExpoPushMessage[] = tokens.map((to) => ({
+            to,
+            title: "Solicitud pendiente",
             body,
             sound: "default",
             badge: 1,
