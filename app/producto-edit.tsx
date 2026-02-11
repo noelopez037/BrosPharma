@@ -32,6 +32,7 @@ import { KeyboardAwareModal } from "../components/ui/keyboard-aware-modal";
 import { DoneAccessory } from "../components/ui/done-accessory";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
 import { goBackSafe } from "../lib/goBackSafe";
+import { useRole } from "../lib/useRole";
 
 type Marca = { id: number; nombre: string };
 
@@ -82,6 +83,8 @@ export default function ProductoEdit() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+
+  const { refreshRole } = useRole();
 
   const [nombre, setNombre] = useState("");
 
@@ -140,8 +143,8 @@ export default function ProductoEdit() {
             return;
           }
 
-          const { data: prof } = await supabase.from("profiles").select("role").eq("id", uid).maybeSingle();
-          const admin = (prof?.role ?? "").toUpperCase() === "ADMIN";
+          const r = String(await refreshRole()).trim().toUpperCase();
+          const admin = r === "ADMIN";
           if (seq !== reqSeq.current) return;
           setIsAdmin(admin);
 
@@ -194,7 +197,7 @@ export default function ProductoEdit() {
       reqSeq.current++;
       task?.cancel?.();
     };
-  }, [productoId, loadMarcas]);
+  }, [productoId, loadMarcas, refreshRole]);
 
   const onBack = useCallback(() => {
     // Preferimos router.back(); si no hay historial, caemos a una ruta segura.

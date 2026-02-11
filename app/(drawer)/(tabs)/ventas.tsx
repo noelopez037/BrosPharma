@@ -17,6 +17,7 @@ import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/d
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AppButton } from "../../../components/ui/app-button";
 import { supabase } from "../../../lib/supabase";
+import { useRole } from "../../../lib/useRole";
 import { useThemePref } from "../../../lib/themePreference";
 import { alphaColor } from "../../../lib/ui";
 import { FB_DARK_DANGER } from "../../../src/theme/headerColors";
@@ -122,8 +123,9 @@ export default function Ventas() {
     [colors.background, colors.border, colors.card, colors.primary, colors.text, isDark]
   );
 
-  const [role, setRole] = useState<Role>("");
-  const canCreate = role === "VENTAS" || role === "ADMIN";
+  const { role, refreshRole } = useRole();
+  const roleUp = normalizeUpper(role) as Role;
+  const canCreate = roleUp === "VENTAS" || roleUp === "ADMIN";
 
   const [estado, setEstado] = useState<Estado>("NUEVO");
   const [q, setQ] = useState("");
@@ -218,19 +220,6 @@ export default function Ventas() {
   const [revalidating, setRevalidating] = useState(false);
   const [revalidatingEstado, setRevalidatingEstado] = useState<Estado | null>(null);
   const revalidateSeq = useRef(0);
-
-  const loadRole = useCallback(async (): Promise<Role> => {
-    const { data: auth } = await supabase.auth.getUser();
-    const uid = auth.user?.id;
-    if (!uid) {
-      setRole("");
-      return "";
-    }
-    const { data } = await supabase.from("profiles").select("role").eq("id", uid).maybeSingle();
-    const r = (normalizeUpper(data?.role) as Role) ?? "";
-    setRole(r);
-    return r;
-  }, []);
 
   const refreshDots = useCallback(async () => {
     const mySeq = ++dotsReqSeq.current;
@@ -352,7 +341,7 @@ export default function Ventas() {
   );
 
   const fetchAll = useCallback(async () => {
-    const roleP = loadRole();
+    void refreshRole();
 
     const now = Date.now();
     const cached = cacheRef.current[estado];
@@ -381,20 +370,18 @@ export default function Ventas() {
       await fetchVentas(estado, { silent: false });
     }
 
-    await roleP;
-
     // Respeta TTL de dots sin disparar rpc innecesario.
     const dotsCached = dotsCacheRef.current;
     const dotsFresh = !!dotsCached.data && Date.now() - dotsCached.timestamp < 25000;
     if (!dotsFresh) await refreshDots();
-  }, [estado, fetchVentas, loadRole, refreshDots]);
+  }, [estado, fetchVentas, refreshDots, refreshRole]);
 
   const onPullRefresh = useCallback(() => {
     setPullRefreshing(true);
-    Promise.allSettled([loadRole(), fetchVentas(estado, { silent: true }), refreshDots()]).finally(() => {
+    Promise.allSettled([refreshRole(), fetchVentas(estado, { silent: true }), refreshDots()]).finally(() => {
       setPullRefreshing(false);
     });
-  }, [estado, fetchVentas, loadRole, refreshDots]);
+  }, [estado, fetchVentas, refreshDots, refreshRole]);
 
   useFocusEffect(
     useCallback(() => {

@@ -6,22 +6,18 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { InteractionManager, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { supabase } from "../../../lib/supabase";
 import { useThemePref } from "../../../lib/themePreference";
 import { FB_DARK_BLUE, FB_DARK_BORDER, FB_DARK_MUTED, FB_DARK_SURFACE, FB_DARK_TEXT, HEADER_BG } from "../../../src/theme/headerColors";
+import { useRole } from "../../../lib/useRole";
 
 const MUTED = "#8E8E93";
-
-function normalizeUpper(v: any) {
-  return String(v ?? "").trim().toUpperCase();
-}
 
 export default function TabLayout() {
   // ⬅️ USAR preferencia del usuario, no sistema
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
 
-  const [role, setRole] = useState<string>("");
+  const { role, refreshRole } = useRole();
   const [navKey, setNavKey] = useState(0);
   const didFixRef = useRef(false);
   const insets = useSafeAreaInsets();
@@ -46,41 +42,9 @@ export default function TabLayout() {
   );
 
   useEffect(() => {
-    let alive = true;
-
-    const loadRole = async () => {
-      try {
-        const { data } = await supabase.auth.getUser();
-        const uid = data?.user?.id;
-        if (!uid) {
-          if (alive) setRole("");
-          return;
-        }
-
-        const { data: prof } = await supabase
-          .from("profiles")
-          .select("role")
-          .eq("id", uid)
-          .maybeSingle();
-
-        if (!alive) return;
-        setRole(normalizeUpper(prof?.role));
-      } catch {
-        if (!alive) return;
-        setRole("");
-      }
-    };
-
-    loadRole().catch(() => {});
-    const { data: sub } = supabase.auth.onAuthStateChange(() => {
-      loadRole().catch(() => {});
-    });
-
-    return () => {
-      alive = false;
-      sub?.subscription?.unsubscribe();
-    };
-  }, []);
+    // Non-blocking refresh so FACTURACION rules apply ASAP.
+    void refreshRole();
+  }, [refreshRole]);
 
   const background = isDark ? FB_DARK_SURFACE : "#F5F6F8";
   const border = isDark ? FB_DARK_BORDER : "#C6C6C8";

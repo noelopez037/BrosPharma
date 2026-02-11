@@ -14,6 +14,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { supabase } from "../../../lib/supabase";
 import { useThemePref } from "../../../lib/themePreference";
 import { alphaColor } from "../../../lib/ui";
+import { useRole } from "../../../lib/useRole";
 import { FB_DARK_DANGER } from "../../../src/theme/headerColors";
 
 type Role = "ADMIN" | "VENTAS" | "FACTURACION" | "BODEGA" | "";
@@ -169,9 +170,8 @@ export default function Inicio() {
   }, [colors.background, colors.border, colors.card, colors.primary, colors.text, isDark]);
 
   const [uid, setUid] = useState<string | null>(null);
-  const [role, setRole] = useState<Role>("");
-  const [roleChecked, setRoleChecked] = useState(false);
   const [userLabel, setUserLabel] = useState<string>("");
+  const { role, isReady: roleChecked, refreshRole } = useRole();
 
   const [refreshing, setRefreshing] = useState(false);
   const [initialLoading, setInitialLoading] = useState(false);
@@ -189,7 +189,6 @@ export default function Inicio() {
   const bgSeqRef = useRef(0);
   const initSeqRef = useRef(0);
   const cacheRef = useRef<{ role: Role; ts: number; data: any } | null>(null);
-  const roleCheckedEverRef = useRef(false);
   const lastDashboardRoleRef = useRef<Role>("");
 
   const adminDataRef = useRef<AdminData | null>(null);
@@ -206,48 +205,37 @@ export default function Inicio() {
     factDataRef.current = factData;
   }, [factData]);
 
-  const loadProfile = useCallback(async (): Promise<{ uid: string | null; role: Role; label: string } | null> => {
+  const loadProfile = useCallback(async (): Promise<{ uid: string | null; label: string } | null> => {
     const seq = ++profileSeqRef.current;
-    if (!roleCheckedEverRef.current) setRoleChecked(false);
     setErrorMsg(null);
 
     try {
-      const { data } = await supabase.auth.getUser();
+      const { data } = await supabase.auth.getSession();
       if (seq !== profileSeqRef.current) return null;
-      const u = data?.user;
+      const u = data?.session?.user;
       const id = u?.id ?? null;
       setUid(id);
       if (!id) {
-        setRole("");
         setUserLabel("");
-        return { uid: null, role: "", label: "" };
+        return { uid: null, label: "" };
       }
 
       const { data: prof } = await supabase
         .from("profiles")
-        .select("full_name, role")
+        .select("full_name")
         .eq("id", id)
         .maybeSingle();
       if (seq !== profileSeqRef.current) return null;
 
-      const r = normalizeUpper(prof?.role) as Role;
-      setRole(r || "");
-
       // Preferir full_name; evitar usar codigo en Inicio.
       const label = pickNameFromProfile(prof) || guessNameFromEmail(u?.email) || String(id).slice(0, 8);
       setUserLabel(label);
-      return { uid: id, role: (r || "") as Role, label };
+      return { uid: id, label };
     } catch {
       if (seq !== profileSeqRef.current) return null;
       setUid(null);
-      setRole("");
       setUserLabel("");
-      return { uid: null, role: "", label: "" };
-    } finally {
-      if (seq === profileSeqRef.current) {
-        setRoleChecked(true);
-        roleCheckedEverRef.current = true;
-      }
+      return { uid: null, label: "" };
     }
   }, []);
 
@@ -739,15 +727,15 @@ export default function Inicio() {
       let alive = true;
       (async () => {
         if (!alive) return;
+        const r = (await refreshRole()) as Role;
         const prof = await loadProfile();
         if (!alive) return;
 
-        if ((prof?.role ?? "") === "FACTURACION") {
+        if (r === "FACTURACION") {
           router.replace("/ventas" as any);
           return;
         }
 
-        const r = (prof?.role ?? "") as Role;
         const now = Date.now();
         const cached = cacheRef.current;
         const cacheValid = !!(cached && cached.role === r && now - cached.ts < CACHE_TTL_MS);
@@ -762,13 +750,12 @@ export default function Inicio() {
           }
           if (r === "ADMIN") setAdminData(cached!.data as AdminData);
           if (r === "VENTAS") setVentasData(cached!.data as VentasData);
-          if (r === "FACTURACION") setFactData(cached!.data as FacturadorData);
           setInitialLoading(false);
 
           const bgSeq = ++bgSeqRef.current;
           setBgRefreshing(true);
           loadAll({
-            roleOverride: prof?.role,
+            roleOverride: r,
             uidOverride: prof?.uid,
             silent: true,
             skipCache: true,
@@ -785,7 +772,7 @@ export default function Inicio() {
         setInitialLoading(true);
         try {
           await loadAll({
-            roleOverride: prof?.role,
+            roleOverride: r,
             uidOverride: prof?.uid,
           });
         } finally {
@@ -796,16 +783,17 @@ export default function Inicio() {
       return () => {
         alive = false;
       };
-    }, [loadAll, loadProfile])
+    }, [loadAll, loadProfile, refreshRole])
   );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
+      const r = (await refreshRole()) as Role;
       const prof = await loadProfile();
       await loadAll({
         force: true,
-        roleOverride: prof?.role,
+        roleOverride: r,
         uidOverride: prof?.uid,
         silent: true,
         skipCache: true,
@@ -813,7 +801,7 @@ export default function Inicio() {
     } finally {
       setRefreshing(false);
     }
-  }, [loadAll, loadProfile]);
+  }, [loadAll, loadProfile, refreshRole]);
 
   const Header = (
     <View style={[s.header, { borderBottomColor: C.border }]}> 

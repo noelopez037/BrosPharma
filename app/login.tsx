@@ -27,6 +27,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { supabase } from "../lib/supabase";
 import { alphaColor } from "../lib/ui";
 import { AppButton } from "../components/ui/app-button";
+import { claimPushForCurrentSession } from "../lib/pushNotifications";
 // Use static requires at module top so Metro bundles the assets and load is immediate
 const logoDark = require("../assets/images/logo-dark.png");
 const logoLight = require("../assets/images/logo-light.png");
@@ -142,6 +143,25 @@ export default function LoginScreen() {
 
         Alert.alert("No se pudo iniciar sesión", message);
         return;
+      }
+
+      // Ensure we claim push tokens with the updated session.
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (__DEV__) {
+        console.log("[auth] session after login", {
+          userId: sessionData.session?.user?.id,
+          email: sessionData.session?.user?.email,
+        });
+      }
+
+      try {
+        const claimResult = await claimPushForCurrentSession(supabase, {
+          forceUpsert: true,
+          reason: "login",
+        });
+        if (__DEV__) console.info("[push] claim:login", claimResult);
+      } catch (e) {
+        console.error("[push] claim:login_error", e);
       }
 
       await replaceToTabsDeferredOnce();

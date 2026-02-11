@@ -9,9 +9,9 @@ import { enableScreens } from "react-native-screens";
 
 import { ThemeProvider } from "@react-navigation/native";
 import * as Notifications from "expo-notifications";
-import { Stack } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 
 import RootLayout from "./_layout_root";
@@ -19,7 +19,7 @@ import RootLayout from "./_layout_root";
 import { CompraDraftProvider } from "../lib/compraDraft";
 import { VentaDraftProvider } from "../lib/ventaDraft";
 import { ThemePrefProvider, useThemePref } from "../lib/themePreference";
-import { registerPushToken } from "../lib/pushNotifications";
+import { claimPushForCurrentSession } from "../lib/pushNotifications";
 import { supabase } from "../lib/supabase";
 import { makeNativeTheme } from "../src/theme/navigationTheme";
 import { getHeaderColors } from "../src/theme/headerColors";
@@ -40,6 +40,8 @@ Notifications.setNotificationHandler({
 function AppShell() {
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
+  const router = useRouter();
+  const lastHandledNotifIdRef = useRef<string>("");
 
   const theme = useMemo(() => makeNativeTheme(isDark), [isDark]);
   const header = useMemo(() => getHeaderColors(isDark), [isDark]);
@@ -48,48 +50,112 @@ function AppShell() {
     let alive = true;
 
     const pushSubs: { remove: () => void }[] = [];
+
+    const handleNotifResponse = (response: Notifications.NotificationResponse) => {
+      try {
+        const req = response?.notification?.request;
+        const id = String(req?.identifier ?? "");
+        if (id && lastHandledNotifIdRef.current === id) return;
+        if (id) lastHandledNotifIdRef.current = id;
+
+        const content = req?.content;
+        const data = content?.data as unknown;
+
+        const kind =
+          (data && typeof data === "object" && (data as any).kind != null)
+            ? String((data as any).kind)
+            : "";
+
+        if (kind === "VENTA_SOLICITUD_ADMIN") {
+          if (__DEV__) console.log("[notif] handled VENTA_SOLICITUD_ADMIN", data);
+
+          const to =
+            (data && typeof data === "object" && (data as any).to != null)
+              ? String((data as any).to)
+              : "/(drawer)/(tabs)/ventas";
+
+          router.replace((to && to.startsWith("/") ? to : "/(drawer)/(tabs)/ventas") as any);
+
+          const ventaIdRaw =
+            (data && typeof data === "object" && (data as any).venta_id != null)
+              ? String((data as any).venta_id)
+              : "";
+          const ventaId = ventaIdRaw.trim();
+          if (ventaId) {
+            router.push({ pathname: "/venta-detalle", params: { ventaId } } as any);
+          }
+          return;
+        }
+
+        // Generic route support for existing notifications.
+        const route =
+          (data && typeof data === "object" && (data as any).route != null)
+            ? String((data as any).route)
+            : "";
+        if (route && route.startsWith("/")) {
+          router.replace(route as any);
+          return;
+        }
+
+        // Back-compat: older notifications used `screen`.
+        const screen =
+          (data && typeof data === "object" && (data as any).screen != null)
+            ? String((data as any).screen)
+            : "";
+        if (screen === "inventario") {
+          router.replace("/(drawer)/(tabs)/inventario" as any);
+        }
+
+        if (__DEV__) {
+          console.info("[push] response", content);
+        }
+      } catch (error) {
+        if (__DEV__) console.warn("[push] handleNotifResponse failed", error);
+      }
+    };
+
+    pushSubs.push(Notifications.addNotificationResponseReceivedListener(handleNotifResponse));
+    Notifications.getLastNotificationResponseAsync()
+      .then((r) => {
+        if (!alive || !r) return;
+        handleNotifResponse(r);
+      })
+      .catch((error) => {
+        if (__DEV__) console.warn("[push] getLastNotificationResponseAsync failed", error);
+      });
+
     if (__DEV__ && (Platform.OS === "ios" || Platform.OS === "android")) {
       pushSubs.push(
         Notifications.addNotificationReceivedListener((notification) => {
           console.info("[push] received", notification.request.content);
         })
       );
-
-      pushSubs.push(
-        Notifications.addNotificationResponseReceivedListener((response) => {
-          console.info("[push] response", response.notification.request.content);
-        })
-      );
     }
 
     const tryRegister = async () => {
-      const { data } = await supabase.auth.getSession();
-      const userId = data?.session?.user?.id;
-      if (!alive || !userId) return;
-      const result = await registerPushToken({ supabase, userId, debug: __DEV__ });
-      if (__DEV__) {
-        console.info("[push] registerPushToken:startup", result);
+      if (!alive) return;
+      try {
+        const result = await claimPushForCurrentSession(supabase, { reason: "startup" });
+        if (__DEV__) console.info("[push] claim:startup", result);
+      } catch (error) {
+        console.error("[push] claim:startup_error", error);
       }
     };
 
-    tryRegister().catch((error) => {
-      if (__DEV__) {
-        console.info("[push] registerPushToken:startup_error", error);
-      }
-    });
+    void tryRegister();
 
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      const userId = session?.user?.id;
-      if (!userId) return;
+    const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
+      // Only claim when we have a valid session.
+      if (event !== "SIGNED_IN" && event !== "TOKEN_REFRESHED" && event !== "USER_UPDATED") return;
+      if (!session?.user?.id) return;
       try {
-        const result = await registerPushToken({ supabase, userId, debug: __DEV__ });
-        if (__DEV__) {
-          console.info("[push] registerPushToken:auth_change", result);
-        }
+        const result = await claimPushForCurrentSession(supabase, {
+          forceUpsert: true,
+          reason: `auth:${event}`,
+        });
+        if (__DEV__) console.info("[push] claim:auth_change", { event, result });
       } catch (error) {
-        if (__DEV__) {
-          console.info("[push] registerPushToken:auth_change_error", error);
-        }
+        console.error("[push] claim:auth_change_error", { event, error });
       }
     });
 

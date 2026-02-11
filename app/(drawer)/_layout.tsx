@@ -12,7 +12,12 @@ import { StatusBar } from "expo-status-bar";
 import { router, useNavigation, usePathname } from "expo-router";
 import { DrawerActions, getFocusedRouteNameFromRoute } from "@react-navigation/native";
 import { supabase } from "../../lib/supabase";
-import { disablePushForThisDevice } from "../../lib/pushNotifications";
+import { useRole } from "../../lib/useRole";
+import {
+  beginPushLogoutGuard,
+  disablePushForThisDevice,
+  endPushLogoutGuard,
+} from "../../lib/pushNotifications";
 import { onSolicitudesChanged } from "../../lib/solicitudesEvents";
 import { useThemePref } from "../../lib/themePreference";
 import { alphaColor } from "../../lib/ui";
@@ -47,16 +52,23 @@ export default function DrawerLayout() {
     if (Platform.OS === "ios") {
       // Pequeno delay para asegurar que el drawer esta montado
       const timer = setTimeout(() => {
-        navigation.dispatch(DrawerActions.closeDrawer());
+        try {
+          const parent = (navigation as any)?.getParent?.();
+          const parentType = parent?.getState?.()?.type;
+          if (parentType === "drawer") {
+            parent.dispatch(DrawerActions.closeDrawer());
+          }
+        } catch {
+          // ignore
+        }
       }, 100);
 
       return () => clearTimeout(timer);
     }
-  }, []);
+  }, [navigation]);
 
   const [userName, setUserName] = useState<string>("");
-  const [isAdmin, setIsAdmin] = useState<boolean>(false);
-  const [role, setRole] = useState<string>("");
+  const { role, isAdmin, refreshRole } = useRole();
   const [solicitudesCount, setSolicitudesCount] = useState<number>(0);
 
   const header = getHeaderColors(isDark);
@@ -128,48 +140,44 @@ export default function DrawerLayout() {
       return fromMeta || guessNameFromEmail(u?.email);
     };
 
-    const normalizeUpper = (v: any) => String(v ?? "").trim().toUpperCase();
-
     const load = async () => {
       try {
-        const { data } = await supabase.auth.getUser();
-        const u = data?.user;
+        const { data } = await supabase.auth.getSession();
+        const u = data?.session?.user;
         const uid = u?.id;
         if (!uid) {
           if (alive) setUserName("");
-          if (alive) setIsAdmin(false);
           return;
         }
 
         // Preferir nombre de profiles si existe
         const { data: prof } = await supabase
           .from("profiles")
-          .select("full_name, role")
+          .select("full_name")
           .eq("id", uid)
           .maybeSingle();
         const n = pickNameFromProfile(prof) || pickNameFromUser(u);
         if (alive) setUserName(n);
-        const r = normalizeUpper(prof?.role);
-        if (alive) setRole(r);
-        if (alive) setIsAdmin(r === "ADMIN");
+
+        // Ensure role refresh when drawer mounts (non-blocking)
+        void refreshRole();
       } catch {
         if (!alive) return;
         try {
-          const { data } = await supabase.auth.getUser();
-          setUserName(pickNameFromUser(data?.user));
-          setIsAdmin(false);
-          setRole("");
+          const { data } = await supabase.auth.getSession();
+          setUserName(pickNameFromUser(data?.session?.user));
+          // role is managed centrally; never wipe it here.
+          if (data?.session?.user?.id) void refreshRole();
         } catch {
           setUserName("");
-          setIsAdmin(false);
-          setRole("");
         }
       }
     };
 
     load().catch(() => {});
 
-    const { data: sub } = supabase.auth.onAuthStateChange(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (__DEV__) console.log("[drawer] auth", { event });
       load().catch(() => {});
     });
 
@@ -177,7 +185,7 @@ export default function DrawerLayout() {
       alive = false;
       sub?.subscription?.unsubscribe();
     };
-  }, []);
+  }, [refreshRole]);
 
   // Mostrar "Solicitudes" solo a administradores.
   // Antes se mostraba también a VENTAS; cambiar para que solo ADMIN lo vea.
@@ -257,17 +265,21 @@ export default function DrawerLayout() {
   }, [userName]);
 
   const handleLogout = async () => {
+    beginPushLogoutGuard();
     try {
-      await disablePushForThisDevice();
-    } catch {
-      // never block logout
-    }
+      try {
+        // Must complete before signOut to keep RLS/auth valid.
+        await disablePushForThisDevice();
+      } catch {
+        // never block logout
+      }
 
-    try {
       await supabase.auth.signOut();
       router.replace("/login");
     } catch {
       // ignore logout errors for now
+    } finally {
+      endPushLogoutGuard();
     }
   };
 

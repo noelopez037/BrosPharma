@@ -35,6 +35,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCompraDraft } from "../lib/compraDraft";
+import { dispatchNotifs } from "../lib/notif-dispatch";
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
@@ -483,6 +484,10 @@ export default function CompraNuevaScreen() {
         });
         if (error) throw error;
 
+        void dispatchNotifs(20).catch((e: any) =>
+          __DEV__ ? console.warn("[notif] dispatch failed", e?.message ?? e) : undefined
+        );
+
         Alert.alert("Listo", "Compra actualizada", [
           {
             text: "OK",
@@ -495,6 +500,10 @@ export default function CompraNuevaScreen() {
           p_detalles: detalles,
         });
         if (error) throw error;
+
+        void dispatchNotifs(20).catch((e: any) =>
+          __DEV__ ? console.warn("[notif] dispatch failed", e?.message ?? e) : undefined
+        );
 
         Alert.alert("Listo", "Compra guardada!", [
           {
