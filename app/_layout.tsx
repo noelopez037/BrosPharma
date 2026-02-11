@@ -20,6 +20,7 @@ import { CompraDraftProvider } from "../lib/compraDraft";
 import { VentaDraftProvider } from "../lib/ventaDraft";
 import { ThemePrefProvider, useThemePref } from "../lib/themePreference";
 import { claimPushForCurrentSession } from "../lib/pushNotifications";
+import { parseVentaSolicitudAdminNotifData } from "../lib/pushPayload";
 import { supabase } from "../lib/supabase";
 import { makeNativeTheme } from "../src/theme/navigationTheme";
 import { getHeaderColors } from "../src/theme/headerColors";
@@ -61,28 +62,31 @@ function AppShell() {
         const content = req?.content;
         const data = content?.data as unknown;
 
-        const kind =
-          (data && typeof data === "object" && (data as any).kind != null)
-            ? String((data as any).kind)
+        const kindUp =
+          data && typeof data === "object" && data != null
+            ? String((data as any).kind ?? (data as any).type ?? "")
+                .trim()
+                .toUpperCase()
             : "";
 
-        if (kind === "VENTA_SOLICITUD_ADMIN") {
+        if (kindUp === "VENTA_SOLICITUD_ADMIN") {
           if (__DEV__) console.log("[notif] handled VENTA_SOLICITUD_ADMIN", data);
 
-          const to =
-            (data && typeof data === "object" && (data as any).to != null)
-              ? String((data as any).to)
-              : "/(drawer)/(tabs)/ventas";
+          const baseRouteRaw =
+            data && typeof data === "object" && (data as any).to != null ? String((data as any).to) : "";
+          const baseRoute = baseRouteRaw && baseRouteRaw.startsWith("/") ? baseRouteRaw : "/(drawer)/(tabs)/ventas";
+          router.replace(baseRoute as any);
 
-          router.replace((to && to.startsWith("/") ? to : "/(drawer)/(tabs)/ventas") as any);
+          const solicitud = parseVentaSolicitudAdminNotifData(data);
+          if (solicitud?.ventaId) {
+            const params: Record<string, string> = { ventaId: String(solicitud.ventaId) };
+            params.notif = "VENTA_SOLICITUD_ADMIN";
+            if (solicitud.accion) params.accion = String(solicitud.accion);
+            if (solicitud.nota) params.nota = String(solicitud.nota);
+            if (solicitud.clienteNombre) params.clienteNombre = String(solicitud.clienteNombre);
+            if (solicitud.vendedorCodigo) params.vendedorCodigo = String(solicitud.vendedorCodigo);
 
-          const ventaIdRaw =
-            (data && typeof data === "object" && (data as any).venta_id != null)
-              ? String((data as any).venta_id)
-              : "";
-          const ventaId = ventaIdRaw.trim();
-          if (ventaId) {
-            router.push({ pathname: "/venta-detalle", params: { ventaId } } as any);
+            router.push({ pathname: "/venta-detalle", params } as any);
           }
           return;
         }
@@ -106,9 +110,7 @@ function AppShell() {
           router.replace("/(drawer)/(tabs)/inventario" as any);
         }
 
-        if (__DEV__) {
-          console.info("[push] response", content);
-        }
+        if (__DEV__) console.info("[push] response", content);
       } catch (error) {
         if (__DEV__) console.warn("[push] handleNotifResponse failed", error);
       }
@@ -123,14 +125,6 @@ function AppShell() {
       .catch((error) => {
         if (__DEV__) console.warn("[push] getLastNotificationResponseAsync failed", error);
       });
-
-    if (__DEV__ && (Platform.OS === "ios" || Platform.OS === "android")) {
-      pushSubs.push(
-        Notifications.addNotificationReceivedListener((notification) => {
-          console.info("[push] received", notification.request.content);
-        })
-      );
-    }
 
     const tryRegister = async () => {
       if (!alive) return;

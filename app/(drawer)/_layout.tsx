@@ -388,7 +388,7 @@ export default function DrawerLayout() {
             return (
           <DrawerContentScrollView
             {...props}
-            contentContainerStyle={{ paddingBottom: 12, flexGrow: 1, justifyContent: "space-between", minHeight: "100%" }}
+            contentContainerStyle={{ paddingBottom: 24, flexGrow: 1, justifyContent: "space-between", minHeight: "100%" }}
           >
             <View>
             <View style={[styles.drawerHeader, { backgroundColor: drawerBg, borderBottomColor: drawerBorder }]}>
