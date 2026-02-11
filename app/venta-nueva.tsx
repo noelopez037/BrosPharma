@@ -28,6 +28,7 @@ import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
 import { useVentaDraft } from "../lib/ventaDraft";
 import { goBackSafe } from "../lib/goBackSafe";
+import { useRole } from "../lib/useRole";
 import { FB_DARK_DANGER } from "../src/theme/headerColors";
 
 const BUCKET_VENTAS_DOCS = "Ventas-Docs";
@@ -117,7 +118,7 @@ export default function VentaNuevaScreen() {
 
   const skipResetOnFocusRef = useRef(false);
   const loadedEditIdRef = useRef<string | null>(null);
-  const [role, setRole] = useState<Role>("");
+  const { role, isReady: roleReady, refreshRole } = useRole();
   const [saving, setSaving] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(false);
 
@@ -138,22 +139,11 @@ export default function VentaNuevaScreen() {
     [isEdit, originalQtyByProd]
   );
 
-  const loadRole = useCallback(async () => {
-    const { data: auth } = await supabase.auth.getUser();
-    const uid = auth.user?.id;
-    if (!uid) {
-      setRole("");
-      return;
-    }
-    const { data } = await supabase.from("profiles").select("role").eq("id", uid).maybeSingle();
-    setRole((normalizeUpper(data?.role) as Role) ?? "");
-  }, []);
-
   useFocusEffect(
     useCallback(() => {
       let alive = true;
       (async () => {
-        await loadRole();
+        void refreshRole();
         if (!alive) return;
       })().catch(() => {});
 
@@ -304,19 +294,21 @@ export default function VentaNuevaScreen() {
       return () => {
         alive = false;
       };
-    }, [addLinea, editId, isEdit, loadRole, reset, setCliente, setComentarios, setRecetaUri, updateLinea])
+    }, [addLinea, editId, isEdit, refreshRole, reset, setCliente, setComentarios, setRecetaUri, updateLinea])
   );
 
-  const canCreate = role === "VENTAS" || role === "ADMIN";
+  const roleUp = normalizeUpper(role) as Role;
+  const canCreate = roleUp === "VENTAS" || roleUp === "ADMIN";
   const canEditNow = !loadingEdit && !saving;
 
   React.useEffect(() => {
-    if (!role) return;
+    if (!roleReady) return;
+    if (!roleUp) return;
     if (canCreate) return;
     Alert.alert("Sin permiso", "Tu rol no puede crear ventas.", [
       { text: "OK", onPress: () => goBackSafe("/(drawer)/(tabs)/ventas") },
     ]);
-  }, [role, canCreate]);
+  }, [canCreate, roleReady, roleUp]);
 
   const lineValidation = useCallback(
     (l: any) => {

@@ -33,22 +33,20 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
-function tokenPreview(token: string): string {
-  const t = token.trim();
-  if (!t) return "<empty>";
-  if (t.length <= 12) return `${t.slice(0, 4)}...${t.slice(-2)}`;
-  return `${t.slice(0, 8)}...${t.slice(-4)}`;
-}
-
 function safeErrorMessage(e: unknown): string {
   const err = e as { message?: unknown; stack?: unknown };
   const msg = typeof err?.message === "string" ? err.message : String(e);
   return msg.slice(0, 1000);
 }
 
+function shortErrorMessage(e: unknown): string {
+  return safeErrorMessage(e).slice(0, 200);
+}
+
 type OutboxRow = {
   id: number | string;
   type: string;
+  ref_id?: unknown;
   payload: unknown;
 };
 
@@ -79,7 +77,7 @@ async function expoSend(messages: ExpoPushMessage[]): Promise<{ ok: true } | { o
   if (expoAccessToken) headers.authorization = `Bearer ${expoAccessToken}`;
 
   const batches = chunk(messages, 100);
-  const bad: Array<{ to: string; message: string }> = [];
+  const bad: Array<{ message: string }> = [];
 
   for (const batch of batches) {
     const res = await fetch("https://exp.host/--/api/v2/push/send", {
@@ -112,18 +110,18 @@ async function expoSend(messages: ExpoPushMessage[]): Promise<{ ok: true } | { o
     for (let i = 0; i < data.length; i++) {
       const t = data[i] as ExpoTicket;
       if (!t || (t.status !== "ok" && t.status !== "error")) {
-        bad.push({ to: batch[i].to, message: "INVALID_TICKET" });
+        bad.push({ message: "INVALID_TICKET" });
         continue;
       }
       if (t.status !== "ok") {
-        bad.push({ to: batch[i].to, message: t.message ?? "EXPO_ERROR" });
+        bad.push({ message: t.message ?? "EXPO_ERROR" });
       }
     }
   }
 
   if (bad.length > 0) {
-    const preview = bad.slice(0, 5).map((b) => `${tokenPreview(b.to)}:${b.message}`).join(", ");
-    return { ok: false, error: `EXPO_TICKET_ERROR count=${bad.length} sample=[${preview}]` };
+    const sample = bad.slice(0, 5).map((b) => b.message).join(", ");
+    return { ok: false, error: `EXPO_TICKET_ERROR count=${bad.length} sample=[${sample}]` };
   }
 
   return { ok: true };
@@ -199,6 +197,61 @@ async function fetchExpoTokensForUsers(ctx: SupabaseCtx, userIds: string[]): Pro
   return Array.from(new Set(tokens));
 }
 
+async function fetchExpoTokensForUsersDedupeDevice(ctx: SupabaseCtx, userIds: string[]): Promise<string[]> {
+  if (userIds.length === 0) return [];
+
+  // Dedupe by (user_id, device_id). Also avoid sending to rows missing device_id.
+  const pickedByDevice = new Map<string, string>();
+
+  for (const idBatch of chunk(userIds, 500)) {
+    const qs = new URLSearchParams();
+    qs.set("select", "expo_token,user_id,device_id");
+    qs.append("user_id", `in.(${idBatch.join(",")})`);
+    qs.append("enabled", "eq.true");
+    qs.append("device_id", "not.is.null");
+    qs.append("expo_token", "not.is.null");
+    qs.append("expo_token", "neq.");
+
+    const res = await sbFetch(ctx, `/rest/v1/user_push_tokens?${qs.toString()}`, { method: "GET" });
+    const rows = await sbJson<Array<{ expo_token: string; user_id: string; device_id: string }>>(res);
+    for (const r of rows) {
+      const uid = typeof r?.user_id === "string" ? r.user_id.trim() : "";
+      const did = typeof r?.device_id === "string" ? r.device_id.trim() : "";
+      const tok = typeof r?.expo_token === "string" ? r.expo_token.trim() : "";
+      if (!uid || !did || !tok) continue;
+
+      const key = `${uid}:${did}`;
+      if (!pickedByDevice.has(key)) pickedByDevice.set(key, tok);
+    }
+  }
+
+  return Array.from(new Set(Array.from(pickedByDevice.values())));
+}
+
+function coerceVentaId(row: OutboxRow): string {
+  const ref = (row as { ref_id?: unknown })?.ref_id;
+  if (typeof ref === "number" && Number.isFinite(ref)) return String(Math.trunc(ref));
+  if (typeof ref === "string" && ref.trim()) return ref.trim();
+
+  const payload = (row as { payload?: unknown })?.payload;
+  const p = (payload && typeof payload === "object") ? (payload as JsonRecord) : {};
+  const v = p.venta_id;
+  if (typeof v === "number" && Number.isFinite(v)) return String(Math.trunc(v));
+  if (typeof v === "string" && v.trim()) return v.trim();
+
+  throw new Error("MISSING_VENTA_ID");
+}
+
+function rpcBigintArg(ventaId: string): number | string {
+  // Prefer number when safe; otherwise fall back to string (PostgREST will attempt to cast).
+  const s = ventaId.trim();
+  if (/^\d{1,15}$/.test(s)) {
+    const n = Number(s);
+    if (Number.isFinite(n)) return n;
+  }
+  return s;
+}
+
 // @ts-ignore - Deno global
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return json({ ok: true });
@@ -247,8 +300,7 @@ Deno.serve(async (req: Request) => {
     const userIds = cachedDestinatarios.map((d) => d.user_id).filter((x) => typeof x === "string" && x.length > 0);
     cachedTokens = await fetchExpoTokensForUsers(ctx, userIds);
 
-    console.log("[notif-dispatch] destinatarios", userIds.length, "tokens", cachedTokens.length);
-    if (cachedTokens.length > 0) console.log("[notif-dispatch] token_preview", tokenPreview(cachedTokens[0]));
+    console.log("[notif-dispatch] venta_nuevos", "destinatarios", userIds.length, "tokens", cachedTokens.length);
     return cachedTokens;
   };
 
@@ -262,43 +314,105 @@ Deno.serve(async (req: Request) => {
     if (!id) continue;
 
     try {
-      if (type !== "VENTA_VISIBLE_NUEVOS") {
+      if (type === "VENTA_VISIBLE_NUEVOS") {
+        const tokens = await getTokensForVentaNuevos();
+        console.log("[notif-dispatch] dispatch", type, "outbox", id, "tokens", tokens.length);
+
+        if (tokens.length > 0) {
+          const p = (payload && typeof payload === "object") ? (payload as JsonRecord) : {};
+          const clienteNombre = typeof p.cliente_nombre === "string" ? p.cliente_nombre.trim() : "";
+
+          const messages: ExpoPushMessage[] = tokens.map((to) => ({
+            to,
+            title: "Nueva venta",
+            body: clienteNombre || "Venta nueva",
+            sound: "default",
+            badge: 1,
+            data: payload,
+          }));
+
+          const sendRes = await expoSend(messages);
+          if (!sendRes.ok) throw new Error(sendRes.error);
+        }
+
         await sbRpc(ctx, "rpc_notif_outbox_mark_processed", { p_id: id });
         result.processed++;
         continue;
       }
 
-      const tokens = await getTokensForVentaNuevos();
-      if (tokens.length === 0) {
+      if (type === "VENTA_FACTURADA") {
+        const ventaId = coerceVentaId(row);
+
+        const outbox: any = row as any;
+        const clienteNombreFromPayload = String(outbox?.payload?.cliente_nombre ?? "").trim();
+        let clienteNombreFromDb = "";
+
+        if (!clienteNombreFromPayload) {
+          try {
+            const qs = new URLSearchParams();
+            qs.set("select", "cliente_nombre");
+            qs.append("id", `eq.${ventaId}`);
+            qs.set("limit", "1");
+
+            const res = await sbFetch(ctx, `/rest/v1/ventas?${qs.toString()}`, { method: "GET" });
+            const ventaRows = await sbJson<Array<{ cliente_nombre?: unknown }>>(res);
+            const ventaRow = Array.isArray(ventaRows) ? ventaRows[0] : null;
+            clienteNombreFromDb = String(ventaRow?.cliente_nombre ?? "").trim();
+          } catch {
+            // ignore; fall back to generic copy
+          }
+        }
+
+        const clienteNombre = clienteNombreFromPayload || clienteNombreFromDb;
+        const body = clienteNombre ? `La factura para ${clienteNombre} está lista.` : "La factura está lista.";
+
+        const dest = await sbRpc<Array<{ user_id: string; role: string }>>(ctx, "rpc_notif_destinatarios_venta_facturada", {
+          p_venta_id: rpcBigintArg(ventaId),
+        });
+        const destinatarios = (Array.isArray(dest) ? dest : []) as Array<{ user_id: string; role: string }>;
+        const userIds = Array.from(
+          new Set(
+            destinatarios
+              .map((d) => d.user_id)
+              .filter((x) => typeof x === "string" && x.trim().length > 0)
+              .map((x) => x.trim())
+          )
+        );
+
+        const tokens = await fetchExpoTokensForUsersDedupeDevice(ctx, userIds);
+        console.log("[notif-dispatch] dispatch", type, "outbox", id, "tokens", tokens.length);
+
+        if (tokens.length > 0) {
+          const data = { type: "VENTA_FACTURADA", venta_id: ventaId };
+          const messages: ExpoPushMessage[] = tokens.map((to) => ({
+            to,
+            title: "Venta facturada",
+            body,
+            sound: "default",
+            badge: 1,
+            data,
+          }));
+
+          const sendRes = await expoSend(messages);
+          if (!sendRes.ok) throw new Error(sendRes.error);
+        }
+
         await sbRpc(ctx, "rpc_notif_outbox_mark_processed", { p_id: id });
         result.processed++;
         continue;
       }
 
-      const p = (payload && typeof payload === "object") ? (payload as JsonRecord) : {};
-      const clienteNombre = typeof p.cliente_nombre === "string" ? p.cliente_nombre.trim() : "";
-
-      const messages: ExpoPushMessage[] = tokens.map((to) => ({
-        to,
-        title: "Nueva venta",
-        body: clienteNombre || "Venta nueva",
-        sound: "default",
-        badge: 1,
-        data: payload,
-      }));
-
-      const sendRes = await expoSend(messages);
-      if (!sendRes.ok) throw new Error(sendRes.error);
-
+      // Unknown/unsupported type: mark processed to avoid stuck items.
       await sbRpc(ctx, "rpc_notif_outbox_mark_processed", { p_id: id });
       result.processed++;
     } catch (e) {
       const errMsg = safeErrorMessage(e);
-      console.error("[notif-dispatch] outbox_failed", id, errMsg);
-      result.errors.push({ outbox_id: id, error: errMsg });
+      const markMsg = shortErrorMessage(e);
+      console.error("[notif-dispatch] outbox_failed", type, id, errMsg);
+      result.errors.push({ outbox_id: id, error: markMsg });
 
       try {
-        await sbRpc(ctx, "rpc_notif_outbox_mark_error", { p_id: id, p_error: errMsg });
+        await sbRpc(ctx, "rpc_notif_outbox_mark_error", { p_id: id, p_error: markMsg });
       } catch (markErr) {
         console.error("[notif-dispatch] mark_error_failed", id, safeErrorMessage(markErr));
       }

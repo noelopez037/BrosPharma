@@ -29,10 +29,12 @@ import { AppButton } from "../components/ui/app-button";
 import { KeyboardAwareModal } from "../components/ui/keyboard-aware-modal";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
 import { goBackSafe } from "../lib/goBackSafe";
+import { dispatchNotifs } from "../lib/notif-dispatch";
 import { emitSolicitudesChanged } from "../lib/solicitudesEvents";
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
+import { useRole } from "../lib/useRole";
 import { FB_DARK_DANGER } from "../src/theme/headerColors";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
@@ -332,7 +334,8 @@ export default function VentaDetalleScreen() {
     [colors.background, colors.border, colors.card, colors.text, isDark]
   );
 
-  const [role, setRole] = useState<Role>("");
+  const { role, refreshRole } = useRole();
+  const roleUp = normalizeUpper(role) as Role;
   const [venta, setVenta] = useState<Venta | null>(null);
   const [clienteMini, setClienteMini] = useState<ClienteMini | null>(null);
   const [lineas, setLineas] = useState<DetalleRow[]>([]);
@@ -358,19 +361,19 @@ export default function VentaDetalleScreen() {
   const [enRutaLoading, setEnRutaLoading] = useState(false);
   const [entregarLoading, setEntregarLoading] = useState(false);
 
-  const canViewRecetaTools = role === "ADMIN" || role === "FACTURACION" || role === "VENTAS";
+  const canViewRecetaTools = roleUp === "ADMIN" || roleUp === "FACTURACION" || roleUp === "VENTAS";
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerUrl, setViewerUrl] = useState<string | null>(null);
   const viewerOpacity = useRef(new Animated.Value(0)).current;
   const viewerScale = useRef(new Animated.Value(0.98)).current;
 
-  const canSplitIva = role === "ADMIN" || role === "FACTURACION";
-  const canEditRecetas = role === "ADMIN" || role === "VENTAS";
-  const canFacturar = role === "ADMIN" || role === "FACTURACION";
-  const canVerFacturas = role === "ADMIN" || role === "FACTURACION" || role === "VENTAS";
-  const canBodega = role === "ADMIN" || role === "BODEGA";
-  const canEntregar = role === "ADMIN" || role === "BODEGA" || role === "VENTAS";
-  const canSolicitar = role === "VENTAS" || role === "ADMIN";
+  const canSplitIva = roleUp === "ADMIN" || roleUp === "FACTURACION";
+  const canEditRecetas = roleUp === "ADMIN" || roleUp === "VENTAS";
+  const canFacturar = roleUp === "ADMIN" || roleUp === "FACTURACION";
+  const canVerFacturas = roleUp === "ADMIN" || roleUp === "FACTURACION" || roleUp === "VENTAS";
+  const canBodega = roleUp === "ADMIN" || roleUp === "BODEGA";
+  const canEntregar = roleUp === "ADMIN" || roleUp === "BODEGA" || roleUp === "VENTAS";
+  const canSolicitar = roleUp === "VENTAS" || roleUp === "ADMIN";
 
   // When venta status changes (after actions), return to Ventas list.
   const lastEstadoRef = useRef<string | null>(null);
@@ -467,19 +470,6 @@ export default function VentaDetalleScreen() {
       setSolicitudAnulacionByName(null);
     }
   }, [ventaId]);
-
-  const loadRole = useCallback(async (): Promise<Role> => {
-    const { data: auth } = await supabase.auth.getUser();
-    const uid = auth.user?.id;
-    if (!uid) {
-      setRole("");
-      return "";
-    }
-    const { data } = await supabase.from("profiles").select("role").eq("id", uid).maybeSingle();
-    const r = (normalizeUpper(data?.role) as Role) ?? "";
-    setRole(r);
-    return r;
-  }, []);
 
   const fetchVenta = useCallback(async () => {
     const { data, error } = await supabase
@@ -588,7 +578,7 @@ export default function VentaDetalleScreen() {
       return;
     }
 
-    const r = await loadRole();
+    const r = (normalizeUpper(await refreshRole()) as Role) ?? "";
     const allowSplit = r === "ADMIN" || r === "FACTURACION";
     await Promise.all([
       fetchVenta(),
@@ -601,7 +591,7 @@ export default function VentaDetalleScreen() {
         setSolicitudAnulacion(null);
       }),
     ]);
-  }, [fetchFacturas, fetchLineas, fetchRecetas, fetchSolicitudAnulacion, fetchTags, fetchVenta, loadRole, ventaId]);
+  }, [fetchFacturas, fetchLineas, fetchRecetas, fetchSolicitudAnulacion, fetchTags, fetchVenta, refreshRole, ventaId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1086,6 +1076,8 @@ export default function VentaDetalleScreen() {
       });
       if (error) throw error;
 
+      void dispatchNotifs(20).catch((e: any) => console.warn("[notif] dispatch failed", e?.message ?? e));
+
       Alert.alert("Listo", "Venta facturada.");
       await fetchVenta();
       await fetchFacturas();
@@ -1216,7 +1208,7 @@ export default function VentaDetalleScreen() {
   );
 
   const canAnular =
-    (role === "ADMIN" || role === "FACTURACION") &&
+    (roleUp === "ADMIN" || roleUp === "FACTURACION") &&
     !anulada &&
     anulacionRequerida &&
     normalizeUpper(venta?.estado) === "FACTURADO";
@@ -1309,7 +1301,7 @@ export default function VentaDetalleScreen() {
       if (error) throw error;
 
       // ADMIN: auto-aprobar (no requiere aprobacion manual)
-      if (role === "ADMIN") {
+      if (roleUp === "ADMIN") {
         const { error: ae } = await supabase.rpc("rpc_admin_resolver_solicitud", {
           p_venta_id: Number(venta.id),
           p_decision: "APROBAR",
@@ -1323,13 +1315,13 @@ export default function VentaDetalleScreen() {
       emitSolicitudesChanged();
       await fetchVenta();
       await fetchTags();
-      Alert.alert("Listo", role === "ADMIN" ? "Solicitud aprobada." : "Solicitud enviada.");
+      Alert.alert("Listo", roleUp === "ADMIN" ? "Solicitud aprobada." : "Solicitud enviada.");
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo enviar la solicitud");
     } finally {
       setSolSending(false);
     }
-  }, [canSolicitar, fetchTags, fetchVenta, role, solAccion, solNota, solSending, venta]);
+  }, [canSolicitar, fetchTags, fetchVenta, roleUp, solAccion, solNota, solSending, venta]);
 
   const deleteReceta = useCallback(
     async (r: RecetaItem) => {

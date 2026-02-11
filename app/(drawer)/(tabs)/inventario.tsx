@@ -16,6 +16,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../../lib/supabase";
 import { ProductoModalContent } from "../../../components/producto/ProductoModalContent";
+import { useRole } from "../../../lib/useRole";
 
 type Row = {
   id: number;
@@ -90,7 +91,7 @@ export default function InventarioScreen() {
   const [q, setQ] = useState("");
   const debouncedQ = useDebouncedValue(normalizeQuery(q), 300);
 
-  const [isAdmin, setIsAdmin] = useState(false);
+  const { role, isAdmin, isReady: roleReady, refreshRole } = useRole();
   const [showInactive, setShowInactive] = useState(false);
 
   const [rows, setRows] = useState<Row[]>([]);
@@ -111,49 +112,20 @@ export default function InventarioScreen() {
   // Roles: toggle de inactivos SOLO para admin
   useFocusEffect(
     useCallback(() => {
-      let mounted = true;
-
-      const loadRole = async () => {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        const uid = session?.user?.id ?? null;
-        if (!uid) {
-          if (!mounted) return;
-          setIsAdmin(false);
-          setShowInactive(false);
-          return;
-        }
-
-        const { data: prof } = await supabase.from("profiles").select("role").eq("id", uid).maybeSingle();
-        const roleUp = String(prof?.role ?? "").trim().toUpperCase();
-
-        if (roleUp === "FACTURACION") {
-          if (!mounted) return;
-          setIsAdmin(false);
-          setShowInactive(false);
-          router.replace("/ventas" as any);
-          return;
-        }
-
-        const admin = roleUp === "ADMIN";
-
-        if (!mounted) return;
-        setIsAdmin(admin);
-        if (!admin) setShowInactive(false);
-      };
-
-      loadRole().catch(() => {
-        if (!mounted) return;
-        setIsAdmin(false);
-        setShowInactive(false);
-      });
-
-      return () => {
-        mounted = false;
-      };
-    }, [])
+      void refreshRole();
+      return () => {};
+    }, [refreshRole])
   );
+
+  React.useEffect(() => {
+    if (!roleReady) return;
+    if (role === "FACTURACION") {
+      setShowInactive(false);
+      router.replace("/ventas" as any);
+      return;
+    }
+    if (!isAdmin) setShowInactive(false);
+  }, [isAdmin, role, roleReady]);
 
   // ✅ Limpiar buscador al SALIR de la pantalla (cuando pierde foco)
   useFocusEffect(
