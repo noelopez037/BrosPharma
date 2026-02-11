@@ -1,4 +1,4 @@
-import { useTheme } from "@react-navigation/native";
+import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
+import { useRole } from "../lib/useRole";
 import { AppButton } from "../components/ui/app-button";
 import { KeyboardAwareModal } from "../components/ui/keyboard-aware-modal";
 import { DoneAccessory } from "../components/ui/done-accessory";
@@ -70,12 +71,17 @@ export default function ClienteForm() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const [uid, setUid] = useState<string | null>(null);
-  const [role, setRole] = useState<Role>("");
+  const { role, uid, isReady, refreshRole } = useRole();
+  const roleUp = String(role ?? "").trim().toUpperCase() as Role;
+  const isAdmin = isReady && roleUp === "ADMIN";
+  const isVendedor = isReady && roleUp === "VENTAS";
+  const canEdit = isReady && (roleUp === "ADMIN" || roleUp === "VENTAS");
 
-  const isAdmin = role === "ADMIN";
-  const isVendedor = role === "VENTAS";
-  const canEdit = role === "ADMIN" || role === "VENTAS";
+  useFocusEffect(
+    useCallback(() => {
+      void refreshRole("focus:cliente-form");
+    }, [refreshRole])
+  );
 
   const [nombre, setNombre] = useState("");
   const [nit, setNit] = useState("");
@@ -110,21 +116,6 @@ export default function ClienteForm() {
     const r = normalizeUpper(v?.role);
     return n ? `${n}${r ? ` • ${r}` : ""}` : vendedorId;
   }, [isAdmin, vendedorId, vendedores]);
-
-  const loadContext = useCallback(async () => {
-    const { data: auth } = await supabase.auth.getUser();
-    const u = auth.user;
-    const userId = u?.id ?? null;
-    setUid(userId);
-
-    if (!userId) {
-      setRole("");
-      return;
-    }
-
-    const { data: prof } = await supabase.from("profiles").select("role").eq("id", userId).maybeSingle();
-    setRole(normalizeUpper(prof?.role) as Role);
-  }, []);
 
   const loadVendedores = useCallback(async () => {
     if (!isAdmin) {
@@ -165,22 +156,7 @@ export default function ClienteForm() {
   }, [editingId, isEditing]);
 
   useEffect(() => {
-    let alive = true;
-    (async () => {
-      setLoading(true);
-      try {
-        await loadContext();
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [loadContext]);
-
-  useEffect(() => {
-    if (!role) return;
+    if (!isReady) return;
 
     // Si no puede editar, salimos
     if (!canEdit) {
@@ -191,18 +167,18 @@ export default function ClienteForm() {
 
     // vendedor: siempre asignado a si mismo
     if (isVendedor && uid) setVendedorId(uid);
-  }, [canEdit, isVendedor, role, uid]);
+  }, [canEdit, isReady, isVendedor, uid]);
 
   useEffect(() => {
-    if (!role) return;
+    if (!isReady) return;
     // Cargar lista de vendedores SOLO para admin
     loadVendedores().catch(() => {
       setVendedores([]);
     });
-  }, [loadVendedores, role]);
+  }, [isReady, loadVendedores]);
 
   useEffect(() => {
-    if (!role) return;
+    if (!isReady) return;
     // Cargar cliente al editar
     setLoading(true);
     loadCliente()
@@ -210,7 +186,7 @@ export default function ClienteForm() {
         Alert.alert("Error", e?.message ?? "No se pudo cargar el cliente");
       })
       .finally(() => setLoading(false));
-  }, [loadCliente, role]);
+  }, [isReady, loadCliente]);
 
   const onSave = useCallback(async () => {
     if (!canEdit) return;

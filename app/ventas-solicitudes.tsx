@@ -14,14 +14,15 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppButton } from "../components/ui/app-button";
+import { RoleGate } from "../components/auth/RoleGate";
 import { emitSolicitudesChanged } from "../lib/solicitudesEvents";
 import { navigateToVentaFromNotif } from "../lib/notifNavigation";
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
 import { useGoHomeOnBack } from "../lib/useGoHomeOnBack";
-import { goHome } from "../lib/goHome";
 import { FB_DARK_DANGER } from "../src/theme/headerColors";
+import { useRole } from "../lib/useRole";
 
 type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "";
 
@@ -100,28 +101,17 @@ export default function VentasSolicitudesScreen() {
     [colors.background, colors.border, colors.card, colors.text, isDark]
   );
 
-  const [role, setRole] = useState<Role>("");
+  const { role, isReady, refreshRole } = useRole();
+
+  const roleUp = normalizeUpper(role) as Role;
+  const canView = isReady && roleUp === "ADMIN";
+  const canResolve = isReady && roleUp === "ADMIN";
   const [q, setQ] = useState("");
 
   const [rowsRaw, setRowsRaw] = useState<SolicitudRow[]>([]);
   const [vendedoresById, setVendedoresById] = useState<Record<string, { codigo: string | null; nombre: string | null }>>({});
   const [initialLoading, setInitialLoading] = useState(true);
   const [actingVentaId, setActingVentaId] = useState<number | null>(null);
-
-  const canView = role === "ADMIN";
-  const canResolve = role === "ADMIN";
-
-  const loadRole = useCallback(async () => {
-    const { data: auth } = await supabase.auth.getUser();
-    const uid = auth.user?.id;
-    if (!uid) {
-      setRole("");
-      return;
-    }
-
-    const { data } = await supabase.from("profiles").select("role").eq("id", uid).maybeSingle();
-    setRole((normalizeUpper(data?.role) as Role) ?? "");
-  }, []);
 
   const fetchSolicitudes = useCallback(async () => {
     const { data, error } = await supabase
@@ -137,27 +127,12 @@ export default function VentasSolicitudesScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      let alive = true;
-      (async () => {
-        await loadRole();
-        if (!alive) return;
-      })().catch(() => {});
-
-      return () => {
-        alive = false;
-      };
-    }, [loadRole])
+      void refreshRole("focus:ventas-solicitudes");
+    }, [refreshRole])
   );
 
   useEffect(() => {
-    if (!role) return;
-    if (!canView) {
-      Alert.alert("Sin permiso", "Tu rol no puede ver solicitudes.", [
-        { text: "OK", onPress: () => goHome("/(drawer)/(tabs)") },
-      ]);
-      return;
-    }
-
+    if (!isReady || roleUp !== "ADMIN") return;
     let alive = true;
     (async () => {
       try {
@@ -173,7 +148,7 @@ export default function VentasSolicitudesScreen() {
     return () => {
       alive = false;
     };
-  }, [role, canView, fetchSolicitudes]);
+  }, [canView, fetchSolicitudes, isReady, roleUp]);
 
   const rows = useMemo(() => {
     const search = q.trim().toLowerCase();
@@ -302,122 +277,123 @@ export default function VentasSolicitudesScreen() {
         }}
       />
 
-      <SafeAreaView style={[styles.safe, { backgroundColor: C.bg }]} edges={["bottom"]}>
-        <View style={[styles.content, { backgroundColor: C.bg }]}>
-          <TextInput
-            value={q}
-            onChangeText={setQ}
-            placeholder="Buscar (cliente, id, nota)..."
-            placeholderTextColor={C.sub}
-            style={[styles.search, { borderColor: C.border, backgroundColor: C.card, color: C.text }]}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
+      <RoleGate allow={["ADMIN"]} deniedText="Solo ADMIN puede ver solicitudes." backHref="/(drawer)/(tabs)">
+        <SafeAreaView style={[styles.safe, { backgroundColor: C.bg }]} edges={["bottom"]}>
+          <View style={[styles.content, { backgroundColor: C.bg }]}>
+            <TextInput
+              value={q}
+              onChangeText={setQ}
+              placeholder="Buscar (cliente, id, nota)..."
+              placeholderTextColor={C.sub}
+              style={[styles.search, { borderColor: C.border, backgroundColor: C.card, color: C.text }]}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
 
-        </View>
+          <FlatList
+            data={rows}
+            keyExtractor={(it) => String(it.venta_id)}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets
+            contentContainerStyle={{ paddingBottom: 24, paddingTop: 4 }}
+            renderItem={({ item }) => {
+              const tone = actionTone(item.solicitud_accion);
+              const pillBg = tone === "red" ? C.pillRedBg : C.pillAmberBg;
+              const pillText = tone === "red" ? C.danger : C.amber;
+              const isActing = actingVentaId === Number(item.venta_id);
 
-        <FlatList
-          data={rows}
-          keyExtractor={(it) => String(it.venta_id)}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          automaticallyAdjustKeyboardInsets
-          contentContainerStyle={{ paddingBottom: 24, paddingTop: 4 }}
-          renderItem={({ item }) => {
-            const tone = actionTone(item.solicitud_accion);
-            const pillBg = tone === "red" ? C.pillRedBg : C.pillAmberBg;
-            const pillText = tone === "red" ? C.danger : C.amber;
-            const isActing = actingVentaId === Number(item.venta_id);
+              const vendor = vendedoresById[String(item.vendedor_id ?? "")] ?? null;
+              const vendorCode = String(vendor?.codigo ?? "").trim();
 
-            const vendor = vendedoresById[String(item.vendedor_id ?? "")] ?? null;
-            const vendorCode = String(vendor?.codigo ?? "").trim();
+              const openVenta = () => {
+                navigateToVentaFromNotif(router as any, Number(item.venta_id), {
+                  ensureBaseRoute: false,
+                  notif: "VENTA_SOLICITUD_ADMIN",
+                  accion: item.solicitud_accion,
+                  nota: item.solicitud_nota,
+                  clienteNombre: item.cliente_nombre,
+                  vendedorCodigo: vendorCode || null,
+                });
+              };
 
-            const openVenta = () => {
-              navigateToVentaFromNotif(router as any, Number(item.venta_id), {
-                ensureBaseRoute: false,
-                notif: "VENTA_SOLICITUD_ADMIN",
-                accion: item.solicitud_accion,
-                nota: item.solicitud_nota,
-                clienteNombre: item.cliente_nombre,
-                vendedorCodigo: vendorCode || null,
-              });
-            };
+              return (
+                <View style={{ marginHorizontal: 16, marginTop: 12 }}>
+                  <Pressable
+                    onPress={openVenta}
+                    style={({ pressed }) => [
+                      styles.cardItem,
+                      { borderColor: C.border, backgroundColor: C.card },
+                      pressed ? { opacity: 0.92 } : null,
+                    ]}
+                  >
+                    <View style={styles.rowTop}>
+                      <View style={[styles.pill, { backgroundColor: pillBg, borderColor: C.border }]}>
+                        <Text style={[styles.pillText, { color: pillText }]}>{actionLabel(item.solicitud_accion)}</Text>
+                      </View>
+                      <Text style={[styles.meta, { color: C.sub }]}>{fmtDateTime(item.solicitud_at)}</Text>
+                    </View>
 
-            return (
-              <View style={{ marginHorizontal: 16, marginTop: 12 }}>
-                <Pressable
-                  onPress={openVenta}
-                  style={({ pressed }) => [
-                    styles.cardItem,
-                    { borderColor: C.border, backgroundColor: C.card },
-                    pressed ? { opacity: 0.92 } : null,
-                  ]}
-                >
-                <View style={styles.rowTop}>
-                  <View style={[styles.pill, { backgroundColor: pillBg, borderColor: C.border }]}>
-                    <Text style={[styles.pillText, { color: pillText }]}>{actionLabel(item.solicitud_accion)}</Text>
-                  </View>
-                  <Text style={[styles.meta, { color: C.sub }]}>{fmtDateTime(item.solicitud_at)}</Text>
+                    <Text style={[styles.title, { color: C.text }]} numberOfLines={1}>
+                      {item.cliente_nombre ?? "—"}
+                    </Text>
+                    <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
+                      Venta #{item.venta_id} • Estado: {item.estado ?? "—"}
+                    </Text>
+
+                    {item.solicitud_tag ? (
+                      <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
+                        Tag: {String(item.solicitud_tag)}
+                      </Text>
+                    ) : null}
+
+                    {item.vendedor_id ? (
+                      <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
+                        Vendedor: {(() => {
+                          const code = vendorCode;
+                          const name = String(vendor?.nombre ?? "").trim();
+                          if (code) return code;
+                          if (name) return name;
+                          return String(item.vendedor_id).slice(0, 8);
+                        })()}
+                      </Text>
+                    ) : null}
+
+                    {!!item.solicitud_nota ? (
+                      <Text style={[styles.note, { color: C.text }]}>{item.solicitud_nota}</Text>
+                    ) : null}
+
+                    {!canResolve ? null : (
+                      <View style={styles.btnRow}>
+                        <AppButton
+                          title={isActing ? "..." : "Aprobar"}
+                          size="sm"
+                          onPress={() => confirmResolve(Number(item.venta_id), "APROBAR")}
+                          disabled={isActing}
+                        />
+                        <View style={{ width: 10 }} />
+                        <AppButton
+                          title={isActing ? "..." : "Rechazar"}
+                          size="sm"
+                          variant="outline"
+                          onPress={() => confirmResolve(Number(item.venta_id), "RECHAZAR")}
+                          disabled={isActing}
+                        />
+                      </View>
+                    )}
+                  </Pressable>
                 </View>
-
-                <Text style={[styles.title, { color: C.text }]} numberOfLines={1}>
-                  {item.cliente_nombre ?? "—"}
-                </Text>
-                  <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
-                    Venta #{item.venta_id} • Estado: {item.estado ?? "—"}
-                  </Text>
-
-                {item.solicitud_tag ? (
-                  <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
-                    Tag: {String(item.solicitud_tag)}
-                  </Text>
-                ) : null}
-
-                {item.vendedor_id ? (
-                  <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
-                    Vendedor: {(() => {
-                      const code = vendorCode;
-                      const name = String(vendor?.nombre ?? "").trim();
-                      if (code) return code;
-                      if (name) return name;
-                      return String(item.vendedor_id).slice(0, 8);
-                    })()}
-                  </Text>
-                ) : null}
-
-                {!!item.solicitud_nota ? (
-                  <Text style={[styles.note, { color: C.text }]}>{item.solicitud_nota}</Text>
-                ) : null}
-
-                {!canResolve ? null : (
-                  <View style={styles.btnRow}>
-                    <AppButton
-                      title={isActing ? "..." : "Aprobar"}
-                      size="sm"
-                      onPress={() => confirmResolve(Number(item.venta_id), "APROBAR")}
-                      disabled={isActing}
-                    />
-                    <View style={{ width: 10 }} />
-                    <AppButton
-                      title={isActing ? "..." : "Rechazar"}
-                      size="sm"
-                      variant="outline"
-                      onPress={() => confirmResolve(Number(item.venta_id), "RECHAZAR")}
-                      disabled={isActing}
-                    />
-                  </View>
-                )}
-                </Pressable>
-              </View>
-            );
-          }}
-          ListEmptyComponent={
-            <Text style={{ padding: 16, color: C.sub, fontWeight: "700" }}>
-              {initialLoading ? "Cargando..." : "Sin solicitudes pendientes"}
-            </Text>
-          }
-        />
-      </SafeAreaView>
+              );
+            }}
+            ListEmptyComponent={
+              <Text style={{ padding: 16, color: C.sub, fontWeight: "700" }}>
+                {initialLoading ? "Cargando..." : "Sin solicitudes pendientes"}
+              </Text>
+            }
+          />
+        </SafeAreaView>
+      </RoleGate>
     </>
   );
 }

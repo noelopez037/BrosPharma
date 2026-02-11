@@ -15,10 +15,11 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppButton } from "../../components/ui/app-button";
-import { goHome } from "../../lib/goHome";
+import { RoleGate } from "../../components/auth/RoleGate";
 import { supabase } from "../../lib/supabase";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useThemePref } from "../../lib/themePreference";
+import { useRole } from "../../lib/useRole";
 
 type RpcComisionRow = {
   vendedor_id: string | null;
@@ -125,35 +126,17 @@ export default function ComisionesScreen() {
     [isDark, colors.primary]
   );
 
-  // role and uid
-  const [role, setRole] = useState<string>("");
-  const [roleChecked, setRoleChecked] = useState(false);
-  const [uid, setUid] = useState<string | null>(null);
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const { data: auth } = await supabase.auth.getUser();
-        const user = auth.user;
-        if (!user) return;
-        if (mounted) setUid(user.id);
-        const { data } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
-        if (mounted) setRole(normalizeUpper(data?.role));
-      } catch {
-        if (mounted) setRole("");
-      } finally {
-        if (mounted) setRoleChecked(true);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
+  const { role, uid, isReady, refreshRole } = useRole();
   const roleUp = normalizeUpper(role);
   const isAdmin = roleUp === "ADMIN";
   const isVentas = roleUp === "VENTAS";
-  const isAllowed = roleChecked && (isAdmin || isVentas);
+  const isAllowed = isReady && (isAdmin || isVentas);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshRole("focus:comisiones");
+    }, [refreshRole])
+  );
 
   // selector de mes
   const init = useMemo(() => nowGtMonthYear(), []);
@@ -270,7 +253,7 @@ export default function ComisionesScreen() {
       const showLoading = !hasLoadedOnceRef.current && !hasAnyRowsRef.current;
 
       // Nunca cargar ni renderizar data antes de resolver el rol.
-      if (!roleChecked) {
+      if (!isReady) {
         setLoadError(null);
         setInitialLoading(true);
         return () => {
@@ -332,7 +315,7 @@ export default function ComisionesScreen() {
       return () => {
         if (fetchTokenRef.current === token) fetchTokenRef.current++;
       };
-    }, [fetchRows, fetchVentasPagadas, fVendedorId, isAdmin, isAllowed, roleChecked, uid])
+    }, [fetchRows, fetchVentasPagadas, fVendedorId, isAdmin, isAllowed, isReady, uid])
   );
 
   // Filtrado por rol (defensivo; el backend ya aplica seguridad)
@@ -551,25 +534,11 @@ export default function ComisionesScreen() {
         }}
       />
 
-      {/* Route protection (sin flash) */}
-      {!roleChecked ? (
-        <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
-          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 18 }}>
-            <Text style={{ color: colors.text, fontWeight: "800", fontSize: 16 }}>Cargando...</Text>
-          </View>
-        </SafeAreaView>
-      ) : !isAllowed ? (
-        <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
-          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 18 }}>
-            <Text style={{ color: colors.text, fontWeight: "800", fontSize: 18 }}>Acceso denegado</Text>
-            <Text style={{ color: colors.text + "AA", marginTop: 6, textAlign: "center" }}>
-              No tienes permiso para ver Comisiones.
-            </Text>
-            <View style={{ height: 12 }} />
-            <AppButton title="Volver" onPress={() => goHome("/(drawer)/(tabs)")} />
-          </View>
-        </SafeAreaView>
-      ) : (
+      <RoleGate
+        allow={["ADMIN", "VENTAS"]}
+        deniedText="No tienes permiso para ver Comisiones."
+        backHref="/(drawer)/(tabs)"
+      >
         <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
           <FlatList
             style={{ backgroundColor: colors.background }}
@@ -683,7 +652,7 @@ export default function ComisionesScreen() {
             </Modal>
           ) : null}
         </SafeAreaView>
-      )}
+      </RoleGate>
     </>
   );
 }

@@ -18,8 +18,9 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { AppButton } from "../../components/ui/app-button";
+import { RoleGate } from "../../components/auth/RoleGate";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
-import { goHome } from "../../lib/goHome";
+import { useRole } from "../../lib/useRole";
 
 type CxCRow = {
   venta_id: number;
@@ -173,35 +174,18 @@ export default function CuentasPorCobrarScreen() {
     }, [])
   );
 
-  // role and uid
-  const [role, setRole] = useState<string>("");
-  const [uid, setUid] = useState<string | null>(null);
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const { data: auth } = await supabase.auth.getUser();
-        const user = auth.user;
-        if (!user) return;
-        if (mounted) setUid(user.id);
-        const { data } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
-        const r = normalizeUpper(data?.role);
-        if (mounted) setRole(r);
-      } catch {
-        if (mounted) {
-          setRole("");
-        }
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  const { role, uid, isReady, refreshRole } = useRole();
+  const roleUp = normalizeUpper(role);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshRole("focus:cxc");
+    }, [refreshRole])
+  );
 
   // vendedores list (ADMIN + VENTAS roles from profiles)
   useEffect(() => {
-    if (!role) return;
-    if (normalizeUpper(role) !== "ADMIN") {
+    if (roleUp !== "ADMIN") {
       setVendedores([]);
       return;
     }
@@ -231,7 +215,7 @@ export default function CuentasPorCobrarScreen() {
     return () => {
       alive = false;
     };
-  }, [role]);
+  }, [roleUp]);
 
   // clientes list for dropdown
   useEffect(() => {
@@ -281,8 +265,6 @@ export default function CuentasPorCobrarScreen() {
   }, [clientes, fClienteQ]);
 
   const fetchRows = useCallback(async (): Promise<CxCRow[]> => {
-    const roleUp = normalizeUpper(role);
-
     // Source of truth: RPC security definer
     // Note: the RPC relies on auth.uid(); if the session isn't ready yet it will return 0 rows.
     // We still guard the call from the focus effect, but keep this as a safety net.
@@ -318,12 +300,20 @@ export default function CuentasPorCobrarScreen() {
     }
 
     return rows;
-  }, [dq, fVendedorId, role, uid]);
+  }, [dq, fVendedorId, roleUp, uid]);
 
   useFocusEffect(
     useCallback(() => {
       const token = ++fetchTokenRef.current;
       const showLoading = !hasLoadedOnceRef.current && !hasAnyRowsRef.current;
+
+      if (!isReady) {
+        setLoadError(null);
+        setInitialLoading(true);
+        return () => {
+          if (fetchTokenRef.current === token) fetchTokenRef.current++;
+        };
+      }
 
       // Wait for auth session restoration.
       if (!uid) {
@@ -356,7 +346,7 @@ export default function CuentasPorCobrarScreen() {
         // invalidate any in-flight request so stale responses don't affect UI
         if (fetchTokenRef.current === token) fetchTokenRef.current++;
       };
-    }, [fetchRows, uid])
+    }, [fetchRows, isReady, uid])
   );
 
   const badge = (c: CxCRow) => {
@@ -374,7 +364,6 @@ export default function CuentasPorCobrarScreen() {
 
   // filtro client-side: estado pago
   const rows = useMemo(() => {
-    const roleUp = normalizeUpper(role);
     const isAdmin = roleUp === "ADMIN";
     const isVentas = roleUp === "VENTAS";
     const desdeMs = fDesde ? startOfDay(fDesde).getTime() : null;
@@ -410,7 +399,7 @@ export default function CuentasPorCobrarScreen() {
       if (fPago === "PENDING") return d >= 0;
       return true;
     });
-  }, [rowsRaw, fPago, fVendedorId, fClienteId, fDesde, fHasta, role, uid]);
+  }, [rowsRaw, fPago, fVendedorId, fClienteId, fDesde, fHasta, roleUp, uid]);
 
   const vendedoresDropdown = useMemo(() => {
     if (vendedores && vendedores.length > 0) return vendedores;
@@ -531,19 +520,11 @@ export default function CuentasPorCobrarScreen() {
         }}
       />
 
-      {/* Route protection */}
-      {role && normalizeUpper(role) !== "ADMIN" && normalizeUpper(role) !== "VENTAS" ? (
-        <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
-          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 18 }}>
-            <Text style={{ color: colors.text, fontWeight: "800", fontSize: 18 }}>Acceso denegado</Text>
-            <Text style={{ color: colors.text + "AA", marginTop: 6, textAlign: "center" }}>
-              No tienes permiso para ver Cuentas por cobrar.
-            </Text>
-            <View style={{ height: 12 }} />
-            <AppButton title="Volver" onPress={() => goHome("/(drawer)/(tabs)")} />
-          </View>
-        </SafeAreaView>
-      ) : (
+      <RoleGate
+        allow={["ADMIN", "VENTAS"]}
+        deniedText="No tienes permiso para ver Cuentas por cobrar."
+        backHref="/(drawer)/(tabs)"
+      >
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
         <FlatList
           style={{ backgroundColor: colors.background }}
@@ -709,7 +690,7 @@ export default function CuentasPorCobrarScreen() {
           </Modal>
         ) : null}
       </SafeAreaView>
-      )}
+      </RoleGate>
     </>
   );
 }
