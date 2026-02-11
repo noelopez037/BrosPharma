@@ -257,6 +257,43 @@ async function fetchAdminUserIds(ctx: SupabaseCtx): Promise<string[]> {
   return Array.from(new Set(out));
 }
 
+async function fetchUserIdsByRoles(ctx: SupabaseCtx, roles: string[]): Promise<string[]> {
+  const wanted = Array.from(new Set(roles.map((r) => String(r ?? "").trim()).filter(Boolean)));
+  if (wanted.length === 0) return [];
+
+  const out: string[] = [];
+  const pageSize = 1000;
+  let offset = 0;
+
+  for (;;) {
+    const qs = new URLSearchParams();
+    qs.set("select", "id");
+  qs.append(
+    "role",
+    `in.(${wanted
+      .map((r) => `"${r.replace(/"/g, '\\"')}"`)
+      .join(",")})`
+  );
+    qs.set("limit", String(pageSize));
+    qs.set("offset", String(offset));
+
+    const res = await sbFetch(ctx, `/rest/v1/profiles?${qs.toString()}`, { method: "GET" });
+    const rows = await sbJson<Array<{ id?: unknown }>>(res);
+    if (!Array.isArray(rows) || rows.length === 0) break;
+
+    for (const r of rows) {
+      const id = typeof r?.id === "string" ? r.id.trim() : "";
+      if (id) out.push(id);
+    }
+
+    if (rows.length < pageSize) break;
+    offset += pageSize;
+    if (offset > 20_000) break;
+  }
+
+  return Array.from(new Set(out));
+}
+
 function coerceVentaId(row: OutboxRow): string {
   const ref = (row as { ref_id?: unknown })?.ref_id;
   if (typeof ref === "number" && Number.isFinite(ref)) return String(Math.trunc(ref));
@@ -321,6 +358,7 @@ Deno.serve(async (req: Request) => {
   let cachedTokens: string[] | null = null;
   let cachedAdminUserIds: string[] | null = null;
   let cachedAdminTokens: string[] | null = null;
+  let cachedCompraRolesTokens: string[] | null = null;
 
   const getTokensForVentaNuevos = async (): Promise<string[]> => {
     if (cachedTokens) return cachedTokens;
@@ -343,6 +381,16 @@ Deno.serve(async (req: Request) => {
 
     console.log("[notif-dispatch] admins", "users", cachedAdminUserIds.length, "tokens", cachedAdminTokens.length);
     return cachedAdminTokens;
+  };
+
+  const getTokensForCompraLineaIngresada = async (): Promise<string[]> => {
+    if (cachedCompraRolesTokens) return cachedCompraRolesTokens;
+
+    const userIds = await fetchUserIdsByRoles(ctx, ["VENTAS", "BODEGA", "ADMIN"]);
+    cachedCompraRolesTokens = await fetchExpoTokensForUsersDedupeDevice(ctx, userIds);
+
+    console.log("[notif-dispatch] compra_linea roles", "users", userIds.length, "tokens", cachedCompraRolesTokens.length);
+    return cachedCompraRolesTokens;
   };
 
   for (const row of rows) {
@@ -482,6 +530,46 @@ Deno.serve(async (req: Request) => {
           const messages: ExpoPushMessage[] = tokens.map((to) => ({
             to,
             title: "Solicitud pendiente",
+            body,
+            sound: "default",
+            badge: 1,
+            data,
+          }));
+
+          const sendRes = await expoSend(messages);
+          if (!sendRes.ok) throw new Error(sendRes.error);
+        }
+
+        await sbRpc(ctx, "rpc_notif_outbox_mark_processed", { p_id: id });
+        result.processed++;
+        continue;
+      }
+
+      if (type === "COMPRA_LINEA_INGRESADA") {
+        const tokens = await getTokensForCompraLineaIngresada();
+        console.log("[notif-dispatch] dispatch", type, "outbox", id, "tokens", tokens.length);
+
+        const p = (payload && typeof payload === "object") ? (payload as JsonRecord) : {};
+        const cantidadRaw = p.cantidad;
+        const cantidad = (cantidadRaw === null || cantidadRaw === undefined)
+          ? ""
+          : (typeof cantidadRaw === "number" && Number.isFinite(cantidadRaw)
+            ? String(cantidadRaw)
+            : (typeof cantidadRaw === "string" ? cantidadRaw.trim() : ""));
+
+        const productoNombreRaw = p.producto_nombre;
+        const productoNombre = typeof productoNombreRaw === "string" ? productoNombreRaw.trim() : "";
+        const productoMarcaRaw = p.producto_marca;
+        const productoMarca = typeof productoMarcaRaw === "string" ? productoMarcaRaw.trim() : "";
+
+        const title = "Nuevo ingreso:";
+        const body = `${cantidad ? `${cantidad} ` : ""}${productoNombre || "Producto actualizado"}${productoMarca ? ` ${productoMarca}` : ""}`;
+
+        if (tokens.length > 0) {
+          const data: Record<string, unknown> = { type: "COMPRA_LINEA_INGRESADA", ...p };
+          const messages: ExpoPushMessage[] = tokens.map((to) => ({
+            to,
+            title,
             body,
             sound: "default",
             badge: 1,

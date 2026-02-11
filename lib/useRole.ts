@@ -222,15 +222,17 @@ export function useRole() {
   ensureInit();
   const snap = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
-  const refresh = useCallback(() => refreshRole("hook"), []);
+  const refresh = useCallback((reason?: string) => refreshRole(reason ?? "hook"), []);
 
   return useMemo(
     () => ({
       role: snap.role,
+      uid: snap.uid,
       isAdmin: snap.role === "ADMIN",
       isReady: snap.isReady,
+      updatedAt: snap.updatedAt,
       refreshRole: refresh,
     }),
-    [refresh, snap.isReady, snap.role]
+    [refresh, snap.isReady, snap.role, snap.uid, snap.updatedAt]
   );
 }

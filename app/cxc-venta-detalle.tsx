@@ -2,7 +2,7 @@ import { useFocusEffect, useTheme } from "@react-navigation/native";
 import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
 import * as MediaLibrary from "expo-media-library";
-import { Stack, router, useLocalSearchParams } from "expo-router";
+import { Stack, useLocalSearchParams } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -23,8 +23,10 @@ import {
 import ImageViewer from "react-native-image-zoom-viewer";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppButton } from "../components/ui/app-button";
+import { RoleGate } from "../components/auth/RoleGate";
 import { DoneAccessory } from "../components/ui/done-accessory";
 import { supabase } from "../lib/supabase";
+import { useRole } from "../lib/useRole";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
 
@@ -237,24 +239,13 @@ export default function CxcVentaDetalle() {
   const viewerBusyRef = useRef(false);
   const [savingDownload, setSavingDownload] = useState(false);
 
-  // role check
-  const [role, setRole] = useState<string>("");
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const { data: auth } = await supabase.auth.getUser();
-        const uid = auth.user?.id;
-        if (!uid) return;
-        const { data } = await supabase.from("profiles").select("role").eq("id", uid).maybeSingle();
-        const r = normalizeUpper(data?.role);
-        if (mounted) setRole(r);
-      } catch {
-        if (mounted) setRole("");
-      }
-    })();
-    return () => { mounted = false; };
-  }, []);
+  const { role, refreshRole } = useRole();
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshRole("focus:cxc-venta-detalle");
+    }, [refreshRole])
+  );
 
   const fetchAll = useCallback(async () => {
     if (!Number.isFinite(id) || id <= 0) return;
@@ -487,15 +478,6 @@ export default function CxcVentaDetalle() {
     }
   };
 
-  // protect route by role
-  useEffect(() => {
-    if (!role) return;
-    const allowed = role === "ADMIN" || role === "VENTAS";
-    if (!allowed) {
-      Alert.alert("Acceso denegado", "No tienes permiso para ver esta pantalla.", [{ text: "OK", onPress: () => router.replace("/(drawer)/(tabs)") }]);
-    }
-  }, [role]);
-
   const allowedMetodosPago = useMemo<readonly PagoMetodo[]>(() => {
     const r = normalizeUpper(role);
     if (r === "ADMIN") return ["EFECTIVO", "TRANSFERENCIA", "CHEQUE"] as const;
@@ -669,13 +651,14 @@ export default function CxcVentaDetalle() {
     <>
       <Stack.Screen options={{ headerShown: true, title: "Detalle cuenta", headerBackTitle: "Atrás" }} />
 
-      <SafeAreaView style={[styles.safe, { backgroundColor: C.bg }]} edges={["bottom"]}>
-        {loading ? (
-          <View style={styles.center}><Text style={{ color: C.sub, fontWeight: "700" }}>Cargando...</Text></View>
-        ) : !row ? (
-          <View style={styles.center}><Text style={{ color: C.text }}>No disponible</Text></View>
-        ) : (
-          <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentInsetAdjustmentBehavior="never" contentContainerStyle={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: 12 + insets.bottom + 104 }} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
+      <RoleGate allow={["ADMIN", "VENTAS"]} deniedText="No tienes permiso para ver esta pantalla." backHref="/(drawer)/(tabs)">
+        <SafeAreaView style={[styles.safe, { backgroundColor: C.bg }]} edges={["bottom"]}>
+          {loading ? (
+            <View style={styles.center}><Text style={{ color: C.sub, fontWeight: "700" }}>Cargando...</Text></View>
+          ) : !row ? (
+            <View style={styles.center}><Text style={{ color: C.text }}>No disponible</Text></View>
+          ) : (
+            <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentInsetAdjustmentBehavior="never" contentContainerStyle={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: 12 + insets.bottom + 104 }} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
             <View style={[styles.cardBase, styles.headerCard, styles.shadowCard, { borderColor: C.border, backgroundColor: C.card }]}>
               <View style={styles.headerTop}>
                 <View style={{ flex: 1, minWidth: 0 }}>
@@ -1171,8 +1154,9 @@ export default function CxcVentaDetalle() {
           </Modal>
         ) : null}
 
-        <DoneAccessory nativeID={"doneAccessory"} />
-      </SafeAreaView>
+          <DoneAccessory nativeID={"doneAccessory"} />
+        </SafeAreaView>
+      </RoleGate>
     </>
   );
 }

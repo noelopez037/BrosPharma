@@ -16,9 +16,11 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppButton } from "../../components/ui/app-button";
+import { RoleGate } from "../../components/auth/RoleGate";
 import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
+import { useRole } from "../../lib/useRole";
 
 type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "";
 
@@ -98,9 +100,9 @@ export default function KardexScreen() {
   // UX: swipe-back / back siempre regresa a Inicio.
   useGoHomeOnBack(true, "/(drawer)/(tabs)");
 
-  const [role, setRole] = useState<Role>("");
-  const [roleLoaded, setRoleLoaded] = useState(false);
-  const isAdmin = role === "ADMIN";
+  const { role, isReady, refreshRole } = useRole();
+  const roleUp = normalizeUpper(role) as Role;
+  const isAdmin = isReady && roleUp === "ADMIN";
 
   // filtros
   const [producto, setProducto] = useState<ProductoPick | null>(null);
@@ -131,34 +133,10 @@ export default function KardexScreen() {
   const [rows, setRows] = useState<KardexRow[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const loadRole = useCallback(async () => {
-    const { data: auth } = await supabase.auth.getUser();
-    const uid = auth.user?.id;
-    if (!uid) {
-      setRole("");
-      return;
-    }
-    const { data } = await supabase.from("profiles").select("role").eq("id", uid).maybeSingle();
-    setRole((normalizeUpper(data?.role) as Role) ?? "");
-  }, []);
-
   useFocusEffect(
     useCallback(() => {
-      let alive = true;
-      (async () => {
-        try {
-          await loadRole();
-          if (alive) setRoleLoaded(true);
-        } catch {
-          if (!alive) return;
-          setRole("");
-          setRoleLoaded(true);
-        }
-      })();
-      return () => {
-        alive = false;
-      };
-    }, [loadRole])
+      void refreshRole("focus:kardex");
+    }, [refreshRole])
   );
 
   // Limpia la búsqueda al salir de la pantalla (resultados + estados UI de búsqueda/modales)
@@ -354,45 +332,6 @@ export default function KardexScreen() {
     return `${producto.nombre}${marca}`;
   }, [producto]);
 
-  if (!roleLoaded) {
-    return (
-      <>
-        <Stack.Screen
-          options={{
-            headerShown: true,
-            title: "Kardex",
-          }}
-        />
-
-        <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
-          <View style={s.center}>
-            <Text style={s.deniedSub}>Cargando...</Text>
-          </View>
-        </SafeAreaView>
-      </>
-    );
-  }
-
-  if (!isAdmin) {
-    return (
-      <>
-        <Stack.Screen
-          options={{
-            headerShown: true,
-            title: "Kardex",
-          }}
-        />
-
-        <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
-          <View style={s.center}>
-            <Text style={s.deniedTitle}>Acceso denegado</Text>
-            <Text style={s.deniedSub}>Solo ADMIN puede usar esta pantalla.</Text>
-          </View>
-        </SafeAreaView>
-      </>
-    );
-  }
-
   const renderRow = ({ item }: { item: KardexRow }) => {
     const tipo = normalizeUpper(item?.tipo);
     const isCompra = tipo === "COMPRA";
@@ -450,236 +389,238 @@ export default function KardexScreen() {
         }}
       />
 
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
-        <FlatList
-          data={rows}
-          keyExtractor={(it, idx) =>
-            `${String((it as any)?.tipo ?? "")}::${String((it as any)?.fecha ?? "")}::${String(
-              (it as any)?.compra_id ?? ""
-            )}::${String((it as any)?.venta_id ?? "")}::${String((it as any)?.lote_id ?? "")}::${idx}`
-          }
-          renderItem={renderRow}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          automaticallyAdjustKeyboardInsets
-          contentContainerStyle={{
-            paddingHorizontal: 12,
-            paddingTop: 12,
-            paddingBottom: 16 + insets.bottom,
-          }}
-          ListHeaderComponent={
-            <>
-              <View style={s.filtersCard}>
-                <Text style={s.label}>Producto</Text>
-                <Pressable
-                  onPress={() => {
-                    setProdModalOpen(true);
-                    setProdQ("");
-                    setShowDesdeIOS(false);
-                    setShowHastaIOS(false);
-                  }}
-                  style={({ pressed }) => [s.selectBox, pressed && Platform.OS === "ios" ? { opacity: 0.9 } : null]}
-                >
-                  <Text style={s.selectTxt} numberOfLines={1}>
-                    {producto ? productoLabel : "Seleccionar producto"}
-                  </Text>
-                  <Text style={s.caret}>▼</Text>
-                </Pressable>
-
-                <View style={{ height: 8 }} />
-
-                <View style={s.twoCols}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.label}>Desde</Text>
-                    <Pressable
-                      onPress={openDesdePicker}
-                      style={({ pressed }) => [s.dateBox, pressed && Platform.OS === "ios" ? { opacity: 0.9 } : null]}
-                    >
-                      <Text style={s.dateTxt}>{fmtYmd(desde)}</Text>
-                    </Pressable>
-                  </View>
-
-                  <View style={{ width: 12 }} />
-
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.label}>Hasta</Text>
-                    <Pressable
-                      onPress={openHastaPicker}
-                      style={({ pressed }) => [s.dateBox, pressed && Platform.OS === "ios" ? { opacity: 0.9 } : null]}
-                    >
-                      <Text style={s.dateTxt}>{fmtYmd(hasta)}</Text>
-                    </Pressable>
-                  </View>
-                </View>
-
-                {Platform.OS === "ios" && showDesdeIOS ? (
-                  <View style={[s.iosPickerWrap, { borderColor: colors.border }]}>
-                    <DateTimePicker
-                      value={desde ?? new Date()}
-                      mode="date"
-                      display="inline"
-                      themeVariant={isDark ? "dark" : "light"}
-                      onChange={(_ev, date) => {
-                        if (date) {
-                          setDesde(startOfDay(date));
-                          setShowDesdeIOS(false);
-                        }
-                      }}
-                    />
-                  </View>
-                ) : null}
-
-                {Platform.OS === "ios" && showHastaIOS ? (
-                  <View style={[s.iosPickerWrap, { borderColor: colors.border }]}>
-                    <DateTimePicker
-                      value={hasta ?? new Date()}
-                      mode="date"
-                      display="inline"
-                      themeVariant={isDark ? "dark" : "light"}
-                      onChange={(_ev, date) => {
-                        if (date) {
-                          setHasta(endOfDay(date));
-                          setShowHastaIOS(false);
-                        }
-                      }}
-                    />
-                  </View>
-                ) : null}
-
-                <View style={{ height: 10 }} />
-
-                <AppButton
-                  title={loading ? "Buscando..." : "Buscar"}
-                  variant="primary"
-                  size="sm"
-                  onPress={onBuscar}
-                  disabled={!canSearch}
-                  loading={loading}
-                />
-
-                {errorMsg ? <Text style={[s.sub, { marginTop: 10 }]}>{errorMsg}</Text> : null}
-              </View>
-
-              <View style={s.totalsCard}>
-                <Text style={s.totalsTitle}>Totales</Text>
-                <View style={s.totalsRow}>
-                  <Text style={s.totalsK}>Comprado</Text>
-                  <Text style={[s.totalsV, s.qtyIn]}>{totals.entrada}</Text>
-                </View>
-                <View style={s.totalsRow}>
-                  <Text style={s.totalsK}>Vendido</Text>
-                  <Text style={[s.totalsV, s.qtyOut]}>{totals.salida}</Text>
-                </View>
-                <View style={[s.totalsRow, { marginTop: 6 }]}>
-                  <Text style={s.totalsK}>Saldo</Text>
-                  <Text style={s.totalsV}>{totals.saldo}</Text>
-                </View>
-              </View>
-
-              {loading ? (
-                <View style={{ paddingVertical: 10 }}>
-                  <Text style={s.empty}>Cargando...</Text>
-                </View>
-              ) : null}
-            </>
-          }
-          ListEmptyComponent={!loading ? <Text style={s.empty}>Sin movimientos en ese rango</Text> : null}
-        />
-
-        {prodModalOpen ? (
-          <Modal
-            visible={prodModalOpen}
-            transparent
-            animationType="fade"
-            onRequestClose={() => setProdModalOpen(false)}
-          >
-            <Pressable
-              style={[s.modalBackdrop, { backgroundColor: isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.35)" }]}
-              onPress={() => setProdModalOpen(false)}
-            />
-
-            <View style={s.modalCard}>
-              <View style={s.modalHeader}>
-                <Text style={s.modalTitle}>Seleccionar producto</Text>
-                <Pressable onPress={() => setProdModalOpen(false)} hitSlop={10}>
-                  <Text style={s.modalClose}>Cerrar</Text>
-                </Pressable>
-              </View>
-
-              <View style={s.searchWrap}>
-                <TextInput
-                  value={prodQ}
-                  onChangeText={setProdQ}
-                  placeholder="Buscar por nombre..."
-                  placeholderTextColor={colors.text + "66"}
-                  style={s.searchInput}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  returnKeyType="search"
-                />
-                {prodQ.trim().length > 0 ? (
-                  <Pressable onPress={() => setProdQ("")} hitSlop={10} style={s.clearBtn}>
-                    <Text style={s.clearTxt}>×</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-
-              <View style={s.switchRow}>
-                <Text style={s.switchLabel}>Solo activos</Text>
-                <Switch
-                  value={soloActivos}
-                  onValueChange={setSoloActivos}
-                  trackColor={{ false: colors.border, true: "#34C759" }}
-                  thumbColor={Platform.OS === "android" ? "#FFFFFF" : undefined}
-                  style={Platform.OS === "android" ? { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] } : undefined}
-                />
-              </View>
-
-              <FlatList
-                data={prodRows}
-                keyExtractor={(it) => String(it.id)}
-                keyboardShouldPersistTaps="handled"
-                renderItem={({ item }) => (
+      <RoleGate allow={["ADMIN"]} deniedText="Solo ADMIN puede usar esta pantalla." backHref="/(drawer)/(tabs)">
+        <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
+          <FlatList
+            data={rows}
+            keyExtractor={(it, idx) =>
+              `${String((it as any)?.tipo ?? "")}::${String((it as any)?.fecha ?? "")}::${String(
+                (it as any)?.compra_id ?? ""
+              )}::${String((it as any)?.venta_id ?? "")}::${String((it as any)?.lote_id ?? "")}::${idx}`
+            }
+            renderItem={renderRow}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets
+            contentContainerStyle={{
+              paddingHorizontal: 12,
+              paddingTop: 12,
+              paddingBottom: 16 + insets.bottom,
+            }}
+            ListHeaderComponent={
+              <>
+                <View style={s.filtersCard}>
+                  <Text style={s.label}>Producto</Text>
                   <Pressable
                     onPress={() => {
-                      setProducto(item);
-                      setProdModalOpen(false);
-                      // opcional: al elegir producto, limpia resultados anteriores para evitar confusión
-                      setRows([]);
-                      setErrorMsg(null);
+                      setProdModalOpen(true);
+                      setProdQ("");
+                      setShowDesdeIOS(false);
+                      setShowHastaIOS(false);
                     }}
-                    style={({ pressed }) => [s.prodRow, pressed && Platform.OS === "ios" ? { opacity: 0.9 } : null]}
+                    style={({ pressed }) => [s.selectBox, pressed && Platform.OS === "ios" ? { opacity: 0.9 } : null]}
                   >
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.prodTitle} numberOfLines={1}>
-                        {item.nombre}
-                        {item.marca ? ` • ${item.marca}` : ""}
-                      </Text>
-                      {!item.activo ? <Text style={s.prodSub}>INACTIVO</Text> : null}
-                    </View>
+                    <Text style={s.selectTxt} numberOfLines={1}>
+                      {producto ? productoLabel : "Seleccionar producto"}
+                    </Text>
+                    <Text style={s.caret}>▼</Text>
                   </Pressable>
-                )}
-                ListEmptyComponent={
-                  prodLoading ? (
-                    <View style={{ paddingVertical: 14 }}>
-                      <Text style={s.empty}>Buscando...</Text>
+
+                  <View style={{ height: 8 }} />
+
+                  <View style={s.twoCols}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.label}>Desde</Text>
+                      <Pressable
+                        onPress={openDesdePicker}
+                        style={({ pressed }) => [s.dateBox, pressed && Platform.OS === "ios" ? { opacity: 0.9 } : null]}
+                      >
+                        <Text style={s.dateTxt}>{fmtYmd(desde)}</Text>
+                      </Pressable>
                     </View>
-                  ) : prodError ? (
-                    <View style={{ paddingVertical: 14 }}>
-                      <Text style={s.empty}>{prodError}</Text>
+
+                    <View style={{ width: 12 }} />
+
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.label}>Hasta</Text>
+                      <Pressable
+                        onPress={openHastaPicker}
+                        style={({ pressed }) => [s.dateBox, pressed && Platform.OS === "ios" ? { opacity: 0.9 } : null]}
+                      >
+                        <Text style={s.dateTxt}>{fmtYmd(hasta)}</Text>
+                      </Pressable>
                     </View>
-                  ) : (
-                    <View style={{ paddingVertical: 14 }}>
-                      <Text style={s.empty}>Sin resultados</Text>
+                  </View>
+
+                  {Platform.OS === "ios" && showDesdeIOS ? (
+                    <View style={[s.iosPickerWrap, { borderColor: colors.border }]}>
+                      <DateTimePicker
+                        value={desde ?? new Date()}
+                        mode="date"
+                        display="inline"
+                        themeVariant={isDark ? "dark" : "light"}
+                        onChange={(_ev, date) => {
+                          if (date) {
+                            setDesde(startOfDay(date));
+                            setShowDesdeIOS(false);
+                          }
+                        }}
+                      />
                     </View>
-                  )
-                }
-                style={{ marginTop: 10 }}
+                  ) : null}
+
+                  {Platform.OS === "ios" && showHastaIOS ? (
+                    <View style={[s.iosPickerWrap, { borderColor: colors.border }]}>
+                      <DateTimePicker
+                        value={hasta ?? new Date()}
+                        mode="date"
+                        display="inline"
+                        themeVariant={isDark ? "dark" : "light"}
+                        onChange={(_ev, date) => {
+                          if (date) {
+                            setHasta(endOfDay(date));
+                            setShowHastaIOS(false);
+                          }
+                        }}
+                      />
+                    </View>
+                  ) : null}
+
+                  <View style={{ height: 10 }} />
+
+                  <AppButton
+                    title={loading ? "Buscando..." : "Buscar"}
+                    variant="primary"
+                    size="sm"
+                    onPress={onBuscar}
+                    disabled={!canSearch}
+                    loading={loading}
+                  />
+
+                  {errorMsg ? <Text style={[s.sub, { marginTop: 10 }]}>{errorMsg}</Text> : null}
+                </View>
+
+                <View style={s.totalsCard}>
+                  <Text style={s.totalsTitle}>Totales</Text>
+                  <View style={s.totalsRow}>
+                    <Text style={s.totalsK}>Comprado</Text>
+                    <Text style={[s.totalsV, s.qtyIn]}>{totals.entrada}</Text>
+                  </View>
+                  <View style={s.totalsRow}>
+                    <Text style={s.totalsK}>Vendido</Text>
+                    <Text style={[s.totalsV, s.qtyOut]}>{totals.salida}</Text>
+                  </View>
+                  <View style={[s.totalsRow, { marginTop: 6 }]}>
+                    <Text style={s.totalsK}>Saldo</Text>
+                    <Text style={s.totalsV}>{totals.saldo}</Text>
+                  </View>
+                </View>
+
+                {loading ? (
+                  <View style={{ paddingVertical: 10 }}>
+                    <Text style={s.empty}>Cargando...</Text>
+                  </View>
+                ) : null}
+              </>
+            }
+            ListEmptyComponent={!loading ? <Text style={s.empty}>Sin movimientos en ese rango</Text> : null}
+          />
+
+          {prodModalOpen ? (
+            <Modal
+              visible={prodModalOpen}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setProdModalOpen(false)}
+            >
+              <Pressable
+                style={[s.modalBackdrop, { backgroundColor: isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.35)" }]}
+                onPress={() => setProdModalOpen(false)}
               />
-            </View>
-          </Modal>
-        ) : null}
-      </SafeAreaView>
+
+              <View style={s.modalCard}>
+                <View style={s.modalHeader}>
+                  <Text style={s.modalTitle}>Seleccionar producto</Text>
+                  <Pressable onPress={() => setProdModalOpen(false)} hitSlop={10}>
+                    <Text style={s.modalClose}>Cerrar</Text>
+                  </Pressable>
+                </View>
+
+                <View style={s.searchWrap}>
+                  <TextInput
+                    value={prodQ}
+                    onChangeText={setProdQ}
+                    placeholder="Buscar por nombre..."
+                    placeholderTextColor={colors.text + "66"}
+                    style={s.searchInput}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="search"
+                  />
+                  {prodQ.trim().length > 0 ? (
+                    <Pressable onPress={() => setProdQ("")} hitSlop={10} style={s.clearBtn}>
+                      <Text style={s.clearTxt}>×</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+
+                <View style={s.switchRow}>
+                  <Text style={s.switchLabel}>Solo activos</Text>
+                  <Switch
+                    value={soloActivos}
+                    onValueChange={setSoloActivos}
+                    trackColor={{ false: colors.border, true: "#34C759" }}
+                    thumbColor={Platform.OS === "android" ? "#FFFFFF" : undefined}
+                    style={Platform.OS === "android" ? { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] } : undefined}
+                  />
+                </View>
+
+                <FlatList
+                  data={prodRows}
+                  keyExtractor={(it) => String(it.id)}
+                  keyboardShouldPersistTaps="handled"
+                  renderItem={({ item }) => (
+                    <Pressable
+                      onPress={() => {
+                        setProducto(item);
+                        setProdModalOpen(false);
+                        // opcional: al elegir producto, limpia resultados anteriores para evitar confusión
+                        setRows([]);
+                        setErrorMsg(null);
+                      }}
+                      style={({ pressed }) => [s.prodRow, pressed && Platform.OS === "ios" ? { opacity: 0.9 } : null]}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.prodTitle} numberOfLines={1}>
+                          {item.nombre}
+                          {item.marca ? ` • ${item.marca}` : ""}
+                        </Text>
+                        {!item.activo ? <Text style={s.prodSub}>INACTIVO</Text> : null}
+                      </View>
+                    </Pressable>
+                  )}
+                  ListEmptyComponent={
+                    prodLoading ? (
+                      <View style={{ paddingVertical: 14 }}>
+                        <Text style={s.empty}>Buscando...</Text>
+                      </View>
+                    ) : prodError ? (
+                      <View style={{ paddingVertical: 14 }}>
+                        <Text style={s.empty}>{prodError}</Text>
+                      </View>
+                    ) : (
+                      <View style={{ paddingVertical: 14 }}>
+                        <Text style={s.empty}>Sin resultados</Text>
+                      </View>
+                    )
+                  }
+                  style={{ marginTop: 10 }}
+                />
+              </View>
+            </Modal>
+          ) : null}
+        </SafeAreaView>
+      </RoleGate>
     </>
   );
 }

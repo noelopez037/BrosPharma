@@ -6,11 +6,12 @@ import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/d
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { supabase } from "../lib/supabase";
+import { RoleGate } from "../components/auth/RoleGate";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
 import { useGoHomeOnBack } from "../lib/useGoHomeOnBack";
-import { goHome } from "../lib/goHome";
 import { FB_DARK_DANGER } from "../src/theme/headerColors";
+import { useRole } from "../lib/useRole";
 
 type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "";
 
@@ -72,7 +73,7 @@ export default function VentasAnuladasScreen() {
     [colors.background, colors.border, colors.card, colors.text, isDark]
   );
 
-  const [role, setRole] = useState<Role>("");
+  const { role, isReady, refreshRole } = useRole();
   const [q, setQ] = useState("");
   // filtros estilo CxC
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -86,19 +87,6 @@ export default function VentasAnuladasScreen() {
   const [showHastaIOS, setShowHastaIOS] = useState(false);
   const [rowsRaw, setRowsRaw] = useState<VentaRow[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
-
-  const canView = role === "ADMIN" || role === "BODEGA" || role === "FACTURACION" || role === "VENTAS";
-
-  const loadRole = useCallback(async () => {
-    const { data: auth } = await supabase.auth.getUser();
-    const uid = auth.user?.id;
-    if (!uid) {
-      setRole("");
-      return;
-    }
-    const { data } = await supabase.from("profiles").select("role").eq("id", uid).maybeSingle();
-    setRole((normalizeUpper(data?.role) as Role) ?? "");
-  }, []);
 
   const fetchAnuladas = useCallback(async () => {
     // Primero obtener IDs por tag (RLS limita para VENTAS).
@@ -139,8 +127,19 @@ export default function VentasAnuladasScreen() {
       let alive = true;
       (async () => {
         try {
-          await loadRole();
+          await refreshRole("focus:ventas-anuladas");
           if (!alive) return;
+          if (!isReady) return;
+
+          const currentRole = normalizeUpper(role) as Role;
+
+          const allowed =
+            currentRole === "ADMIN" ||
+            currentRole === "BODEGA" ||
+            currentRole === "FACTURACION" ||
+            currentRole === "VENTAS";
+
+          if (!allowed) return;
           if (alive) setInitialLoading(true);
           await fetchAnuladas();
         } catch (e: any) {
@@ -155,16 +154,8 @@ export default function VentasAnuladasScreen() {
       return () => {
         alive = false;
       };
-    }, [fetchAnuladas, loadRole])
+    }, [fetchAnuladas, isReady, refreshRole, role])
   );
-
-  React.useEffect(() => {
-    if (!role) return;
-    if (canView) return;
-    Alert.alert("Sin permiso", "Tu rol no puede ver anuladas.", [
-      { text: "OK", onPress: () => goHome("/(drawer)/(tabs)") },
-    ]);
-  }, [canView, role]);
 
   // load clientes for filter dropdown
   useEffect(() => {
@@ -265,6 +256,11 @@ export default function VentasAnuladasScreen() {
         }}
       />
 
+      <RoleGate
+        allow={["ADMIN", "BODEGA", "FACTURACION", "VENTAS"]}
+        deniedText="No tienes permiso para ver anuladas."
+        backHref="/(drawer)/(tabs)"
+      >
       <SafeAreaView style={[styles.safe, { backgroundColor: C.bg }]} edges={["bottom"]}>
         <View style={[styles.content, { backgroundColor: C.bg }]}
         >
@@ -466,6 +462,7 @@ export default function VentasAnuladasScreen() {
           </Modal>
         ) : null}
       </SafeAreaView>
+      </RoleGate>
     </>
   );
 }

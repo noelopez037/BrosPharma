@@ -13,7 +13,6 @@
 // ✅ Modal respeta tema (dark/light) + mejor contraste en dark
 
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
-import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -34,6 +33,7 @@ import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { AppButton } from "../../components/ui/app-button";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
+import { useRole } from "../../lib/useRole";
 
 
 // Carga silenciosa: evitar spinners y evitar doble fetch en mount.
@@ -105,13 +105,7 @@ function endOfDay(d: Date) {
 export default function ComprasScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  let tabBarHeight = 0;
-  try {
-    tabBarHeight = useBottomTabBarHeight();
-  } catch {
-    tabBarHeight = 0;
-  }
-  const bottomRail = tabBarHeight || insets.bottom;
+  const bottomRail = insets.bottom;
   const s = useMemo(() => styles(colors), [colors]);
 
   // ✅ respetar toggle dark/light
@@ -146,7 +140,16 @@ export default function ComprasScreen() {
   useEffect(() => {
     hasAnyRowsRef.current = rowsRaw.length > 0;
   }, [rowsRaw.length]);
-  const [canManage, setCanManage] = useState(false);
+
+  const { role, refreshRole } = useRole();
+  const roleUp = normalizeUpper(role);
+  const canManage = roleUp === "ADMIN" || roleUp === "BODEGA";
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshRole("focus:compras");
+    }, [refreshRole])
+  );
 
   // filtros
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -180,26 +183,6 @@ export default function ComprasScreen() {
       };
     }, [])
   );
-
-  // roles
-  useEffect(() => {
-    let mounted = true;
-
-    const loadRole = async () => {
-      const { data: auth } = await supabase.auth.getUser();
-      const uid = auth.user?.id;
-      if (!uid) return;
-
-      const { data } = await supabase.from("profiles").select("role").eq("id", uid).maybeSingle();
-      const role = normalizeUpper(data?.role);
-      if (mounted) setCanManage(role === "ADMIN" || role === "BODEGA");
-    };
-
-    loadRole().catch(() => {});
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   // proveedores
   useEffect(() => {

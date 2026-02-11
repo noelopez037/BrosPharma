@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
+import { useRole } from "../lib/useRole";
 import { useThemePref } from "../lib/themePreference";
 import { AppButton } from "../components/ui/app-button";
 import { useGoHomeOnBack } from "../lib/useGoHomeOnBack";
@@ -73,6 +74,17 @@ export default function RecetasPendientesScreen() {
   // UX: back / swipe-back siempre regresa a Inicio.
   useGoHomeOnBack(true, "/(drawer)/(tabs)");
 
+  const { role, uid, isReady, refreshRole } = useRole();
+  const roleUp = String(role ?? "").trim().toUpperCase();
+  const isAdmin = isReady && roleUp === "ADMIN";
+  const isVentas = isReady && roleUp === "VENTAS";
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshRole("focus:recetas-pendientes");
+    }, [refreshRole])
+  );
+
   const C = useMemo(
     () => ({
       bg: colors.background ?? (isDark ? "#000" : "#fff"),
@@ -99,8 +111,6 @@ export default function RecetasPendientesScreen() {
   const [tmpHasta, setTmpHasta] = useState<Date | null>(hasta);
   const [tmpVendedorId, setTmpVendedorId] = useState<string | null>(null);
 
-  const [role, setRole] = useState<string>("");
-  const [uid, setUid] = useState<string | null>(null);
   const [selfVendedorLabel, setSelfVendedorLabel] = useState<string>("");
 
   const [rows, setRows] = useState<VentaRow[]>([]);
@@ -125,35 +135,32 @@ export default function RecetasPendientesScreen() {
     return m;
   }, [vendedores]);
 
-  // load role + uid
+  // load self label
   useEffect(() => {
+    if (!uid) {
+      setSelfVendedorLabel("");
+      return;
+    }
     let mounted = true;
     (async () => {
       try {
-        const { data: auth } = await supabase.auth.getUser();
-        const user = auth.user;
-        if (!user) return;
-        if (mounted) setUid(user.id);
-        const { data } = await supabase.from("profiles").select("role,full_name,codigo").eq("id", user.id).maybeSingle();
-        const r = normalizeUpper(data?.role);
-        const label = String(data?.codigo ?? "").trim() || String(data?.full_name ?? "").trim() || String(user.id).slice(0, 8);
-        if (mounted) {
-          setRole(r);
-          setSelfVendedorLabel(label);
-        }
+        const { data, error } = await supabase.from("profiles").select("codigo,full_name").eq("id", uid).maybeSingle();
+        if (error) throw error;
+        if (!mounted) return;
+        const label = String(data?.codigo ?? "").trim() || String(data?.full_name ?? "").trim() || String(uid).slice(0, 8);
+        setSelfVendedorLabel(label);
       } catch {
-        if (mounted) setRole("");
+        if (mounted) setSelfVendedorLabel("");
       }
     })();
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [uid]);
 
   // load vendedores for admin
   useEffect(() => {
-    if (!role) return;
-    if (normalizeUpper(role) !== "ADMIN") {
+    if (!isAdmin) {
       setVendedores([]);
       return;
     }
@@ -207,7 +214,7 @@ export default function RecetasPendientesScreen() {
     return () => {
       alive = false;
     };
-  }, [role]);
+  }, [isAdmin]);
 
   const fetchRange = useCallback(
     async (d: Date | null, h: Date | null, vendedorIdOverride?: string | null) => {
@@ -263,18 +270,17 @@ export default function RecetasPendientesScreen() {
       });
 
       // role-based filters
-      const roleUp = normalizeUpper(role);
-      if (roleUp === "VENTAS" && uid) {
+      if (isVentas && uid) {
         out = out.filter((r) => String(r.vendedor_id ?? "") === uid);
       }
-      if (roleUp === "ADMIN") {
+      if (isAdmin) {
         const vid = vendedorIdOverride !== undefined ? vendedorIdOverride : selectedVendedorId;
         if (vid) out = out.filter((r) => String(r.vendedor_id ?? "") === vid);
       }
 
       return out;
     },
-    [role, uid, selectedVendedorId]
+    [isAdmin, isVentas, uid, selectedVendedorId]
   );
 
   const openFilters = useCallback(() => {
@@ -335,7 +341,7 @@ export default function RecetasPendientesScreen() {
 
     setDesde(tmpDesde);
     setHasta(tmpHasta);
-    if (normalizeUpper(role) === "ADMIN") {
+    if (isAdmin) {
       setSelectedVendedorId(tmpVendedorId);
     } else {
       setSelectedVendedorId(null);
@@ -349,7 +355,7 @@ export default function RecetasPendientesScreen() {
     setListLoading(true);
     (async () => {
       try {
-        const data = await fetchRange(tmpDesde, tmpHasta, normalizeUpper(role) === "ADMIN" ? tmpVendedorId : null);
+        const data = await fetchRange(tmpDesde, tmpHasta, isAdmin ? tmpVendedorId : null);
         setRows(data);
       } catch (e: any) {
         setErrorMsg(e?.message ?? "Error");
@@ -358,7 +364,7 @@ export default function RecetasPendientesScreen() {
         setListLoading(false);
       }
     })();
-  }, [fetchRange, role, tmpDesde, tmpHasta, tmpVendedorId]);
+  }, [fetchRange, isAdmin, tmpDesde, tmpHasta, tmpVendedorId]);
 
   const loadAll = useCallback(async () => {
     if (!desde || !hasta) return;
@@ -432,7 +438,7 @@ export default function RecetasPendientesScreen() {
             ) : null}
           </View>
 
-          {normalizeUpper(role) === "ADMIN" ? (
+          {isAdmin ? (
             <Pressable
               onPress={openFilters}
               style={({ pressed }) => [
@@ -515,7 +521,7 @@ export default function RecetasPendientesScreen() {
             </View>
           ) : null}
 
-          {normalizeUpper(role) === "ADMIN" ? (
+          {isAdmin ? (
             <>
               <Text style={[s.sectionLabel, { color: C.text }]}>Vendedor</Text>
               <Pressable

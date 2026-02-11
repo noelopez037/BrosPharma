@@ -1,7 +1,7 @@
 // app/select-cliente.tsx
-import { useTheme } from "@react-navigation/native";
+import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack } from "expo-router";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -20,6 +20,7 @@ import { DoneAccessory } from "../components/ui/done-accessory";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
 import { useVentaDraft, type Cliente } from "../lib/ventaDraft";
 import { supabase } from "../lib/supabase";
+import { useRole } from "../lib/useRole";
 import { goBackSafe } from "../lib/goBackSafe";
 import { getHeaderColors } from "../src/theme/headerColors";
 
@@ -83,26 +84,17 @@ export default function SelectCliente() {
   const [q, setQ] = useState("");
   const [items, setItems] = useState<ClienteRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [role, setRole] = useState<Role>("");
-  const [uid, setUid] = useState<string | null>(null);
+
+  const { role, uid, isReady, refreshRole } = useRole();
+  const roleUp = String(role ?? "").trim().toUpperCase() as Role;
+  const isVentas = isReady && roleUp === "VENTAS";
+  const canCreateCliente = isReady && (roleUp === "ADMIN" || roleUp === "VENTAS");
 
   const [mode, setMode] = useState<"LISTA" | "CREAR">("LISTA");
   const [newNombre, setNewNombre] = useState("");
   const [newNit, setNewNit] = useState("CF");
   const [newTel, setNewTel] = useState("");
   const [newDir, setNewDir] = useState("");
-
-  const loadRole = async () => {
-    const { data: auth } = await supabase.auth.getUser();
-    const id = auth.user?.id ?? null;
-    setUid(id);
-    if (!id) {
-      setRole("");
-      return;
-    }
-    const { data: prof } = await supabase.from("profiles").select("role").eq("id", id).maybeSingle();
-    setRole((normalizeUpper(prof?.role) as Role) ?? "");
-  };
 
   const load = async () => {
     setLoading(true);
@@ -120,7 +112,7 @@ export default function SelectCliente() {
       }
 
       // VENTAS: solo clientes asignados al vendedor
-      if (role === "VENTAS") {
+      if (isVentas) {
         if (!uid) {
           setItems([]);
           return;
@@ -138,9 +130,11 @@ export default function SelectCliente() {
     }
   };
 
-  useEffect(() => {
-    loadRole().catch(() => {});
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      void refreshRole("focus:select-cliente");
+    }, [refreshRole])
+  );
 
   useEffect(() => {
     if (mode !== "LISTA") return;
@@ -149,7 +143,7 @@ export default function SelectCliente() {
     }, 220);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, role, uid, mode]);
+  }, [q, isVentas, uid, mode]);
 
   const pick = (c: ClienteRow) => {
     const payload: Cliente = {
@@ -162,8 +156,6 @@ export default function SelectCliente() {
     setCliente(payload);
     goBackSafe("/venta-nueva");
   };
-
-  const canCreateCliente = role === "ADMIN" || role === "VENTAS";
 
   const resetCrear = () => {
     setNewNombre("");
@@ -183,12 +175,12 @@ export default function SelectCliente() {
     if (!telefono) return Alert.alert("Faltan datos", "Teléfono es obligatorio");
     if (!direccion) return Alert.alert("Faltan datos", "Dirección es obligatoria");
 
-    if (role === "VENTAS" && !uid) {
+    if (isVentas && !uid) {
       return Alert.alert("Error", "Usuario no autenticado");
     }
 
     const nitSave = nitToSave(newNit);
-    const vendedorIdToSave = role === "VENTAS" ? uid : null;
+    const vendedorIdToSave = isVentas ? uid : null;
 
     setLoading(true);
     try {

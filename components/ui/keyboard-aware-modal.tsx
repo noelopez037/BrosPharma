@@ -35,14 +35,16 @@ export function KeyboardAwareModal({
   backdropOpacity = 0.4,
   maxHeightRatio = 0.82,
 }: Props) {
-  if (!visible) return null;
-
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const [keyboardOpen, setKeyboardOpen] = useState(false);
 
   useEffect(() => {
+    if (!visible) {
+      setKeyboardOpen(false);
+      return;
+    }
     const showEvt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvt = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
 
@@ -52,7 +54,7 @@ export function KeyboardAwareModal({
       subShow.remove();
       subHide.remove();
     };
-  }, []);
+  }, [visible]);
 
   const overlayColor = useMemo(() => {
     const op = Math.max(0, Math.min(1, backdropOpacity));
@@ -71,6 +73,8 @@ export function KeyboardAwareModal({
     }
     onClose();
   };
+
+  if (!visible) return null;
 
   return (
     <Modal transparent visible={visible} animationType={animationType} onRequestClose={onClose}>

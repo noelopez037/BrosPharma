@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
+import { useRole } from "../lib/useRole";
 import { AppButton } from "../components/ui/app-button";
 import { generarEstadoCuentaClientePdf } from "../lib/estadoCuentaClientePdf";
 
@@ -62,26 +63,15 @@ export default function ClienteDetalle() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const clienteId = Number(id);
 
-  const [role, setRole] = useState<Role>("");
-  const canEdit = role === "ADMIN" || role === "VENTAS";
-  const canDelete = role === "ADMIN";
-  const canGenerarEstadoCuentaPdf = role === "ADMIN" || role === "VENTAS";
+  const { role, isReady, refreshRole } = useRole();
+  const roleUp = String(role ?? "").trim().toUpperCase() as Role;
+  const canEdit = isReady && (roleUp === "ADMIN" || roleUp === "VENTAS");
+  const canDelete = isReady && roleUp === "ADMIN";
+  const canGenerarEstadoCuentaPdf = isReady && (roleUp === "ADMIN" || roleUp === "VENTAS");
 
   const [loading, setLoading] = useState(true);
   const [row, setRow] = useState<ClienteRow | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
-
-  const loadRole = useCallback(async () => {
-    const { data: auth } = await supabase.auth.getUser();
-    const uid = auth.user?.id;
-    if (!uid) {
-      setRole("");
-      return;
-    }
-
-    const { data } = await supabase.from("profiles").select("role").eq("id", uid).maybeSingle();
-    setRole(normalizeUpper(data?.role) as Role);
-  }, []);
 
   const loadCliente = useCallback(async () => {
     if (!Number.isFinite(clienteId) || clienteId <= 0) {
@@ -104,11 +94,17 @@ export default function ClienteDetalle() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      await Promise.all([loadRole(), loadCliente()]);
+      await loadCliente();
     } finally {
       setLoading(false);
     }
-  }, [loadCliente, loadRole]);
+  }, [loadCliente]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshRole("focus:cliente-detalle");
+    }, [refreshRole])
+  );
 
   useFocusEffect(
     useCallback(() => {
