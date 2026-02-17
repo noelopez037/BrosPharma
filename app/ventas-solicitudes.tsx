@@ -40,6 +40,21 @@ type SolicitudRow = {
   solicitud_by: string | null;
 };
 
+type PagoReportadoRow = {
+  id: number;
+  venta_id: number;
+  factura_id: number | null;
+  fecha_reportado: string | null;
+  created_at: string | null;
+  monto: number | null;
+  metodo: string | null;
+  referencia: string | null;
+  comentario: string | null;
+  comprobante_path: string | null;
+  created_by: string | null;
+  estado: string | null;
+};
+
 function normalizeUpper(v: any) {
   return String(v ?? "").trim().toUpperCase();
 }
@@ -49,6 +64,13 @@ function fmtDateTime(iso: string | null | undefined) {
   // yyyy-mm-dd hh:mm
   const s = String(iso).replace("T", " ");
   return s.slice(0, 16);
+}
+
+function fmtQ(n: number | string | null | undefined) {
+  if (n == null) return "—";
+  const x = Number(n);
+  if (!Number.isFinite(x)) return "—";
+  return `Q ${x.toFixed(2)}`;
 }
 
 function actionLabel(a: SolicitudRow["solicitud_accion"]) {
@@ -112,6 +134,12 @@ export default function VentasSolicitudesScreen() {
   const [vendedoresById, setVendedoresById] = useState<Record<string, { codigo: string | null; nombre: string | null }>>({});
   const [initialLoading, setInitialLoading] = useState(true);
   const [actingVentaId, setActingVentaId] = useState<number | null>(null);
+  const [pagosPendientesRaw, setPagosPendientesRaw] = useState<PagoReportadoRow[]>([]);
+  const [initialLoadingPagos, setInitialLoadingPagos] = useState(true);
+  const [actingPagoReportadoId, setActingPagoReportadoId] = useState<number | null>(null);
+  const [ventasInfoById, setVentasInfoById] = useState<
+    Record<string, { cliente_nombre: string | null; vendedor_id: string | null; vendedor_codigo: string | null }>
+  >({});
 
   const fetchSolicitudes = useCallback(async () => {
     const { data, error } = await supabase
@@ -125,6 +153,20 @@ export default function VentasSolicitudesScreen() {
     setRowsRaw((data ?? []) as any);
   }, []);
 
+  const fetchPagosPendientes = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("ventas_pagos_reportados")
+      .select(
+        "id,venta_id,factura_id,fecha_reportado,created_at,monto,metodo,referencia,comentario,comprobante_path,created_by,estado"
+      )
+      .eq("estado", "PENDIENTE")
+      .order("created_at", { ascending: false })
+      .limit(300);
+
+    if (error) throw error;
+    setPagosPendientesRaw((data ?? []) as any);
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       void refreshRole("focus:ventas-solicitudes");
@@ -136,19 +178,28 @@ export default function VentasSolicitudesScreen() {
     let alive = true;
     (async () => {
       try {
-        if (alive) setInitialLoading(true);
-        await fetchSolicitudes();
+        if (alive) {
+          setInitialLoading(true);
+          setInitialLoadingPagos(true);
+        }
+        await Promise.all([fetchSolicitudes(), fetchPagosPendientes()]);
       } catch (e: any) {
         Alert.alert("Error", e?.message ?? "No se pudieron cargar solicitudes");
-        if (alive) setRowsRaw([]);
+        if (alive) {
+          setRowsRaw([]);
+          setPagosPendientesRaw([]);
+        }
       } finally {
-        if (alive) setInitialLoading(false);
+        if (alive) {
+          setInitialLoading(false);
+          setInitialLoadingPagos(false);
+        }
       }
     })();
     return () => {
       alive = false;
     };
-  }, [canView, fetchSolicitudes, isReady, roleUp]);
+  }, [canView, fetchPagosPendientes, fetchSolicitudes, isReady, roleUp]);
 
   const rows = useMemo(() => {
     const search = q.trim().toLowerCase();
@@ -160,6 +211,64 @@ export default function VentasSolicitudesScreen() {
       return id.includes(search) || cliente.includes(search) || nota.includes(search);
     });
   }, [q, rowsRaw]);
+
+  const pagosPendientes = useMemo(() => {
+    const search = q.trim().toLowerCase();
+    if (!search) return pagosPendientesRaw;
+    return pagosPendientesRaw.filter((p) => {
+      const venta = String(p.venta_id ?? "");
+      const ref = String(p.referencia ?? "").toLowerCase();
+      const comentario = String(p.comentario ?? "").toLowerCase();
+      return venta.includes(search) || ref.includes(search) || comentario.includes(search);
+    });
+  }, [pagosPendientesRaw, q]);
+
+  useEffect(() => {
+    const ventaIds = Array.from(
+      new Set(
+        pagosPendientesRaw
+          .map((p) => (p.venta_id == null ? null : Number(p.venta_id)))
+          .filter((id): id is number => typeof id === "number" && Number.isFinite(id))
+      )
+    );
+
+    if (!ventaIds.length) {
+      setVentasInfoById({});
+      return;
+    }
+
+    let alive = true;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("vw_cxc_ventas")
+          .select("venta_id,cliente_nombre,vendedor_id,vendedor_codigo")
+          .in("venta_id", ventaIds);
+        if (error) throw error;
+
+        const map: Record<
+          string,
+          { cliente_nombre: string | null; vendedor_id: string | null; vendedor_codigo: string | null }
+        > = {};
+        (data ?? []).forEach((row: any) => {
+          const id = String(row?.venta_id ?? "").trim();
+          if (!id) return;
+          map[id] = {
+            cliente_nombre: row?.cliente_nombre ?? null,
+            vendedor_id: row?.vendedor_id == null ? null : String(row.vendedor_id),
+            vendedor_codigo: row?.vendedor_codigo == null ? null : String(row.vendedor_codigo),
+          };
+        });
+        if (alive) setVentasInfoById(map);
+      } catch (e) {
+        if (alive) setVentasInfoById({});
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [pagosPendientesRaw]);
 
   useEffect(() => {
     const ids = Array.from(
@@ -266,6 +375,56 @@ export default function VentasSolicitudesScreen() {
     [canResolve, resolve]
   );
 
+  const handlePagoAccion = useCallback(
+    async (pago: PagoReportadoRow, decision: "APROBAR" | "RECHAZAR") => {
+      if (!canResolve) return;
+      setActingPagoReportadoId(pago.id);
+      try {
+        if (decision === "APROBAR") {
+          const { error } = await supabase.rpc("rpc_venta_aprobar_pago_reportado", {
+            p_pago_reportado_id: pago.id,
+          });
+          if (error) throw error;
+        } else {
+          const { error } = await supabase.rpc("rpc_venta_rechazar_pago_reportado", {
+            p_pago_reportado_id: pago.id,
+            p_nota_admin: "Rechazado por admin",
+          });
+          if (error) throw error;
+        }
+        await Promise.all([fetchSolicitudes(), fetchPagosPendientes()]);
+        emitSolicitudesChanged();
+      } catch (e: any) {
+        Alert.alert("Error", e?.message ?? "No se pudo actualizar el pago reportado");
+      } finally {
+        setActingPagoReportadoId(null);
+      }
+    },
+    [canResolve, fetchPagosPendientes, fetchSolicitudes]
+  );
+
+  const confirmPagoAccion = useCallback(
+    (pago: PagoReportadoRow, decision: "APROBAR" | "RECHAZAR") => {
+      if (!canResolve) return;
+      const title = decision === "APROBAR" ? "Aprobar pago" : "Rechazar pago";
+      const msg =
+        decision === "APROBAR"
+          ? "Esto marcara el pago como aprobado."
+          : "Esto rechazara el pago reportado y notificara al vendedor.";
+      Alert.alert(title, msg, [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: decision === "APROBAR" ? "Aprobar" : "Rechazar",
+          style: decision === "RECHAZAR" ? "destructive" : "default",
+          onPress: () => {
+            handlePagoAccion(pago, decision).catch(() => {});
+          },
+        },
+      ]);
+    },
+    [canResolve, handlePagoAccion]
+  );
+
   return (
     <>
       <Stack.Screen
@@ -289,6 +448,79 @@ export default function VentasSolicitudesScreen() {
               autoCapitalize="none"
               autoCorrect={false}
             />
+          </View>
+
+          <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
+            <View style={styles.pagosHeaderRow}>
+              <Text style={[styles.pagosHeaderTitle, { color: C.text }]}>Pagos reportados</Text>
+              <Text style={[styles.pagosHeaderSubtitle, { color: C.sub }]}>Pendientes de aprobación</Text>
+            </View>
+            {initialLoadingPagos ? (
+              <Text style={{ color: C.sub, fontWeight: "700" }}>Cargando pagos...</Text>
+            ) : pagosPendientes.length === 0 ? (
+              <Text style={{ color: C.sub, fontWeight: "700" }}>Sin pagos reportados pendientes</Text>
+            ) : (
+              pagosPendientes.map((p) => {
+                const isActing = actingPagoReportadoId === p.id;
+                const displayDate = fmtDateTime(p.fecha_reportado ?? p.created_at);
+                const ventaKey = String(p.venta_id ?? "").trim();
+                const ventaInfo = ventaKey ? ventasInfoById[ventaKey] : undefined;
+                const clienteNombre = ventaInfo?.cliente_nombre ?? "Cliente";
+                const vendedorDisplay = (() => {
+                  if (ventaInfo?.vendedor_codigo) return String(ventaInfo.vendedor_codigo).trim();
+                  const vendedorId = ventaInfo?.vendedor_id ? String(ventaInfo.vendedor_id).trim() : "";
+                  if (vendedorId) {
+                    const vendedor = vendedoresById[vendedorId];
+                    const code = String(vendedor?.codigo ?? "").trim();
+                    if (code) return code;
+                    const nombre = String(vendedor?.nombre ?? "").trim();
+                    if (nombre) return nombre;
+                    return vendedorId.slice(0, 8);
+                  }
+                  return "—";
+                })();
+                return (
+                  <View key={p.id} style={{ marginTop: 10 }}>
+                    <Pressable
+                      onPress={() =>
+                        router.push({
+                          pathname: "/cxc-venta-detalle",
+                          params: { ventaId: String(p.venta_id) },
+                        } as any)
+                      }
+                      style={({ pressed }) => [
+                        styles.pagoCard,
+                        { borderColor: C.border, backgroundColor: C.card },
+                        pressed ? { opacity: 0.92 } : null,
+                      ]}
+                    >
+                      <View style={styles.rowTopPay}>
+                        <Text style={[styles.pagoVenta, { color: C.text, flex: 1 }]} numberOfLines={1}>
+                          {clienteNombre}
+                        </Text>
+                        <View
+                          style={[styles.vendorPill, { borderColor: C.border, backgroundColor: C.pillAmberBg }]}
+                        >
+                          <Text style={[styles.vendorPillText, { color: C.sub }]} numberOfLines={1}>
+                            {vendedorDisplay}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={[styles.pagoMonto, { color: C.text }]}>Monto: {fmtQ(p.monto)}</Text>
+                      <Text style={[styles.pagoMeta, { color: C.sub }]}>Método: {p.metodo ?? "—"}</Text>
+                      {p.referencia ? (
+                        <Text style={[styles.pagoMeta, { color: C.sub }]}>Ref: {p.referencia}</Text>
+                      ) : null}
+                      {p.comentario ? (
+                        <Text style={[styles.pagoMeta, { color: C.sub }]}>Comentario: {p.comentario}</Text>
+                      ) : null}
+                      <Text style={[styles.pagoMeta, { color: C.sub }]}>Reportado: {displayDate}</Text>
+
+                    </Pressable>
+                  </View>
+                );
+              })
+            )}
           </View>
 
           <FlatList
@@ -417,4 +649,14 @@ const styles = StyleSheet.create({
   sub: { marginTop: 4, fontSize: 13, fontWeight: "600" },
   note: { marginTop: 8, fontSize: 13, fontWeight: "600", lineHeight: 18 },
   btnRow: { marginTop: 10, flexDirection: "row", alignItems: "center" },
+  pagosHeaderRow: { paddingHorizontal: 4, paddingBottom: 6 },
+  pagosHeaderTitle: { fontSize: 18, fontWeight: "800" },
+  pagosHeaderSubtitle: { fontSize: 13, fontWeight: "600" },
+  pagoCard: { borderWidth: 1, borderRadius: 14, padding: 14 },
+  pagoVenta: { fontSize: 15, fontWeight: "800" },
+  pagoMonto: { marginTop: 4, fontSize: 14, fontWeight: "700" },
+  pagoMeta: { marginTop: 4, fontSize: 13, fontWeight: "600" },
+  rowTopPay: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 },
+  vendorPill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  vendorPillText: { fontSize: 12, fontWeight: "800" },
 });

@@ -399,7 +399,6 @@ export default function ComisionesScreen() {
           </View>
           <View style={{ alignItems: "flex-end" }}>
             <Text style={s.paidBadge}>PAGADA</Text>
-            <Text style={s.total}>{fmtQ(saldo0)}</Text>
           </View>
         </View>
       </Pressable>
