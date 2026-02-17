@@ -6,7 +6,6 @@ import * as ImagePicker from "expo-image-picker";
 import * as MediaLibrary from "expo-media-library";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
-import ImageViewer from "react-native-image-zoom-viewer";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -23,6 +22,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import ImageViewer from "react-native-image-zoom-viewer";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppButton } from "../components/ui/app-button";
@@ -1827,11 +1827,7 @@ export default function VentaDetalleScreen() {
 
             {canFacturar ? (
               <>
-                <Text style={[styles.sub, { color: C.sub }]}>
-                  {canAnular
-                    ? "Sube el PDF primero; se autollenan numero (No:) y monto. Completa/ajusta lo necesario para anular."
-                    : "Sube el PDF primero; se autollenan numero (No:) y monto. Completa/ajusta lo necesario para facturar."}
-                </Text>
+               
 
                 {!facturaRequiredCount ? null : (
                   <Text style={[styles.sub, { color: C.sub, marginTop: 6 }]}

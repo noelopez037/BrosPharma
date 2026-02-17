@@ -808,7 +808,7 @@ export default function Inicio() {
       <View style={s.headerRow}>
         <View style={{ flex: 1 }}>
           <Text style={[s.title, { color: C.text }]} numberOfLines={1}>
-            {userLabel ? `Hola, ${userLabel}` : "Hola"}
+            {userLabel ? `Hola ${userLabel}` : "Hola"}
           </Text>
           
         </View>
