@@ -216,6 +216,8 @@ export default function CxcVentaDetalle() {
   const [row, setRow] = useState<any | null>(null);
   const [lineas, setLineas] = useState<any[]>([]);
   const [pagos, setPagos] = useState<any[]>([]);
+  const [pagosReportadosPendientes, setPagosReportadosPendientes] = useState<any[]>([]);
+  const [actingPagoReportadoId, setActingPagoReportadoId] = useState<number | null>(null);
   const [facturas, setFacturas] = useState<any[]>([]);
   const [vendedorDisplay, setVendedorDisplay] = useState<string>("");
 
@@ -240,6 +242,8 @@ export default function CxcVentaDetalle() {
   const [savingDownload, setSavingDownload] = useState(false);
 
   const { role, refreshRole } = useRole();
+  const roleNormalized = normalizeUpper(role);
+  const canLoadPagosReportados = roleNormalized === "ADMIN" || roleNormalized === "VENTAS";
 
   useFocusEffect(
     useCallback(() => {
@@ -272,16 +276,29 @@ export default function CxcVentaDetalle() {
         .eq("venta_id", id)
         .order("fecha", { ascending: false });
       setPagos((p ?? []) as any[]);
+
+      if (canLoadPagosReportados) {
+        const { data: pr } = await supabase
+          .from("ventas_pagos_reportados")
+          .select("id,venta_id,factura_id,fecha_reportado,created_at,monto,metodo,referencia,comprobante_path,comentario,created_by,estado")
+          .eq("venta_id", id)
+          .eq("estado", "PENDIENTE")
+          .order("created_at", { ascending: false });
+        setPagosReportadosPendientes((pr ?? []) as any[]);
+      } else {
+        setPagosReportadosPendientes([]);
+      }
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo cargar");
       setRow(null);
       setLineas([]);
       setPagos([]);
       setFacturas([]);
+      setPagosReportadosPendientes([]);
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, canLoadPagosReportados]);
 
   useFocusEffect(useCallback(() => { fetchAll(); }, [fetchAll]));
 
@@ -341,6 +358,7 @@ export default function CxcVentaDetalle() {
   };
 
   const saldoNum = useMemo(() => safeNumber(row?.saldo), [row?.saldo]);
+  const hasPendingReport = useMemo(() => (pagosReportadosPendientes ?? []).length > 0, [pagosReportadosPendientes]);
   const totalProductos = useMemo(() => {
     return (lineas ?? []).reduce((acc: number, d: any) => {
       const sub = d?.subtotal ?? safeNumber(d?.cantidad) * safeNumber(d?.precio_venta_unit);
@@ -456,7 +474,7 @@ export default function CxcVentaDetalle() {
     setSavingPago(true);
     try {
       const comprobantePath = await subirComprobanteSiExiste(Number(row.venta_id));
-      const { error } = await supabase.rpc("rpc_venta_aplicar_pago", {
+      const { error } = await supabase.rpc("rpc_venta_reportar_pago", {
         p_venta_id: Number(row.venta_id),
         p_factura_id: Number(pagoFacturaId),
         p_monto: monto,
@@ -466,6 +484,10 @@ export default function CxcVentaDetalle() {
         p_comentario: pagoComentario ? pagoComentario : null,
       });
       if (error) throw error;
+      Alert.alert(
+        "Pago reportado",
+        "El pago fue enviado a aprobación del administrador."
+      );
       setFacturaPickerOpen(false);
       setPagoModal(false);
       setPagoFacturaId(null);
@@ -479,10 +501,9 @@ export default function CxcVentaDetalle() {
   };
 
   const allowedMetodosPago = useMemo<readonly PagoMetodo[]>(() => {
-    const r = normalizeUpper(role);
-    if (r === "ADMIN") return ["EFECTIVO", "TRANSFERENCIA", "CHEQUE"] as const;
+    if (roleNormalized === "ADMIN") return ["EFECTIVO", "TRANSFERENCIA", "CHEQUE"] as const;
     return ["TRANSFERENCIA", "CHEQUE"] as const;
-  }, [role]);
+  }, [roleNormalized]);
 
   useEffect(() => {
     // si cambia el rol o la lista permitida, asegurar que el método actual sea válido
@@ -647,6 +668,61 @@ export default function CxcVentaDetalle() {
     [fetchAll]
   );
 
+  const runPagoReportadoAction = useCallback(
+    async (p: any, action: "aprobar" | "rechazar") => {
+      const pid = Number(p?.id);
+      if (!Number.isFinite(pid) || pid <= 0) return;
+      setActingPagoReportadoId(pid);
+      try {
+        if (action === "aprobar") {
+          const { error } = await supabase.rpc("rpc_venta_aprobar_pago_reportado", {
+            p_pago_reportado_id: pid,
+          });
+          if (error) throw error;
+          Alert.alert("Listo", "Pago reportado aprobado.");
+        } else {
+          const { error } = await supabase.rpc("rpc_venta_rechazar_pago_reportado", {
+            p_pago_reportado_id: pid,
+            p_nota_admin: "Rechazado por admin",
+          });
+          if (error) throw error;
+          Alert.alert("Listo", "Pago reportado rechazado.");
+        }
+        await fetchAll();
+      } catch (e: any) {
+        Alert.alert("Error", e?.message ?? "No se pudo actualizar el pago reportado");
+      } finally {
+        setActingPagoReportadoId(null);
+      }
+    },
+    [fetchAll]
+  );
+
+  const handleAprobarPagoReportado = useCallback(
+    (p: any) => {
+      void runPagoReportadoAction(p, "aprobar");
+    },
+    [runPagoReportadoAction]
+  );
+
+  const handleRechazarPagoReportado = useCallback(
+    (p: any) => {
+      Alert.alert(
+        "Rechazar pago",
+        `¿Deseas rechazar el pago reportado del ${fmtDate(p?.fecha_reportado ?? p?.created_at)} por ${fmtQ(p?.monto)}?`,
+        [
+          { text: "Cancelar", style: "cancel" },
+          {
+            text: "Rechazar",
+            style: "destructive",
+            onPress: () => void runPagoReportadoAction(p, "rechazar"),
+          },
+        ]
+      );
+    },
+    [runPagoReportadoAction]
+  );
+
   return (
     <>
       <Stack.Screen options={{ headerShown: true, title: "Detalle cuenta", headerBackTitle: "Atrás" }} />
@@ -799,6 +875,81 @@ export default function CxcVentaDetalle() {
               )}
             </View>
 
+            {roleNormalized === "ADMIN" ? (
+              <>
+                <Text style={[styles.sectionTitle, { color: C.text }]}>Pagos reportados (pendientes)</Text>
+                <View style={[styles.cardBase, styles.shadowCard, { borderColor: C.border, backgroundColor: C.card, marginTop: 12 }]}>
+                  {pagosReportadosPendientes.length === 0 ? (
+                    <Text style={{ color: C.sub }}>Sin pagos reportados pendientes</Text>
+                  ) : (
+                    pagosReportadosPendientes.map((p: any) => {
+                      const comprobanteRaw = String(p.comprobante_path ?? "").trim();
+                      const hasComprobante = !!comprobanteRaw;
+                      const disabled = actingPagoReportadoId === Number(p.id);
+                      return (
+                        <View key={String(p.id)} style={{ paddingVertical: 10 }}>
+                          <View style={styles.rowBetween}>
+                            <Text style={[styles.payTitle, { color: C.text }]}>
+                              {fmtDate(p.fecha_reportado ?? p.created_at)} · {p.metodo ?? "—"}
+                            </Text>
+                            <Text style={[styles.payAmount, { color: C.text }]}>{fmtQ(p.monto)}</Text>
+                          </View>
+                          {!!p.referencia ? <Text style={[styles.payMeta, { color: C.sub }]}>Ref: {p.referencia}</Text> : null}
+                          {!!p.comentario ? <Text style={[styles.payMeta, { color: C.sub }]}>{p.comentario}</Text> : null}
+
+                          <View style={{ marginTop: 12 }}>
+                            {hasComprobante ? (
+                              <AppButton
+                                title="Ver comprobante"
+                                size="sm"
+                                variant="outline"
+                                style={{ width: "100%" }}
+                                onPress={() => handleOpenComprobante(comprobanteRaw)}
+                              />
+                            ) : null}
+
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                                marginTop: 12,
+                              }}
+                            >
+                              <AppButton
+                                title="Aprobar"
+                                size="sm"
+                                variant="primary"
+                                style={{ flex: 1 }}
+                                onPress={() => handleAprobarPagoReportado(p)}
+                                disabled={disabled}
+                              />
+
+                              <View style={{ width: 12 }} />
+
+                              <AppButton
+                                title="Rechazar"
+                                size="sm"
+                                variant="outline"
+                                style={{
+                                  flex: 1,
+                                  borderColor: "#E53935",
+                                }}
+                                textStyle={{
+                                  color: "#E53935",
+                                }}
+                                onPress={() => handleRechazarPagoReportado(p)}
+                                disabled={disabled}
+                              />
+                            </View>
+                          </View>
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
+              </>
+            ) : null}
+
             <Text style={[styles.sectionTitle, { color: C.text }]}>Pagos</Text>
             <View style={[styles.cardBase, styles.shadowCard, { borderColor: C.border, backgroundColor: C.card, marginTop: 12 }]}>
               {pagos.length === 0 ? (
@@ -807,7 +958,7 @@ export default function CxcVentaDetalle() {
                 pagos.map((p: any) => {
                   const comprobanteRaw = String(p.comprobante_path ?? "").trim();
                   const hasComprobante = !!comprobanteRaw;
-                  const canDeletePago = normalizeUpper(role) === "ADMIN";
+                  const canDeletePago = roleNormalized === "ADMIN";
                   const pfid = p?.factura_id == null ? null : Number(p.factura_id);
                   const pf = pfid ? (facturasById.get(pfid) ?? null) : null;
                   const facturaNum = pf ? String(pf?.numero_factura ?? "").trim() : "";
@@ -857,21 +1008,39 @@ export default function CxcVentaDetalle() {
 
               {/** Edición de pagos no expuesta. Solo se permite eliminar pagos. **/}
               {saldoNum > 0 ? (
-                <AppButton
-                  title="Aplicar pago"
-                  onPress={() => {
-                    // limpiar selección para evitar aplicar a factura equivocada
-                    const only = (facturasPendientes ?? []).length === 1 ? Number((facturasPendientes as any[])[0]?.id) : null;
-                    setPagoFacturaId(Number.isFinite(only as any) && (only as any) > 0 ? (only as any) : null);
-                    // set default metodo segun rol
-                    setPagoMetodo(allowedMetodosPago[0]);
-                    setFacturaPickerOpen(false);
-                    setPagoModal(true);
-                  }}
-                  disabled={false}
-                  variant="primary"
-                  style={{ marginTop: 12, backgroundColor: C.primary, borderColor: C.primary } as any}
-                />
+                hasPendingReport ? (
+                  <View
+                    style={{
+                      marginTop: 12,
+                      padding: 12,
+                      borderWidth: StyleSheet.hairlineWidth,
+                      borderColor: C.border,
+                      borderRadius: 14,
+                      backgroundColor: C.mutedBg,
+                    }}
+                  >
+                    <Text style={{ color: C.text, fontWeight: "900" }}>Pago pendiente de aprobación</Text>
+                    <Text style={{ color: C.sub, marginTop: 4, fontWeight: "600", fontSize: 12 }}>
+                      Ya existe un pago reportado. Pendiente aprobacion de un administrador.
+                    </Text>
+                  </View>
+                ) : (
+                  <AppButton
+                    title="Reportar pago"
+                    onPress={() => {
+                      // limpiar selección para evitar aplicar a factura equivocada
+                      const only = (facturasPendientes ?? []).length === 1 ? Number((facturasPendientes as any[])[0]?.id) : null;
+                      setPagoFacturaId(Number.isFinite(only as any) && (only as any) > 0 ? (only as any) : null);
+                      // set default metodo segun rol
+                      setPagoMetodo(allowedMetodosPago[0]);
+                      setFacturaPickerOpen(false);
+                      setPagoModal(true);
+                    }}
+                    disabled={false}
+                    variant="primary"
+                    style={{ marginTop: 12, backgroundColor: C.primary, borderColor: C.primary } as any}
+                  />
+                )
               ) : null}
             </View>
 
@@ -967,7 +1136,7 @@ export default function CxcVentaDetalle() {
                         </>
                       ) : (
                         <>
-                          <Text style={[styles.modalTitle, { color: C.text }]}>Aplicar pago</Text>
+                          <Text style={[styles.modalTitle, { color: C.text }]}>Reportar pago</Text>
                           <Text style={[styles.modalSub, { color: C.sub }]}>Saldo: {fmtQ(row?.saldo)}</Text>
 
                           {facturasPendientes.length === 0 ? (
@@ -1011,7 +1180,7 @@ export default function CxcVentaDetalle() {
                               );
                             })}
                           </View>
-                          {normalizeUpper(role) !== "ADMIN" ? (
+                          {roleNormalized !== "ADMIN" ? (
                             <Text style={{ color: C.sub, marginTop: 6, fontWeight: "600", fontSize: 12 }}>
                               Solo administradores pueden registrar pagos en efectivo.
                             </Text>
