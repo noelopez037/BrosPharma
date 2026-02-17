@@ -1,26 +1,33 @@
-const NOTIF_DISPATCH_URL = "https://gllpbryoozumsjjzatav.functions.supabase.co/notif-dispatch";
+import { supabase } from "./supabase";
 
-export async function dispatchNotifs(limit = 20): Promise<void> {
-  const controller = new AbortController();
-  const timeoutMs = 8000;
-  const t = setTimeout(() => controller.abort(), timeoutMs);
+export async function dispatchNotifs(limit = 20) {
+  const { data } = await supabase.auth.getSession();
+  const token = data?.session?.access_token;
 
-  try {
-    const res = await fetch(NOTIF_DISPATCH_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ limit }),
-      signal: controller.signal,
-    });
-
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      const msg = txt ? `HTTP ${res.status}: ${txt}` : `HTTP ${res.status}`;
-      throw new Error(msg);
-    }
-  } finally {
-    clearTimeout(t);
+  if (!token) {
+    throw new Error("NO_SESSION");
   }
+
+  const { data: out, error } = await supabase.functions.invoke(
+    "notif-dispatch",
+    {
+      body: { limit },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(process.env.EXPO_PUBLIC_DISPATCH_SECRET
+          ? { "x-dispatch-secret": process.env.EXPO_PUBLIC_DISPATCH_SECRET }
+          : {}),
+      },
+    }
+  );
+
+  if (error) {
+    throw new Error(`[notif-dispatch] ${error.message}`);
+  }
+
+  if (out?.ok === false) {
+    throw new Error(out.error || "DISPATCH_FAILED");
+  }
+
+  return out;
 }

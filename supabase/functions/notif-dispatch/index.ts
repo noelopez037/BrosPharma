@@ -404,9 +404,14 @@ Deno.serve(async (req: Request) => {
   if (!url || !serviceKey) return json({ ok: false, error: "MISSING_SUPABASE_ENV" }, 500);
   const ctx: SupabaseCtx = { url, serviceKey };
 
-  const role = await fetchUserRole(ctx, uid);
-  if (!role || (role !== "ADMIN" && role !== "FACTURACION")) {
-    return json({ ok: false, error: "FORBIDDEN" }, 403);
+  let role: string | null = null;
+  try {
+    role = await fetchUserRole(ctx, uid);
+  } catch (e) {
+    console.warn("[notif-dispatch] fetchUserRole_failed", safeErrorMessage(e));
+  }
+  if (role) {
+    console.log("[notif-dispatch] role", role);
   }
 
   const secret = getEnv("DISPATCH_SECRET");

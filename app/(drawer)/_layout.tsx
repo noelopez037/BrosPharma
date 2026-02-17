@@ -1,26 +1,25 @@
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useEffect } from "react";
 import {
   DrawerContentScrollView
 } from "@react-navigation/drawer";
 import { Drawer } from "expo-router/drawer";
-import React, { useMemo, useRef, useState } from "react";
-import { Platform, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Platform, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 
-import { router, useNavigation, usePathname } from "expo-router";
 import { DrawerActions, getFocusedRouteNameFromRoute } from "@react-navigation/native";
-import { supabase } from "../../lib/supabase";
-import { useRole } from "../../lib/useRole";
+import { router, useNavigation, usePathname } from "expo-router";
 import {
   beginPushLogoutGuard,
   disablePushForThisDevice,
   endPushLogoutGuard,
 } from "../../lib/pushNotifications";
 import { onSolicitudesChanged } from "../../lib/solicitudesEvents";
+import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { alphaColor } from "../../lib/ui";
+import { useRole } from "../../lib/useRole";
 import {
   FB_DARK_BORDER,
   FB_DARK_DANGER,
@@ -261,7 +260,7 @@ export default function DrawerLayout() {
     const n = (userName ?? "").trim();
     if (!n) return "Hola";
     const first = n.split(/\s+/)[0] ?? n;
-    return `Hola ${first}`;
+    
   }, [userName]);
 
   const handleLogout = async () => {
