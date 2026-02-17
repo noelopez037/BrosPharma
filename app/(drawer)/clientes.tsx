@@ -2,6 +2,7 @@ import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  FlatList,
   Platform,
   Pressable,
   StyleSheet,
@@ -9,7 +10,6 @@ import {
   Text,
   TextInput,
   View,
-  FlatList,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
@@ -83,7 +83,7 @@ export default function ClientesScreen() {
   const isVentas = roleUp === "VENTAS";
   const isBodega = roleUp === "BODEGA";
   const readOnly = isBodega;
-  const canCreate = isAdmin || isVentas;
+  const canCreate = isAdmin;
 
   const [q, setQ] = useState("");
   const dq = useDebouncedValue(q.trim(), 250);

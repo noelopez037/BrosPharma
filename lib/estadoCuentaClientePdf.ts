@@ -99,34 +99,70 @@ function buildEstadoCuentaHtml({ logoBase64, header, totals, rows }: { logoBase6
 
   const filtered = (rows ?? []).filter((r) => toNum(pick(r, ["saldo", "balance"]) ?? 0) > 0);
 
-  const tableRows = filtered
-    .map((r) => {
-      const numero = escapeHtml(pick(r, ["numero_factura", "factura", "numero", "no_factura"]) ?? "-");
-      const fEmi = formatDateDMY(pick(r, ["fecha_emision", "fecha", "emision"]) ?? null);
-      const fVen = formatDateDMY(pick(r, ["fecha_vencimiento", "vencimiento"]) ?? null);
-      const dias = String(pick(r, ["dias_atraso", "dias"]) ?? "0");
+  function chunkArray<T>(arr: T[], size: number) {
+    const out: T[][] = [];
+    const chunkSize = Math.max(1, Math.floor(size));
+    for (let i = 0; i < arr.length; i += chunkSize) {
+      out.push(arr.slice(i, i + chunkSize));
+    }
+    return out;
+  }
 
-      const rawEstado = String(pick(r, ["estado", "status"]) ?? "").trim().toUpperCase();
-      const saldoNum = toNum(pick(r, ["saldo", "balance"]) ?? 0);
-      const computedEstado = saldoNum <= 0 ? "PAGADA" : toNum(dias) > 0 ? "VENCIDA" : "PENDIENTE";
-      const normalized = rawEstado === "VENCIDA" || rawEstado === "PENDIENTE" || rawEstado === "PAGADA" ? rawEstado : computedEstado;
-      const estado = escapeHtml(normalized);
-      const badgeClass = normalized === "VENCIDA" ? "badge--late" : normalized === "PAGADA" ? "badge--paid" : "badge--pending";
-      const rowClass = normalized === "VENCIDA" ? "row-late" : "";
+  function renderDetalleTable(rowsChunk: RpcRow[], isFirst: boolean) {
+    const rowsHtml = rowsChunk
+      .map((r) => {
+        const numero = escapeHtml(pick(r, ["numero_factura", "factura", "numero", "no_factura"]) ?? "-");
+        const fEmi = formatDateDMY(pick(r, ["fecha_emision", "fecha", "emision"]) ?? null);
+        const fVen = formatDateDMY(pick(r, ["fecha_vencimiento", "vencimiento"]) ?? null);
+        const dias = String(pick(r, ["dias_atraso", "dias"]) ?? "0");
 
-      const saldo = formatMoneyGTQ(pick(r, ["saldo", "balance"]) ?? 0);
+        const rawEstado = String(pick(r, ["estado", "status"]) ?? "").trim().toUpperCase();
+        const saldoNum = toNum(pick(r, ["saldo", "balance"]) ?? 0);
+        const computedEstado = saldoNum <= 0 ? "PAGADA" : toNum(dias) > 0 ? "VENCIDA" : "PENDIENTE";
+        const normalized = rawEstado === "VENCIDA" || rawEstado === "PENDIENTE" || rawEstado === "PAGADA" ? rawEstado : computedEstado;
+        const estado = escapeHtml(normalized);
+        const badgeClass = normalized === "VENCIDA" ? "badge--late" : normalized === "PAGADA" ? "badge--paid" : "badge--pending";
+        const rowClass = normalized === "VENCIDA" ? "row-late" : "";
 
-      return `
-        <tr class="${rowClass}">
-          <td class="mono">${numero}</td>
-          <td>${escapeHtml(fEmi)}</td>
-          <td>${escapeHtml(fVen)}</td>
-          <td><span class="badge ${badgeClass}">${estado}</span></td>
-          <td class="num">${escapeHtml(saldo)}</td>
-          <td class="num">${escapeHtml(dias)}</td>
-        </tr>`;
-    })
-    .join("");
+        const saldo = formatMoneyGTQ(pick(r, ["saldo", "balance"]) ?? 0);
+
+        return `
+          <tr class="${rowClass}">
+            <td class="mono">${numero}</td>
+            <td>${escapeHtml(fEmi)}</td>
+            <td>${escapeHtml(fVen)}</td>
+            <td><span class="badge ${badgeClass}">${estado}</span></td>
+            <td class="num">${escapeHtml(saldo)}</td>
+            <td class="num">${escapeHtml(dias)}</td>
+          </tr>`;
+      })
+      .join("");
+
+    const tableHtml = `
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Factura</th>
+              <th>Emision</th>
+              <th>Vencimiento</th>
+              <th>Estado</th>
+              <th class="num">Saldo</th>
+              <th class="num">Dias atraso</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </div>`;
+
+    if (isFirst) return tableHtml;
+    return `<div style="page-break-before: always; break-before: page;">${tableHtml}</div>`;
+  }
+
+  const chunks = chunkArray(filtered, 20);
+  const detalleHtml = chunks.map((chunk, i) => renderDetalleTable(chunk, i === 0)).join("");
 
   const emptyRows = filtered.length === 0;
 
@@ -341,7 +377,15 @@ function buildEstadoCuentaHtml({ logoBase64, header, totals, rows }: { logoBase6
           background: var(--paper);
         }
 
+        @media print {
+          .table-wrap { overflow: visible !important; }
+        }
+
         table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+        thead { display: table-header-group; }
+        tfoot { display: table-footer-group; }
+
+        tr { break-inside: avoid; page-break-inside: avoid; }
 
         thead th {
           background: var(--soft);
@@ -407,6 +451,7 @@ function buildEstadoCuentaHtml({ logoBase64, header, totals, rows }: { logoBase6
         }
 
         .footer strong { color: var(--ink); font-weight: 900; }
+
       </style>
     </head>
     <body>
@@ -473,23 +518,7 @@ function buildEstadoCuentaHtml({ logoBase64, header, totals, rows }: { logoBase6
             <div class="section-title">Detalle</div>
 
             ${emptyRows ? `<div style="border: 1px dashed var(--line); border-radius: 12px; padding: 12px; color: var(--muted); font-size: 12px; background: var(--neutral-bg);">Sin facturas pendientes.</div>` : `
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Factura</th>
-                    <th>Emision</th>
-                    <th>Vencimiento</th>
-                    <th>Estado</th>
-                    <th class="num">Saldo</th>
-                    <th class="num">Dias atraso</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${tableRows}
-                </tbody>
-              </table>
-            </div>
+            ${detalleHtml}
             `}
 
             <div class="footer">
