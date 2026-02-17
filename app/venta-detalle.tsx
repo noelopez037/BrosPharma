@@ -960,13 +960,18 @@ export default function VentaDetalleScreen() {
           const accessToken = sessData?.session?.access_token;
           if (!accessToken) throw new Error("Missing access token");
 
-          const { data, error } = await supabase.functions.invoke("invoice_extract", {
-            body: { path },
-            headers: { Authorization: `Bearer ${accessToken}` },
+          const fnUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL!}/functions/v1/invoice_extract`;
+          const r = await fetch(fnUrl, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
+              authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({ path }),
           });
-          console.log("[invoice_extract] invoke", { tipo, path, data, error });
-
-          let payload: any = data as any;
+          const payload: any = await r.json().catch(() => ({}));
+          console.log("[invoice_extract] fetch", { status: r.status, payload });
 
           if (payload?.ok === false) {
             const code = String(payload?.error ?? "").trim();
