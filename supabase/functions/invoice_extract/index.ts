@@ -20,6 +20,15 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
+function getBearer(req: Request): string | null {
+  const header = req.headers.get("authorization");
+  if (!header) return null;
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  if (!match?.[1]) return null;
+  const token = match[1].trim();
+  return token || null;
+}
+
 function normalizePath(p: string): string {
   let path = p.trim();
   path = path.replace(/^\/+/, "");
@@ -139,6 +148,9 @@ async function downloadPdfBytes(storagePath: string): Promise<Uint8Array> {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return json({ ok: true, numero: null });
   if (req.method !== "POST") return json({ ok: true, numero: null });
+
+  const jwt = getBearer(req);
+  if (!jwt) return json({ ok: false, error: "NO_AUTH" }, 401);
 
   const body = (await req.json().catch(() => ({}))) as { path?: unknown };
   if (typeof body?.path !== "string") return json({ ok: true, numero: null });
