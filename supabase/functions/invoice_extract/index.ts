@@ -123,19 +123,19 @@ function buildObjectUrl(baseUrl: string, bucket: string, objectPath: string): st
   return `${base}/storage/v1/object/${b}/${p}`;
 }
 
-async function downloadPdfBytes(storagePath: string): Promise<Uint8Array> {
+async function downloadPdfBytesAsUser(storagePath: string, jwt: string): Promise<Uint8Array> {
   // @ts-ignore - Deno env
   const url = String(Deno.env.get("SUPABASE_URL") ?? "").trim();
   // @ts-ignore - Deno env
-  const serviceKey = String(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
-  if (!url || !serviceKey) throw new Error("UNEXPECTED");
+  const anonKey = String(Deno.env.get("SUPABASE_ANON_KEY") ?? "").trim();
+  if (!url || !anonKey || !jwt) throw new Error("UNEXPECTED");
 
   const objectUrl = buildObjectUrl(url, BUCKET, storagePath);
   const res = await fetch(objectUrl, {
     method: "GET",
     headers: {
-      authorization: `Bearer ${serviceKey}`,
-      apikey: serviceKey,
+      authorization: `Bearer ${jwt}`,
+      apikey: anonKey,
     },
   });
 
@@ -149,13 +149,15 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return json({ ok: true, numero: null });
   if (req.method !== "POST") return json({ ok: true, numero: null });
 
-  const jwt = getBearer(req);
-  if (!jwt) return json({ ok: false, error: "NO_AUTH" }, 401);
+  const maybeJwt = getBearer(req);
+  if (!maybeJwt) return json({ ok: false, error: "NO_AUTH" }, 401);
+  const jwt = maybeJwt!;
 
   const body = (await req.json().catch(() => ({}))) as { path?: unknown };
   if (typeof body?.path !== "string") return json({ ok: true, numero: null });
   const storagePath = normalizePath(body.path);
   if (!storagePath) return json({ ok: true, numero: null });
+  if (storagePath.includes("..")) return json({ ok: true, numero: null });
 
   console.log("[invoice_extract] path", storagePath);
 
@@ -169,7 +171,7 @@ Deno.serve(async (req: Request) => {
   */
 
   try {
-    const bytes = await downloadPdfBytes(storagePath);
+    const bytes = await downloadPdfBytesAsUser(storagePath, jwt);
     console.log("[invoice_extract] bytes", bytes.length);
 
     const numero = await extractNumeroFromPdfBytes(bytes);
@@ -183,3 +185,7 @@ Deno.serve(async (req: Request) => {
     return json({ ok: true, numero: null });
   }
 });
+
+// Manual validation:
+// - Usuario sin acceso al objeto: debe responder 200 { ok: true, numero: null } por DOWNLOAD_FAILED.
+// - Usuario con acceso al objeto: debe extraer numero normalmente.

@@ -126,17 +126,38 @@ export default function VentaNuevaScreen() {
   // porque el RPC libera y re-reserva (el UI debe permitir editar sin bloquearse).
   const [originalQtyByProd, setOriginalQtyByProd] = useState<Record<string, number>>({});
 
+  // Base de stock_disponible capturado al cargar inventario en edicion.
+  // Esto evita carreras/hidratacion (lineas pueden quedar con stock_disponible null/antiguo).
+  const [stockBaseByProd, setStockBaseByProd] = useState<Record<string, number>>({});
+
+  const effectiveStockByProd = useMemo(() => {
+    const base = stockBaseByProd ?? {};
+    if (!isEdit) return base;
+
+    const out: Record<string, number> = { ...base };
+    for (const pid of Object.keys(originalQtyByProd ?? {})) {
+      const add = Number((originalQtyByProd as any)[pid] ?? 0);
+      const cur = Number((out as any)[pid] ?? 0);
+      out[pid] = (Number.isFinite(cur) ? cur : 0) + (Number.isFinite(add) ? add : 0);
+    }
+    return out;
+  }, [isEdit, originalQtyByProd, stockBaseByProd]);
+
   const effectiveStockForLine = useCallback(
     (l: any) => {
+      const pid = String(l?.producto_id ?? "");
+      const fromMap = (effectiveStockByProd as any)?.[pid];
+      if (Number.isFinite(fromMap)) return fromMap;
+
+      // Fallback: comportamiento previo usando el stock en la linea.
       const base = Number(l?.stock_disponible ?? 0);
       if (!Number.isFinite(base)) return 0;
       if (!isEdit) return base;
-      const pid = l?.producto_id ? String(l.producto_id) : "";
       if (!pid) return base;
       const add = Number(originalQtyByProd[pid] ?? 0);
       return base + (Number.isFinite(add) ? add : 0);
     },
-    [isEdit, originalQtyByProd]
+    [effectiveStockByProd, isEdit, originalQtyByProd]
   );
 
   useFocusEffect(
@@ -222,7 +243,18 @@ export default function VentaNuevaScreen() {
                 .select("id,stock_disponible,precio_min_venta,tiene_iva,requiere_receta")
                 .in("id", prodIds);
               if (ie) throw ie;
-              (inv ?? []).forEach((r: any) => invByProd.set(Number(r.id), r));
+
+              const baseMap: Record<string, number> = {};
+              (inv ?? []).forEach((r: any) => {
+                const k = String(r?.id ?? "");
+                if (!k) return;
+                const s = Number(r?.stock_disponible ?? 0);
+                baseMap[k] = Number.isFinite(s) ? s : 0;
+                invByProd.set(Number(r.id), r);
+              });
+              setStockBaseByProd(baseMap);
+            } else {
+              setStockBaseByProd({});
             }
 
             // Reset y llenar
