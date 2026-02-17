@@ -22,13 +22,13 @@ import {
 } from "react-native";
 import ImageViewer from "react-native-image-zoom-viewer";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { AppButton } from "../components/ui/app-button";
 import { RoleGate } from "../components/auth/RoleGate";
+import { AppButton } from "../components/ui/app-button";
 import { DoneAccessory } from "../components/ui/done-accessory";
 import { supabase } from "../lib/supabase";
-import { useRole } from "../lib/useRole";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
+import { useRole } from "../lib/useRole";
 
 const BUCKET_COMPROBANTES = "comprobantes";
 const BUCKET_VENTAS_DOCS = "Ventas-Docs";
@@ -807,7 +807,7 @@ export default function CxcVentaDetalle() {
                 pagos.map((p: any) => {
                   const comprobanteRaw = String(p.comprobante_path ?? "").trim();
                   const hasComprobante = !!comprobanteRaw;
-                  const canDeletePago = normalizeUpper(role) === "ADMIN" || normalizeUpper(role) === "VENTAS";
+                  const canDeletePago = normalizeUpper(role) === "ADMIN";
                   const pfid = p?.factura_id == null ? null : Number(p.factura_id);
                   const pf = pfid ? (facturasById.get(pfid) ?? null) : null;
                   const facturaNum = pf ? String(pf?.numero_factura ?? "").trim() : "";

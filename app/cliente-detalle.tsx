@@ -9,10 +9,10 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { supabase } from "../lib/supabase";
-import { useRole } from "../lib/useRole";
 import { AppButton } from "../components/ui/app-button";
 import { generarEstadoCuentaClientePdf } from "../lib/estadoCuentaClientePdf";
+import { supabase } from "../lib/supabase";
+import { useRole } from "../lib/useRole";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 
@@ -65,7 +65,7 @@ export default function ClienteDetalle() {
 
   const { role, isReady, refreshRole } = useRole();
   const roleUp = String(role ?? "").trim().toUpperCase() as Role;
-  const canEdit = isReady && (roleUp === "ADMIN" || roleUp === "VENTAS");
+  const canEdit = isReady && roleUp === "ADMIN";
   const canDelete = isReady && roleUp === "ADMIN";
   const canGenerarEstadoCuentaPdf = isReady && (roleUp === "ADMIN" || roleUp === "VENTAS");
 

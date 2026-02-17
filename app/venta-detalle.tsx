@@ -2114,7 +2114,7 @@ export default function VentaDetalleScreen() {
               </>
             )}
 
-            {!venta?.requiere_receta ? null : (
+            {!venta?.requiere_receta || anulada || anulacionRequerida ? null : (
               <>
                 <View style={[styles.divider, { backgroundColor: C.border }]} />
 
@@ -2191,7 +2191,7 @@ export default function VentaDetalleScreen() {
           </View>
 
           {/* Solicitudes (VENTAS) */}
-          {!canSolicitar || !venta || anulada ? null : (
+          {!canSolicitar || !venta || anulada || anulacionRequerida ? null : (
             <View style={[styles.card, { borderColor: C.border, backgroundColor: C.card }]}> 
               <View style={styles.rowBetween}>
                 <Text style={[styles.sectionTitle, { color: C.text }]}>Solicitudes</Text>

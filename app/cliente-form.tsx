@@ -360,16 +360,18 @@ export default function ClienteForm() {
               </>
             ) : null}
 
-            <View style={s.switchRow}>
-              <Text style={s.switchText}>Activo</Text>
-              <Switch
-                value={activo}
-                onValueChange={setActivo}
-                trackColor={{ false: colors.border, true: "#34C759" }}
-                thumbColor={Platform.OS === "android" ? "#FFFFFF" : undefined}
-                style={Platform.OS === "android" ? { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] } : undefined}
-              />
-            </View>
+            {isEditing ? (
+              <View style={s.switchRow}>
+                <Text style={s.switchText}>Activo</Text>
+                <Switch
+                  value={activo}
+                  onValueChange={setActivo}
+                  trackColor={{ false: colors.border, true: "#34C759" }}
+                  thumbColor={Platform.OS === "android" ? "#FFFFFF" : undefined}
+                  style={Platform.OS === "android" ? { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] } : undefined}
+                />
+              </View>
+            ) : null}
 
             <AppButton title="Guardar" onPress={onSave} loading={saving} disabled={!isFormValid} style={{ marginTop: 18 } as any} />
 
