@@ -13,16 +13,16 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { AppButton } from "../components/ui/app-button";
 import { RoleGate } from "../components/auth/RoleGate";
-import { emitSolicitudesChanged } from "../lib/solicitudesEvents";
+import { AppButton } from "../components/ui/app-button";
 import { navigateToVentaFromNotif } from "../lib/notifNavigation";
+import { emitSolicitudesChanged } from "../lib/solicitudesEvents";
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
 import { useGoHomeOnBack } from "../lib/useGoHomeOnBack";
-import { FB_DARK_DANGER } from "../src/theme/headerColors";
 import { useRole } from "../lib/useRole";
+import { FB_DARK_DANGER } from "../src/theme/headerColors";
 
 type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "";
 
@@ -167,10 +167,27 @@ export default function VentasSolicitudesScreen() {
     setPagosPendientesRaw((data ?? []) as any);
   }, []);
 
+  const reloadAll = useCallback(async () => {
+    if (!isReady || roleUp !== "ADMIN") return;
+    setInitialLoading(true);
+    setInitialLoadingPagos(true);
+    try {
+      await Promise.all([fetchSolicitudes(), fetchPagosPendientes()]);
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "No se pudieron cargar solicitudes");
+      setRowsRaw([]);
+      setPagosPendientesRaw([]);
+    } finally {
+      setInitialLoading(false);
+      setInitialLoadingPagos(false);
+    }
+  }, [fetchPagosPendientes, fetchSolicitudes, isReady, roleUp]);
+
   useFocusEffect(
     useCallback(() => {
       void refreshRole("focus:ventas-solicitudes");
-    }, [refreshRole])
+      void reloadAll();
+    }, [refreshRole, reloadAll])
   );
 
   useEffect(() => {
@@ -451,10 +468,7 @@ export default function VentasSolicitudesScreen() {
           </View>
 
           <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
-            <View style={styles.pagosHeaderRow}>
-              <Text style={[styles.pagosHeaderTitle, { color: C.text }]}>Pagos reportados</Text>
-              <Text style={[styles.pagosHeaderSubtitle, { color: C.sub }]}>Pendientes de aprobación</Text>
-            </View>
+            
             {initialLoadingPagos ? (
               <Text style={{ color: C.sub, fontWeight: "700" }}>Cargando pagos...</Text>
             ) : pagosPendientes.length === 0 ? (

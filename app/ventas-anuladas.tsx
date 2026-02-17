@@ -306,7 +306,7 @@ export default function VentasAnuladasScreen() {
                 ]}
               >
                 <View style={styles.rowBetween}>
-                  <Text style={[styles.title, { color: C.text }]} numberOfLines={1}>
+                  <Text style={[styles.title, { color: C.text }]} numberOfLines={1} ellipsizeMode="tail">
                     {item.cliente_nombre ?? "—"}
                   </Text>
                   <View style={[styles.pill, { backgroundColor: C.dangerBg, borderColor: C.border }]}
@@ -529,9 +529,9 @@ const styles = StyleSheet.create({
   },
   actionBtnText: { fontWeight: "800" },
   card: { marginHorizontal: 16, marginTop: 10, borderWidth: 1, borderRadius: 16, padding: 14 },
-  title: { fontSize: 16, fontWeight: "900" },
+  title: { fontSize: 16, fontWeight: "900", flex: 1, flexShrink: 1, minWidth: 0 },
   sub: { marginTop: 6, fontSize: 13, fontWeight: "700" },
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-  pill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
+  pill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, flexShrink: 0 },
   pillText: { fontSize: 12, fontWeight: "900" },
 });

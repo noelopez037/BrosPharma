@@ -1,12 +1,15 @@
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { useFocusEffect, useTheme } from "@react-navigation/native";
+import * as FileSystem from "expo-file-system/legacy";
 import { Stack } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   FlatList,
   Modal,
   Platform,
   Pressable,
+  Share,
   StyleSheet,
   Switch,
   Text,
@@ -39,6 +42,7 @@ type KardexRow = {
   estado: string | null;
   proveedor: string | null;
   cliente: string | null;
+  factura_numero: string | null;
   lote_id: number | null;
   lote: string | null;
   entrada: number;
@@ -132,6 +136,7 @@ export default function KardexScreen() {
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<KardexRow[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [busquedaEjecutada, setBusquedaEjecutada] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -290,6 +295,8 @@ export default function KardexScreen() {
             estado: estado || null,
             proveedor: proveedor || null,
             cliente: cliente || null,
+            factura_numero:
+              r?.factura_numero == null ? null : String(r.factura_numero).trim() || null,
             lote_id: r?.lote_id == null ? null : Number(r.lote_id),
             lote: lote || null,
             entrada: safeNum(r?.entrada ?? 0),
@@ -307,6 +314,7 @@ export default function KardexScreen() {
     } finally {
       setLoading(false);
     }
+    setBusquedaEjecutada(true);
   }, [canSearch, desde, hasta, producto]);
 
   const totals = useMemo(() => {
@@ -325,6 +333,81 @@ export default function KardexScreen() {
     const saldo = Number.isFinite(lastSaldo) ? lastSaldo : 0;
     return { entrada, salida, saldo };
   }, [rows]);
+
+  const exportarCSV = async () => {
+    try {
+      if (!rows?.length) {
+        Alert.alert("Sin datos", "No hay movimientos para exportar.");
+        return;
+      }
+
+      const fmtFechaLocal = (iso: any) => {
+        const raw = String(iso ?? "").trim();
+        if (!raw) return "";
+        const d = new Date(raw);
+        if (!Number.isFinite(d.getTime())) return raw;
+
+        const dd = String(d.getDate()).padStart(2, "0");
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const yyyy = String(d.getFullYear());
+        const hh = String(d.getHours()).padStart(2, "0"); // hora LOCAL del dispositivo
+        const mi = String(d.getMinutes()).padStart(2, "0"); // minutos LOCAL del dispositivo
+
+        return `${dd}/${mm}/${yyyy} ${hh}:${mi}`;
+      };
+
+      const headers = [
+        "Fecha",
+        "Tipo",
+        "Compra ID",
+        "Venta ID",
+        "Estado",
+        "Proveedor",
+        "Cliente",
+        "Lote",
+        "Entrada",
+        "Salida",
+        "Saldo",
+        "Factura",
+      ];
+
+      const lines = rows.map((r) => [
+        fmtFechaLocal(r.fecha),
+        r.tipo ?? "",
+        r.compra_id ?? "",
+        r.venta_id ?? "",
+        r.estado ?? "",
+        r.proveedor ?? "",
+        r.cliente ?? "",
+        r.lote ?? "",
+        r.entrada ?? 0,
+        r.salida ?? 0,
+        r.saldo ?? 0,
+        r.factura_numero ?? "",
+      ]);
+
+      const csvContent = [headers, ...lines]
+        .map((row) =>
+          row
+            .map((field) => `"${String(field ?? "").replace(/"/g, '""')}"`)
+            .join(",")
+        )
+        .join("\n");
+
+      const fileUri =
+        (FileSystem.cacheDirectory ?? FileSystem.documentDirectory) + `kardex-${Date.now()}.csv`;
+
+      await FileSystem.writeAsStringAsync(fileUri, csvContent, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      await Share.share({
+        url: fileUri,
+      });
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "No se pudo exportar el CSV");
+    }
+  };
 
   const productoLabel = useMemo(() => {
     if (!producto) return "—";
@@ -358,6 +441,7 @@ export default function KardexScreen() {
     const meta = [
       fmtFechaHora(item?.fecha),
       tipoLabel,
+      item.factura_numero ? `FAC ${item.factura_numero}` : null,
       isVenta && estado ? estado : null,
       isDev && normalizeUpper(estado) === "ANULADA" ? "ANULADA" : null,
     ]
@@ -496,6 +580,12 @@ export default function KardexScreen() {
                     disabled={!canSearch}
                     loading={loading}
                   />
+
+                  {busquedaEjecutada && rows?.length > 0 ? (
+                    <View style={{ marginTop: 10 }}>
+                      <AppButton title="Exportar CSV" variant="outline" onPress={exportarCSV} />
+                    </View>
+                  ) : null}
 
                   {errorMsg ? <Text style={[s.sub, { marginTop: 10 }]}>{errorMsg}</Text> : null}
                 </View>

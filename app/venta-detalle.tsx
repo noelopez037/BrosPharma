@@ -1227,6 +1227,7 @@ export default function VentaDetalleScreen() {
 
   const anulada = useMemo(() => hasTag("ANULADO"), [hasTag]);
   const anulacionRequerida = useMemo(() => hasTag("ANULACION_REQUERIDA"), [hasTag]);
+  const edicionRequerida = useMemo(() => hasTag("EDICION_REQUERIDA"), [hasTag]);
   const bloqueaLogistica = useMemo(
     () => anulada || anulacionRequerida,
     [anulada, anulacionRequerida]
@@ -1819,8 +1820,9 @@ export default function VentaDetalleScreen() {
           </View>
 
           {/* Documentos: Facturas + Recetas */}
-          <View style={[styles.card, { borderColor: C.border, backgroundColor: C.card }]}
-          >
+          {edicionRequerida ? null : (
+            <View style={[styles.card, { borderColor: C.border, backgroundColor: C.card }]}
+            >
             <Text style={[styles.sectionTitle, { color: C.text }]}>Documentos</Text>
 
             <Text style={[styles.blockTitle, { color: C.sub }]}>Facturas</Text>
@@ -2189,7 +2191,8 @@ export default function VentaDetalleScreen() {
                 )}
               </>
             )}
-          </View>
+            </View>
+          )}
 
           {/* Solicitudes (VENTAS) */}
           {!canSolicitar || !venta || anulada || anulacionRequerida ? null : (
