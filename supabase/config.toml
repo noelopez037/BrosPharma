@@ -1,0 +1,2 @@
+[functions.invoice_extract]
+verify_jwt = false
