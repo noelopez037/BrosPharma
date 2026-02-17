@@ -1,2 +1,5 @@
 [functions.invoice_extract]
 verify_jwt = false
+
+[functions.notif-dispatch]
+verify_jwt = false

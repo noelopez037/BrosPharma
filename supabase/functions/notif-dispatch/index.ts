@@ -22,6 +22,15 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
+function getBearer(req: Request): string | null {
+  const header = req.headers.get("authorization");
+  if (!header) return null;
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  if (!match?.[1]) return null;
+  const token = match[1].trim();
+  return token || null;
+}
+
 function getEnv(name: string): string {
   return String(Deno.env.get(name) ?? "").trim();
 }
@@ -136,6 +145,48 @@ type SupabaseCtx = {
   serviceKey: string;
 };
 
+type JwtValidationResult =
+  | { ok: true; userId: string }
+  | { ok: false; status: number; error: "BAD_JWT" | "MISSING_SUPABASE_ENV" };
+
+async function validateJwt(jwt: string): Promise<JwtValidationResult> {
+  const url = getEnv("SUPABASE_URL");
+  const anonKey = getEnv("SUPABASE_ANON_KEY");
+  if (!url || !anonKey) {
+    return { ok: false, status: 500, error: "MISSING_SUPABASE_ENV" };
+  }
+  if (!jwt) return { ok: false, status: 401, error: "BAD_JWT" };
+
+  try {
+    const res = await fetch(`${baseUrl(url)}/auth/v1/user`, {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${jwt}`,
+        apikey: anonKey,
+      },
+    });
+
+    if (res.status !== 200) {
+      return { ok: false, status: 401, error: "BAD_JWT" };
+    }
+
+    let data: unknown;
+    try {
+      data = await res.json();
+    } catch {
+      return { ok: false, status: 401, error: "BAD_JWT" };
+    }
+
+    const rawId = (data as { id?: unknown })?.id;
+    const userId = typeof rawId === "string" ? rawId.trim() : "";
+    if (!userId) return { ok: false, status: 401, error: "BAD_JWT" };
+    return { ok: true, userId };
+  } catch (e) {
+    console.error("[notif-dispatch] jwt_verify_failed", safeErrorMessage(e));
+    return { ok: false, status: 401, error: "BAD_JWT" };
+  }
+}
+
 async function sbFetch(ctx: SupabaseCtx, path: string, init: RequestInit): Promise<Response> {
   const headers = new Headers(init.headers ?? undefined);
   headers.set("apikey", ctx.serviceKey);
@@ -172,6 +223,22 @@ async function sbRpc<T>(ctx: SupabaseCtx, fn: string, args: unknown): Promise<T>
     body: JSON.stringify(args ?? {}),
   });
   return await sbJson<T>(res);
+}
+
+async function fetchUserRole(ctx: SupabaseCtx, userId: string): Promise<string | null> {
+  const trimmed = userId.trim();
+  if (!trimmed) return null;
+
+  const qs = new URLSearchParams();
+  qs.set("select", "role");
+  qs.append("id", `eq.${trimmed}`);
+  qs.set("limit", "1");
+
+  const res = await sbFetch(ctx, `/rest/v1/profiles?${qs.toString()}`, { method: "GET" });
+  const rows = await sbJson<Array<{ role?: unknown }>>(res);
+  const row = Array.isArray(rows) ? rows[0] : null;
+  const role = typeof row?.role === "string" ? row.role.trim() : "";
+  return role || null;
 }
 
 async function fetchExpoTokensForUsers(ctx: SupabaseCtx, userIds: string[]): Promise<string[]> {
@@ -323,16 +390,30 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return json({ ok: true });
   if (req.method !== "POST") return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
 
-  const secret = getEnv("DISPATCH_SECRET");
-  if (secret) {
-    const got = req.headers.get("x-dispatch-secret")?.trim() ?? "";
-    if (got !== secret) return json({ ok: false, error: "UNAUTHORIZED" }, 401);
+  const jwt = getBearer(req);
+  if (!jwt) return json({ ok: false, error: "NO_AUTH" }, 401);
+
+  const verified = await validateJwt(jwt);
+  if (!verified.ok) {
+    return json({ ok: false, error: verified.error }, verified.status);
   }
+  const uid = verified.userId;
 
   const url = getEnv("SUPABASE_URL");
   const serviceKey = getEnv("SUPABASE_SERVICE_ROLE_KEY");
   if (!url || !serviceKey) return json({ ok: false, error: "MISSING_SUPABASE_ENV" }, 500);
   const ctx: SupabaseCtx = { url, serviceKey };
+
+  const role = await fetchUserRole(ctx, uid);
+  if (!role || (role !== "ADMIN" && role !== "FACTURACION")) {
+    return json({ ok: false, error: "FORBIDDEN" }, 403);
+  }
+
+  const secret = getEnv("DISPATCH_SECRET");
+  if (secret) {
+    const got = req.headers.get("x-dispatch-secret")?.trim() ?? "";
+    if (got !== secret) return json({ ok: false, error: "UNAUTHORIZED" }, 401);
+  }
 
   const body = (await req.json().catch(() => ({}))) as { limit?: unknown };
   const limitRaw = typeof body.limit === "number" ? body.limit : undefined;
