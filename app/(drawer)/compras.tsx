@@ -17,7 +17,7 @@ import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  FlatList,
+  SectionList,
   Modal,
   Platform,
   PlatformColor,
@@ -53,6 +53,7 @@ type CompraRow = {
 
 type ProveedorRow = { id: number; nombre: string };
 type PayFilter = "ALL" | "PAID" | "PENDING" | "OVERDUE";
+type CompraSection = { title: string; data: CompraRow[] };
 
 function useDebouncedValue<T>(value: T, delayMs: number) {
   const [debounced, setDebounced] = useState(value);
@@ -73,6 +74,25 @@ function fmtDate(iso: string | null | undefined) {
 }
 function normalizeUpper(s: string | null | undefined) {
   return (s ?? "").trim().toUpperCase();
+}
+
+function fmtDateLongEs(isoOrYmd: string | null | undefined) {
+  if (!isoOrYmd) return "—";
+  const raw = String(isoOrYmd).trim();
+  if (!raw) return "—";
+  if (raw.toUpperCase() === "SIN_FECHA" || raw.toLowerCase() === "sin fecha") return "Sin fecha";
+  const ymd = raw.slice(0, 10);
+  const d = new Date(`${ymd}T12:00:00`);
+  if (!Number.isFinite(d.getTime())) return "—";
+  return new Intl.DateTimeFormat("es-ES", {
+    weekday: "long",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  })
+    .format(d)
+    .toLowerCase()
+    .replace(/\./g, "");
 }
 
 function parseYmdToDate(iso: string) {
@@ -293,6 +313,22 @@ export default function ComprasScreen() {
     });
   }, [rowsRaw, fPago]);
 
+  const sections = useMemo<CompraSection[]>(() => {
+    const out: CompraSection[] = [];
+    let lastKey: string | null = null;
+
+    rows.forEach((item) => {
+      const ymd = item.fecha ? String(item.fecha).slice(0, 10) : "SIN_FECHA";
+      if (ymd !== lastKey) {
+        out.push({ title: ymd === "SIN_FECHA" ? "Sin fecha" : ymd, data: [] });
+        lastKey = ymd;
+      }
+      out[out.length - 1].data.push(item);
+    });
+
+    return out;
+  }, [rows]);
+
   const renderItem = ({ item }: { item: CompraRow }) => {
     const b = badge(item);
     const tipo = normalizeUpper(item.tipo_pago);
@@ -336,6 +372,14 @@ export default function ComprasScreen() {
       </Pressable>
     );
   };
+
+  const renderSectionHeader = ({ section }: { section: CompraSection }) => (
+    <View style={[s.sectionHeader, { backgroundColor: colors.background, alignItems: "flex-end" }]}>
+      <Text style={[s.sectionHeaderText, { color: M.sub, textAlign: "right" }]}>
+        {section.title === "Sin fecha" ? "Sin fecha" : fmtDateLongEs(section.title)}
+      </Text>
+    </View>
+  );
 
   const fabBg =
     Platform.OS === "ios" ? (PlatformColor("systemBlue") as any) : (colors.primary as any);
@@ -407,64 +451,66 @@ export default function ComprasScreen() {
       />
 
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
-        <FlatList
+        <View style={{ paddingHorizontal: 12, paddingTop: 12, backgroundColor: colors.background }}>
+          <View style={s.topRow}>
+            <View style={s.searchWrap}>
+              <TextInput
+                value={q}
+                onChangeText={setQ}
+                placeholder="Buscar por proveedor o factura..."
+                placeholderTextColor={colors.text + "66"}
+                style={s.searchInput}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="search"
+              />
+              {q.trim().length > 0 ? (
+                <Pressable
+                  onPress={() => setQ("")}
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel="Borrar búsqueda"
+                  style={s.clearBtn}
+                >
+                  <Text style={s.clearTxt}>×</Text>
+                </Pressable>
+              ) : null}
+            </View>
+
+            <Pressable
+              onPress={() => setFiltersOpen(true)}
+              style={({ pressed }) => [
+                s.filterBtn,
+                pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
+              ]}
+            >
+              <Text style={s.filterTxt}>Filtros</Text>
+            </Pressable>
+          </View>
+
+          {initialLoading ? (
+            <View style={{ paddingVertical: 10 }}>
+              <Text style={[s.empty, { paddingTop: 0 }]}>Cargando...</Text>
+            </View>
+          ) : null}
+        </View>
+
+        <SectionList<CompraRow, CompraSection>
           style={{ backgroundColor: colors.background }}
-          data={rows}
-          keyExtractor={(it) => String(it.id)}
+          sections={sections}
+          keyExtractor={(it: CompraRow) => String(it.id)}
           renderItem={renderItem}
+          renderSectionHeader={renderSectionHeader}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           automaticallyAdjustKeyboardInsets
+          stickySectionHeadersEnabled={true}
           contentContainerStyle={{
             paddingHorizontal: 12,
             paddingTop: 12,
             paddingBottom: 16 + bottomRail,
           }}
-          ListHeaderComponent={
-            <>
-              <View style={s.topRow}>
-                <View style={s.searchWrap}>
-                  <TextInput
-                    value={q}
-                    onChangeText={setQ}
-                    placeholder="Buscar por proveedor o factura..."
-                    placeholderTextColor={colors.text + "66"}
-                    style={s.searchInput}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    returnKeyType="search"
-                  />
-                  {q.trim().length > 0 ? (
-                    <Pressable
-                      onPress={() => setQ("")}
-                      hitSlop={10}
-                      accessibilityRole="button"
-                      accessibilityLabel="Borrar búsqueda"
-                      style={s.clearBtn}
-                    >
-                      <Text style={s.clearTxt}>×</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-
-                <Pressable
-                  onPress={() => setFiltersOpen(true)}
-                  style={({ pressed }) => [
-                    s.filterBtn,
-                    pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
-                  ]}
-                >
-                  <Text style={s.filterTxt}>Filtros</Text>
-                </Pressable>
-              </View>
-
-              {initialLoading ? (
-                <View style={{ paddingVertical: 10 }}>
-                  <Text style={[s.empty, { paddingTop: 0 }]}>Cargando...</Text>
-                </View>
-              ) : null}
-            </>
-          }
+          ListHeaderComponent={<View style={{ height: 0 }} />}
           ListEmptyComponent={
             !initialLoading ? (
               <View style={s.center}>
@@ -767,6 +813,12 @@ const styles = (colors: any) =>
 
     center: { flex: 1, alignItems: "center", justifyContent: "center" },
     empty: { color: colors.text },
+    sectionHeader: { paddingTop: 8, paddingBottom: 6, alignItems: "flex-end" },
+    sectionHeaderText: {
+      fontSize: 13,
+      fontWeight: "900",
+      textAlign: "right",
+    },
 
     card: {
       borderWidth: 1,

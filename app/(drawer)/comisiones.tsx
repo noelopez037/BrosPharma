@@ -59,9 +59,19 @@ function fmtQ(n: number | string | null | undefined) {
   return `Q ${x.toFixed(2)}`;
 }
 
-function fmtDateYmd(iso: string | null | undefined) {
-  if (!iso) return "—";
-  return String(iso).slice(0, 10);
+function fmtDateLongEs(isoOrYmd: string | null | undefined) {
+  if (!isoOrYmd) return "—";
+  const raw = String(isoOrYmd).trim();
+  if (!raw) return "—";
+  if (raw.toUpperCase() === "SIN_FECHA" || raw.toLowerCase() === "sin fecha") return "Sin fecha";
+  const ymd = raw.slice(0, 10);
+  const d = new Date(`${ymd}T12:00:00`);
+  if (!Number.isFinite(d.getTime())) return "—";
+  const weekday = new Intl.DateTimeFormat("es-ES", { weekday: "long" }).format(d).toLowerCase();
+  const month = new Intl.DateTimeFormat("es-ES", { month: "short" }).format(d).toLowerCase().replace(/\./g, "");
+  const day = String(d.getDate()).padStart(2, "0");
+  const year = d.getFullYear();
+  return `${weekday}, ${day} de ${month} de ${year}`;
 }
 
 function pad2(n: number) {
@@ -394,7 +404,7 @@ export default function ComisionesScreen() {
               {item.cliente_nombre ?? "Cliente"}
             </Text>
             <Text style={s.sub}>Facturas: {fact}</Text>
-            <Text style={s.sub}>Fecha: {fmtDateYmd(item.fecha)}</Text>
+            <Text style={s.sub}>Fecha: {fmtDateLongEs(item.fecha)}</Text>
             <Text style={s.sub}>Total: {fmtQ(item.total)} · Pagado: {fmtQ(item.pagado)}</Text>
           </View>
           <View style={{ alignItems: "flex-end" }}>
@@ -409,6 +419,7 @@ export default function ComisionesScreen() {
     | { kind: "COMISION"; key: string; row: RpcComisionRow }
     | { kind: "VENTA_PAGADA"; key: string; row: CxCVentaRow }
     | { kind: "SECTION"; key: string; title: string; subtitle?: string }
+    | { kind: "DAY_HEADER"; key: string; ymd: string }
     | { kind: "EMPTY"; key: string; text: string };
 
   const listData = useMemo<ListItem[]>(() => {
@@ -437,15 +448,50 @@ export default function ComisionesScreen() {
     if (ventasPagadasRaw.length === 0) {
       out.push({ kind: "EMPTY", key: "empty-paid", text: "No hay ventas pagadas en este mes" });
     } else {
-      ventasPagadasRaw.forEach((v) => {
-        out.push({ kind: "VENTA_PAGADA", key: `v-${String(v.venta_id)}`, row: v });
+      const grouped = new Map<string, CxCVentaRow[]>();
+      ventasPagadasRaw.forEach((venta) => {
+        const ymd = venta?.fecha ? String(venta.fecha).slice(0, 10) : "SIN_FECHA";
+        if (!grouped.has(ymd)) grouped.set(ymd, []);
+        grouped.get(ymd)!.push(venta);
+      });
+
+      const orderedDays = Array.from(grouped.keys()).sort((a, b) => {
+        if (a === b) return 0;
+        if (a === "SIN_FECHA") return 1;
+        if (b === "SIN_FECHA") return -1;
+        return a < b ? 1 : -1;
+      });
+
+      orderedDays.forEach((ymd) => {
+        out.push({ kind: "DAY_HEADER", key: `dh-${ymd}`, ymd });
+        grouped.get(ymd)!.forEach((venta, idx) => {
+          const ventaKey = venta.venta_id != null ? `v-${venta.venta_id}` : `v-${ymd}-${idx}`;
+          out.push({ kind: "VENTA_PAGADA", key: ventaKey, row: venta });
+        });
       });
     }
 
     return out;
   }, [initialLoading, isVentas, monthLabel, rows, rowsRaw.length, ventasPagadasRaw]);
 
+  const stickyHeaderIndices = useMemo(() => {
+    const idx: number[] = [];
+    listData.forEach((it, i) => {
+      if (it.kind === "DAY_HEADER") idx.push(i + 1);
+    });
+    return idx;
+  }, [listData]);
+
   const renderListItem = ({ item }: { item: ListItem }) => {
+    if (item.kind === "DAY_HEADER") {
+      return (
+        <View style={[s.sectionHeader, { backgroundColor: colors.background, alignItems: "flex-end" }]}>
+          <Text style={[s.sectionHeaderText, { color: colors.text + "AA", textAlign: "right" }]}>
+            {item.ymd === "SIN_FECHA" ? "Sin fecha" : fmtDateLongEs(item.ymd)}
+          </Text>
+        </View>
+      );
+    }
     if (item.kind === "COMISION") return renderRow({ item: item.row });
     if (item.kind === "VENTA_PAGADA") return renderVentaPagada({ item: item.row });
     if (item.kind === "EMPTY") {
@@ -456,10 +502,19 @@ export default function ComisionesScreen() {
       );
     }
     if (item.kind === "SECTION") {
+      if (item.subtitle) {
+        return (
+          <View style={[s.card, { paddingVertical: 10 }]}>
+            <Text style={s.sectionTitle}>{item.title}</Text>
+            <Text style={s.sub}>{item.subtitle}</Text>
+          </View>
+        );
+      }
       return (
-        <View style={[s.card, { paddingVertical: 10 }]}>
-          <Text style={s.sectionTitle}>{item.title}</Text>
-          {item.subtitle ? <Text style={s.sub}>{item.subtitle}</Text> : null}
+        <View style={s.sectionHeader}>
+          <Text style={s.sectionHeaderText}>
+            {item.title === "Sin fecha" ? "Sin fecha" : fmtDateLongEs(item.title)}
+          </Text>
         </View>
       );
     }
@@ -544,6 +599,7 @@ export default function ComisionesScreen() {
             data={listData}
             keyExtractor={(it) => it.key}
             renderItem={renderListItem}
+            stickyHeaderIndices={stickyHeaderIndices}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
             automaticallyAdjustKeyboardInsets
@@ -741,6 +797,15 @@ const styles = (colors: any) =>
     total: { color: colors.text, fontWeight: "900", marginTop: 10, fontSize: 14 },
 
     sectionTitle: { color: colors.text, fontSize: 15, fontWeight: "900" },
+    sectionHeader: {
+      paddingHorizontal: 12,
+      paddingTop: 8,
+      paddingBottom: 6,
+      alignItems: "flex-end",
+      zIndex: 10,
+      ...(Platform.OS === "android" ? { elevation: 10 } : null),
+    },
+    sectionHeaderText: { fontSize: 13, fontWeight: "900", textAlign: "right" },
     paidBadge: {
       borderWidth: 1,
       borderColor: "#7bfd9b",

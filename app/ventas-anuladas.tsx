@@ -1,7 +1,7 @@
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
 import React, { useCallback, useMemo, useState, useEffect } from "react";
-import { Alert, FlatList, Platform, Pressable, StyleSheet, Text, TextInput, View, Modal, ScrollView } from "react-native";
+import { Alert, SectionList, Platform, Pressable, StyleSheet, Text, TextInput, View, Modal, ScrollView } from "react-native";
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -24,13 +24,29 @@ type VentaRow = {
   vendedor_codigo: string | null;
 };
 
+type AnuladaSection = { title: string; data: VentaRow[] };
+
 function normalizeUpper(v: any) {
   return String(v ?? "").trim().toUpperCase();
 }
 
-function fmtDate(iso: string | null | undefined) {
-  if (!iso) return "—";
-  return String(iso).slice(0, 10);
+function fmtDateLongEs(isoOrYmd: string | null | undefined) {
+  if (!isoOrYmd) return "—";
+  const raw = String(isoOrYmd).trim();
+  if (!raw) return "—";
+  if (raw.toUpperCase() === "SIN_FECHA" || raw.toLowerCase() === "sin fecha") return "Sin fecha";
+  const ymd = raw.slice(0, 10);
+  const d = new Date(`${ymd}T12:00:00`);
+  if (!Number.isFinite(d.getTime())) return "—";
+  return new Intl.DateTimeFormat("es-ES", {
+    weekday: "long",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  })
+    .format(d)
+    .toLowerCase()
+    .replace(/\./g, "");
 }
 
 function shortUid(u: string | null | undefined) {
@@ -245,6 +261,22 @@ export default function VentasAnuladasScreen() {
     });
   }, [q, rowsRaw, fClienteId, fDesde, fHasta, clientes]);
 
+  const sections = useMemo<AnuladaSection[]>(() => {
+    const out: AnuladaSection[] = [];
+    let lastKey: string | null = null;
+
+    rows.forEach((r) => {
+      const ymd = r.fecha ? String(r.fecha).slice(0, 10) : "SIN_FECHA";
+      if (ymd !== lastKey) {
+        out.push({ title: ymd, data: [] });
+        lastKey = ymd;
+      }
+      out[out.length - 1].data.push(r);
+    });
+
+    return out;
+  }, [rows]);
+
   return (
     <>
       <Stack.Screen
@@ -288,44 +320,57 @@ export default function VentasAnuladasScreen() {
            </View>
          </View>
 
-        <FlatList
-          data={rows}
-          keyExtractor={(it) => String(it.id)}
+        <SectionList<VentaRow, AnuladaSection>
+          sections={sections}
+          keyExtractor={(item) => String(item.id)}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           automaticallyAdjustKeyboardInsets
+          stickySectionHeadersEnabled={true}
           contentContainerStyle={{ paddingBottom: 24, paddingTop: 6 }}
-          renderItem={({ item }) => {
-            return (
-              <Pressable
-                onPress={() => router.push({ pathname: "/venta-detalle", params: { ventaId: String(item.id) } } as any)}
-                style={({ pressed }) => [
-                  styles.card,
-                  { borderColor: C.border, backgroundColor: C.card },
-                  pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
-                ]}
-              >
-                <View style={styles.rowBetween}>
-                  <Text style={[styles.title, { color: C.text }]} numberOfLines={1} ellipsizeMode="tail">
-                    {item.cliente_nombre ?? "—"}
+          renderSectionHeader={({ section }) => (
+            <View
+              style={[
+                styles.sectionHeader,
+                {
+                  backgroundColor: C.bg,
+                  alignItems: "flex-end",
+                },
+              ]}
+            >
+              <Text style={[styles.sectionHeaderText, { color: C.sub, textAlign: "right" }]}>
+                {section.title === "SIN_FECHA" ? "Sin fecha" : fmtDateLongEs(section.title)}
+              </Text>
+            </View>
+          )}
+          renderItem={({ item }) => (
+            <Pressable
+              onPress={() => router.push({ pathname: "/venta-detalle", params: { ventaId: String(item.id) } } as any)}
+              style={({ pressed }) => [
+                styles.card,
+                { borderColor: C.border, backgroundColor: C.card },
+                pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
+              ]}
+            >
+              <View style={styles.rowBetween}>
+                <Text style={[styles.title, { color: C.text }]} numberOfLines={1} ellipsizeMode="tail">
+                  {item.cliente_nombre ?? "—"}
+                </Text>
+                <View style={[styles.pill, { backgroundColor: C.dangerBg, borderColor: C.border }]}>
+                  <Text style={[styles.pillText, { color: C.dangerText }]} numberOfLines={1}>
+                    ANULADA
                   </Text>
-                  <View style={[styles.pill, { backgroundColor: C.dangerBg, borderColor: C.border }]}
-                  >
-                    <Text style={[styles.pillText, { color: C.dangerText }]} numberOfLines={1}>
-                      ANULADA
-                    </Text>
-                  </View>
                 </View>
+              </View>
 
-                <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
-                  Venta #{item.id} • Fecha: {fmtDate(item.fecha)}
-                </Text>
-                <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
-                  Vendedor: {item.vendedor_codigo ? String(item.vendedor_codigo) : shortUid(item.vendedor_id)}
-                </Text>
-              </Pressable>
-            );
-          }}
+              <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
+                Venta #{item.id} • Fecha: {fmtDateLongEs(item.fecha)}
+              </Text>
+              <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
+                Vendedor: {item.vendedor_codigo ? String(item.vendedor_codigo) : shortUid(item.vendedor_id)}
+              </Text>
+            </Pressable>
+          )}
           ListEmptyComponent={
             <Text style={{ padding: 16, color: C.sub, fontWeight: "700" }}>
               {initialLoading ? "Cargando..." : "Sin anuladas"}
@@ -412,7 +457,7 @@ export default function VentasAnuladasScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.sectionLabel, { color: C.text }]}>Desde</Text>
                 <Pressable onPress={openDesdePicker} style={[styles.dateBox, { borderColor: C.border, backgroundColor: C.card }]}>
-                  <Text style={[styles.dateTxt, { color: C.text }]}>{fDesde ? fmtDate(fDesde.toISOString()) : "—"}</Text>
+                  <Text style={[styles.dateTxt, { color: C.text }]}>{fDesde ? fmtDateLongEs(fDesde.toISOString()) : "—"}</Text>
                 </Pressable>
               </View>
 
@@ -421,7 +466,7 @@ export default function VentasAnuladasScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.sectionLabel, { color: C.text }]}>Hasta</Text>
                 <Pressable onPress={openHastaPicker} style={[styles.dateBox, { borderColor: C.border, backgroundColor: C.card }]}>
-                  <Text style={[styles.dateTxt, { color: C.text }]}>{fHasta ? fmtDate(fHasta.toISOString()) : "—"}</Text>
+                  <Text style={[styles.dateTxt, { color: C.text }]}>{fHasta ? fmtDateLongEs(fHasta.toISOString()) : "—"}</Text>
                 </Pressable>
               </View>
             </View>
@@ -534,4 +579,16 @@ const styles = StyleSheet.create({
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
   pill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, flexShrink: 0 },
   pillText: { fontSize: 12, fontWeight: "900" },
+  sectionHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 6,
+    zIndex: 10,
+    ...(Platform.OS === "android" ? { elevation: 10 } : {}),
+  },
+  sectionHeaderText: {
+    fontSize: 13,
+    fontWeight: "900",
+    textAlign: "right",
+  },
 });

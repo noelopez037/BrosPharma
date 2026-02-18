@@ -3,11 +3,11 @@ import { router } from "expo-router";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   Animated,
-  FlatList,
   Modal,
   Platform,
   Pressable,
   ScrollView,
+  SectionList,
   StyleSheet,
   Text,
   TextInput,
@@ -41,6 +41,8 @@ type VentaRow = {
 
 type VentasCache = { rows: VentaRow[]; tags: Record<string, string[]>; ts: number };
 
+type VentaSection = { title: string; data: VentaRow[] };
+
 const CACHE_TTL_MS = 20000;
 
 function sameRowsQuick(a: VentaRow[] | null | undefined, b: VentaRow[]) {
@@ -66,6 +68,26 @@ function fmtDate(iso: string | null | undefined) {
   return String(iso).slice(0, 10);
 }
 
+function formatYmdEsLong(ymd: string) {
+  const raw = String(ymd ?? "").trim();
+  if (!raw) return "Sin fecha";
+
+  if (raw.toUpperCase() === "SIN_FECHA") return "Sin fecha";
+  if (raw.toLowerCase() === "sin fecha") return "Sin fecha";
+
+  const d = new Date(`${raw.slice(0, 10)}T12:00:00`);
+  if (!Number.isFinite(d.getTime())) return raw;
+
+  const fmt = new Intl.DateTimeFormat("es-ES", {
+    weekday: "long",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+
+  return fmt.format(d).toLowerCase().replace(/\./g, "");
+}
+
 function startOfDay(d: Date) {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
@@ -81,6 +103,30 @@ function shortUid(u: string | null | undefined) {
   const s = String(u ?? "").trim();
   if (!s) return "—";
   return s.slice(0, 8);
+}
+
+function groupVentasByDay(list: VentaRow[]): VentaSection[] {
+  const buckets = new Map<string, VentaRow[]>();
+  list.forEach((venta) => {
+    const dateKey = venta?.fecha ? String(venta.fecha).slice(0, 10) : "";
+    const title = dateKey || "Sin fecha";
+    const bucket = buckets.get(title);
+    if (bucket) {
+      bucket.push(venta);
+    } else {
+      buckets.set(title, [venta]);
+    }
+  });
+
+  const getTs = (key: string) => {
+    if (key === "Sin fecha") return Number.NEGATIVE_INFINITY;
+    const ts = Date.parse(`${key}T00:00:00`);
+    return Number.isNaN(ts) ? Number.NEGATIVE_INFINITY : ts;
+  };
+
+  return Array.from(buckets.entries())
+    .sort((a, b) => getTs(b[0]) - getTs(a[0]))
+    .map(([title, data]) => ({ title, data }));
 }
 
 function tagLabel(tag: string) {
@@ -524,7 +570,8 @@ export default function Ventas() {
     return map;
   }, [rowsRaw, tagsByVenta]);
 
-  const visibleRows = loadedEstado === estado ? rows : [];
+  const visibleRows = useMemo(() => (loadedEstado === estado ? rows : []), [estado, loadedEstado, rows]);
+  const sections = useMemo(() => groupVentasByDay(visibleRows), [visibleRows]);
 
   const tabs: { key: Estado; label: string }[] = useMemo(
     () => [
@@ -648,6 +695,15 @@ export default function Ventas() {
 
     return <Text style={{ padding: 16, color: C.sub, fontWeight: "700" }}>Sin ventas</Text>;
   }, [C.border, C.card, C.sub, estado, initialLoading, isDark, listLoading, loadedEstado, visibleRows.length]);
+
+  const renderSectionHeader = useCallback(
+    ({ section }: { section: { title: string } }) => (
+      <View style={[s.sectionHeader, { backgroundColor: C.bg, alignItems: "flex-end" }]}>
+        <Text style={[s.sectionHeaderText, { color: C.sub, textAlign: "right" }]}>{formatYmdEsLong(section.title)}</Text>
+      </View>
+    ),
+    [C.bg, C.sub]
+  );
 
   return (
     <SafeAreaView style={[s.safe, { backgroundColor: C.bg }]} edges={["bottom"]}>
@@ -788,13 +844,14 @@ export default function Ventas() {
         </View>
       </View>
 
-      <FlatList
-        data={visibleRows}
-        keyExtractor={keyExtractor}
-        refreshing={pullRefreshing}
-        onRefresh={onPullRefresh}
-        contentContainerStyle={{ padding: 16, paddingBottom: 28 }}
-        initialNumToRender={8}
+       <SectionList
+         sections={sections}
+         keyExtractor={keyExtractor}
+         refreshing={pullRefreshing}
+         onRefresh={onPullRefresh}
+         stickySectionHeadersEnabled
+         contentContainerStyle={{ padding: 16, paddingBottom: 28 }}
+         initialNumToRender={8}
         maxToRenderPerBatch={5}
         windowSize={7}
         updateCellsBatchingPeriod={50}
@@ -803,6 +860,7 @@ export default function Ventas() {
         keyboardDismissMode="on-drag"
         automaticallyAdjustKeyboardInsets
         renderItem={renderItem}
+        renderSectionHeader={renderSectionHeader}
         ListHeaderComponent={
           <View pointerEvents="none" style={{ height: 18, marginBottom: 8, justifyContent: "center" }}>
             <Text
@@ -1147,6 +1205,15 @@ const s = StyleSheet.create({
   chipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
   chip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
   chipText: { fontSize: 12, fontWeight: "900" },
+  sectionHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 6,
+    backgroundColor: "transparent",
+    zIndex: 10,
+    ...(Platform.OS === "android" ? { elevation: 10 } : {}),
+  },
+  sectionHeaderText: { fontSize: 13, fontWeight: "900", textAlign: "right" },
 
   modalBackdrop: { ...StyleSheet.absoluteFillObject },
   modalCard: { position: "absolute", left: 14, right: 14, top: 90, borderRadius: 18, padding: 16, borderWidth: 1 },
