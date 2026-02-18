@@ -261,6 +261,65 @@ export default function ClientesScreen() {
       />
 
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
+        <View style={[s.stickyTop, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+          <View style={s.searchWrap}>
+            <TextInput
+              value={q}
+              onChangeText={setQ}
+              placeholder="Buscar por nombre, NIT o teléfono..."
+              placeholderTextColor={colors.text + "66"}
+              style={s.searchInput}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="search"
+            />
+            {q.trim().length > 0 ? (
+              <Pressable
+                onPress={() => setQ("")}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel="Borrar búsqueda"
+                style={s.clearBtn}
+              >
+                <Text style={s.clearTxt}>×</Text>
+              </Pressable>
+            ) : null}
+          </View>
+
+          {isAdmin ? (
+            <View style={s.inactiveRow}>
+              <Text style={s.inactiveLabel}>Mostrar inactivos</Text>
+              <Switch
+                value={showInactive}
+                onValueChange={setShowInactive}
+                trackColor={{ false: colors.border, true: "#34C759" }}
+                thumbColor={Platform.OS === "android" ? "#FFFFFF" : undefined}
+                style={Platform.OS === "android" ? { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] } : undefined}
+              />
+            </View>
+          ) : null}
+
+          {errorMsg ? (
+            <View style={{ paddingVertical: 8 }}>
+              <Text style={[s.empty, { color: colors.notification ?? "#ff3b30" }]}>
+                {errorMsg}
+              </Text>
+            </View>
+          ) : null}
+
+          {initialLoading ? (
+            <View style={{ paddingVertical: 10 }}>
+              <Text style={[s.empty, { paddingTop: 0 }]}>Cargando...</Text>
+            </View>
+          ) : null}
+
+          {!initialLoading && rows.length === 0 ? (
+            <View style={{ paddingVertical: 8 }}>
+              <Text style={s.empty}>Sin clientes</Text>
+            </View>
+          ) : null}
+        </View>
+
         <FlatList
           style={{ backgroundColor: colors.background }}
           data={rows}
@@ -274,66 +333,6 @@ export default function ClientesScreen() {
             paddingTop: 12,
             paddingBottom: 16 + bottomRail,
           }}
-          ListHeaderComponent={
-            <>
-              <View style={s.searchWrap}>
-                <TextInput
-                  value={q}
-                  onChangeText={setQ}
-                  placeholder="Buscar por nombre, NIT o teléfono..."
-                  placeholderTextColor={colors.text + "66"}
-                  style={s.searchInput}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  returnKeyType="search"
-                />
-                {q.trim().length > 0 ? (
-                  <Pressable
-                    onPress={() => setQ("")}
-                    hitSlop={10}
-                    accessibilityRole="button"
-                    accessibilityLabel="Borrar búsqueda"
-                    style={s.clearBtn}
-                  >
-                    <Text style={s.clearTxt}>×</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-
-               {isAdmin ? (
-                 <View style={s.inactiveRow}>
-                   <Text style={s.inactiveLabel}>Mostrar inactivos</Text>
-                   <Switch
-                     value={showInactive}
-                    onValueChange={setShowInactive}
-                    trackColor={{ false: colors.border, true: "#34C759" }}
-                    thumbColor={Platform.OS === "android" ? "#FFFFFF" : undefined}
-                    style={Platform.OS === "android" ? { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] } : undefined}
-                  />
-                </View>
-              ) : null}
-
-              {errorMsg ? (
-                <View style={{ paddingVertical: 8 }}>
-                  <Text style={[s.empty, { color: colors.notification ?? "#ff3b30" }]}>
-                    {errorMsg}
-                  </Text>
-                </View>
-              ) : null}
-
-              {initialLoading ? (
-                <View style={{ paddingVertical: 10 }}>
-                  <Text style={[s.empty, { paddingTop: 0 }]}>Cargando...</Text>
-                </View>
-              ) : null}
-
-              {!initialLoading && rows.length === 0 ? (
-                <View style={{ paddingVertical: 8 }}>
-                  <Text style={s.empty}>Sin clientes</Text>
-                </View>
-              ) : null}
-            </>
-          }
         />
 
         {canCreate ? (
@@ -353,6 +352,14 @@ export default function ClientesScreen() {
 
 const styles = (colors: any) =>
   StyleSheet.create({
+    stickyTop: {
+      paddingHorizontal: 12,
+      paddingTop: 12,
+      paddingBottom: 10,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      zIndex: 50,
+      ...(Platform.OS === "android" ? { elevation: 50 } : null),
+    },
     searchWrap: {
       borderWidth: 1,
       borderColor: colors.border,

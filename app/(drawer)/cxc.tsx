@@ -4,11 +4,11 @@ import { Stack, router } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
-  FlatList,
   Modal,
   Platform,
   Pressable,
   ScrollView,
+  SectionList,
   StyleSheet,
   Text,
   TextInput,
@@ -36,6 +36,8 @@ type CxCRow = {
   facturas: string[] | null;
 };
 
+type CxcSection = { title: string; data: CxCRow[] };
+
 type VendedorRow = { vendedor_id: string; vendedor_codigo: string };
 type PayFilter = "ALL" | "PENDING" | "OVERDUE";
 type RpcVendedorRow = { id: string; full_name: string | null; role: string | null };
@@ -62,9 +64,23 @@ function fmtQ(n: number | string | null | undefined) {
   return `Q ${x.toFixed(2)}`;
 }
 
-function fmtDate(iso: string | null | undefined) {
-  if (!iso) return "—";
-  return String(iso).slice(0, 10);
+function fmtDateLongEs(isoOrYmd: string | null | undefined) {
+  if (!isoOrYmd) return "—";
+  const raw = String(isoOrYmd).trim();
+  if (!raw) return "—";
+  if (raw.toUpperCase() === "SIN_FECHA" || raw.toLowerCase() === "sin fecha") return "Sin fecha";
+  const ymd = raw.slice(0, 10);
+  const d = new Date(`${ymd}T12:00:00`);
+  if (!Number.isFinite(d.getTime())) return "—";
+  return new Intl.DateTimeFormat("es-ES", {
+    weekday: "long",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  })
+    .format(d)
+    .toLowerCase()
+    .replace(/\./g, "");
 }
 
 function normalizeUpper(s: string | null | undefined) {
@@ -395,11 +411,28 @@ export default function CuentasPorCobrarScreen() {
     return unpaid.filter((r) => {
       if (!r.fecha_vencimiento) return fPago === "PENDING";
       const d = dayDiffFromToday(r.fecha_vencimiento);
-      if (fPago === "OVERDUE") return d < 0;
+    if (fPago === "OVERDUE") return d < 0;
       if (fPago === "PENDING") return d >= 0;
       return true;
     });
   }, [rowsRaw, fPago, fVendedorId, fClienteId, fDesde, fHasta, roleUp, uid]);
+
+  const sections = useMemo<CxcSection[]>(() => {
+    const map = new Map<string, CxCRow[]>();
+    (rows ?? []).forEach((r) => {
+      const key = r.fecha ? String(r.fecha).slice(0, 10) : "SIN_FECHA";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(r);
+    });
+
+    const keys = Array.from(map.keys()).sort((a, b) => {
+      if (a === "SIN_FECHA") return 1;
+      if (b === "SIN_FECHA") return -1;
+      return a < b ? 1 : -1;
+    });
+
+    return keys.map((k) => ({ title: k, data: map.get(k)! }));
+  }, [rows]);
 
   const vendedoresDropdown = useMemo(() => {
     if (vendedores && vendedores.length > 0) return vendedores;
@@ -443,7 +476,7 @@ export default function CuentasPorCobrarScreen() {
           <View style={{ flex: 1 }}>
             <Text style={s.title}>{item.cliente_nombre ?? "Cliente"}</Text>
             <Text style={s.sub}>Facturas: {fact}</Text>
-            <Text style={s.sub}>Fecha: {fmtDate(item.fecha)}</Text>
+            <Text style={s.sub}>Fecha: {fmtDateLongEs(item.fecha)}</Text>
             <Text style={s.sub}>Vendedor: {vendedorTxt}</Text>
           </View>
 
@@ -512,6 +545,46 @@ export default function CuentasPorCobrarScreen() {
     // fetchRows se dispara por deps
   };
 
+  const stickyTopContent = (
+    <>
+      <View style={s.topRow}>
+        <View style={s.searchWrap}>
+          <TextInput
+            value={q}
+            onChangeText={setQ}
+            placeholder="Buscar por cliente o factura..."
+            placeholderTextColor={colors.text + "66"}
+            style={s.searchInput}
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="search"
+          />
+          {q.trim().length > 0 ? (
+            <Pressable onPress={() => setQ("")} hitSlop={10} accessibilityRole="button" accessibilityLabel="Borrar búsqueda" style={s.clearBtn}>
+              <Text style={s.clearTxt}>×</Text>
+            </Pressable>
+          ) : null}
+        </View>
+
+        <Pressable onPress={() => setFiltersOpen(true)} style={({ pressed }) => [s.filterBtn, pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null]}>
+          <Text style={s.filterTxt}>Filtros</Text>
+        </Pressable>
+      </View>
+
+      {initialLoading ? (
+        <View style={{ paddingVertical: 10 }}>
+          <Text style={[s.empty, { paddingTop: 0 }]}>Cargando...</Text>
+        </View>
+      ) : null}
+
+      {!initialLoading && loadError ? (
+        <View style={{ paddingVertical: 10 }}>
+          <Text style={[s.empty, { paddingTop: 0 }]}>{loadError}</Text>
+        </View>
+      ) : null}
+    </>
+  );
+
   return (
     <>
       <Stack.Screen
@@ -526,54 +599,27 @@ export default function CuentasPorCobrarScreen() {
         backHref="/(drawer)/(tabs)"
       >
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
-        <FlatList
-          style={{ backgroundColor: colors.background }}
-          data={rows}
+        <View style={[s.stickyTop, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+          {stickyTopContent}
+        </View>
+
+        <SectionList<CxCRow, CxcSection>
+          style={[s.list, { backgroundColor: colors.background }]}
+          sections={sections}
           keyExtractor={(it) => String(it.venta_id)}
           renderItem={renderItem}
+          stickySectionHeadersEnabled
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           automaticallyAdjustKeyboardInsets
           contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 16 + insets.bottom }}
-          ListHeaderComponent={
-            <>
-              <View style={s.topRow}>
-                <View style={s.searchWrap}>
-                  <TextInput
-                    value={q}
-                    onChangeText={setQ}
-                    placeholder="Buscar por cliente o factura..."
-                    placeholderTextColor={colors.text + "66"}
-                    style={s.searchInput}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    returnKeyType="search"
-                  />
-                  {q.trim().length > 0 ? (
-                    <Pressable onPress={() => setQ("")} hitSlop={10} accessibilityRole="button" accessibilityLabel="Borrar búsqueda" style={s.clearBtn}>
-                      <Text style={s.clearTxt}>×</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-
-                <Pressable onPress={() => setFiltersOpen(true)} style={({ pressed }) => [s.filterBtn, pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null]}>
-                  <Text style={s.filterTxt}>Filtros</Text>
-                </Pressable>
-              </View>
-
-              {initialLoading ? (
-                <View style={{ paddingVertical: 10 }}>
-                  <Text style={[s.empty, { paddingTop: 0 }]}>Cargando...</Text>
-                </View>
-              ) : null}
-
-              {!initialLoading && loadError ? (
-                <View style={{ paddingVertical: 10 }}>
-                  <Text style={[s.empty, { paddingTop: 0 }]}>{loadError}</Text>
-                </View>
-              ) : null}
-            </>
-          }
+          renderSectionHeader={({ section }) => (
+            <View style={[s.sectionHeader, { backgroundColor: colors.background, alignItems: "flex-end" }]}>    
+              <Text style={[s.sectionHeaderText, { color: M.sub, textAlign: "right" }]}>
+                {section.title === "SIN_FECHA" ? "Sin fecha" : fmtDateLongEs(section.title)}
+              </Text>
+            </View>
+          )}
           ListEmptyComponent={!initialLoading && !loadError ? (
             <View style={s.center}><Text style={s.empty}>Sin cuentas por cobrar</Text></View>
           ) : null}
@@ -627,7 +673,7 @@ export default function CuentasPorCobrarScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[s.sectionLabel, { color: M.text }]}>Desde</Text>
                 <Pressable onPress={openDesdePicker} style={[s.dateBox, { borderColor: M.border, backgroundColor: M.fieldBg }]}>
-                  <Text style={[s.dateTxt, { color: M.text }]}>{fDesde ? fmtDate(fDesde.toISOString()) : "—"}</Text>
+                  <Text style={[s.dateTxt, { color: M.text }]}>{fDesde ? fmtDateLongEs(fDesde.toISOString()) : "—"}</Text>
                 </Pressable>
               </View>
 
@@ -636,7 +682,7 @@ export default function CuentasPorCobrarScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[s.sectionLabel, { color: M.text }]}>Hasta</Text>
                 <Pressable onPress={openHastaPicker} style={[s.dateBox, { borderColor: M.border, backgroundColor: M.fieldBg }]}>
-                  <Text style={[s.dateTxt, { color: M.text }]}>{fHasta ? fmtDate(fHasta.toISOString()) : "—"}</Text>
+                  <Text style={[s.dateTxt, { color: M.text }]}>{fHasta ? fmtDateLongEs(fHasta.toISOString()) : "—"}</Text>
                 </Pressable>
               </View>
             </View>
@@ -725,6 +771,23 @@ const styles = (colors: any) =>
     filterTxt: { color: colors.text, fontWeight: "800" },
     center: { flex: 1, alignItems: "center", justifyContent: "center" },
     empty: { color: colors.text },
+    stickyTop: {
+      paddingHorizontal: 12,
+      paddingTop: 12,
+      paddingBottom: 10,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      zIndex: 50,
+      ...(Platform.OS === "android" ? { elevation: 50 } : null),
+    },
+    list: { flex: 1 },
+    sectionHeader: {
+      paddingHorizontal: 12,
+      paddingTop: 8,
+      paddingBottom: 6,
+      zIndex: 10,
+      ...(Platform.OS === "android" ? { elevation: 10 } : null),
+    },
+    sectionHeaderText: { fontSize: 13, fontWeight: "900", textAlign: "right" },
     card: { borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12, borderRadius: 14, marginBottom: 10 },
     row: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
     title: { color: colors.text, fontSize: 16, fontWeight: "800" },
