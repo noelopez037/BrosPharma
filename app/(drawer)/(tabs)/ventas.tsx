@@ -37,9 +37,15 @@ type VentaRow = {
   vendedor_codigo: string | null;
   requiere_receta: boolean;
   receta_cargada: boolean;
+  factura_numeros?: string[];
 };
 
-type VentasCache = { rows: VentaRow[]; tags: Record<string, string[]>; ts: number };
+type VentasCache = {
+  rows: VentaRow[];
+  tags: Record<string, string[]>;
+  facturas: Record<string, string[]>;
+  ts: number;
+};
 
 type VentaSection = { title: string; data: VentaRow[] };
 
@@ -220,6 +226,7 @@ export default function Ventas() {
 
   const [rowsRaw, setRowsRaw] = useState<VentaRow[]>([]);
   const [tagsByVenta, setTagsByVenta] = useState<Record<string, string[]>>({});
+  const [facturasByVenta, setFacturasByVenta] = useState<Record<string, string[]>>({});
 
   // Evita renderizar data vieja cuando la pantalla permanece montada (Tabs)
   // y se entra/cambia de tab antes de que termine el fetch.
@@ -350,7 +357,8 @@ export default function Ventas() {
         const ids = rows.map((r) => Number(r.id)).filter((x) => Number.isFinite(x) && x > 0);
         if (!ids.length) {
           setTagsByVenta({});
-          cacheRef.current[targetEstado] = { rows, tags: {}, ts: Date.now() };
+          setFacturasByVenta({});
+          cacheRef.current[targetEstado] = { rows, tags: {}, facturas: {}, ts: Date.now() };
           setLoadedEstado(targetEstado);
           return;
         }
@@ -363,17 +371,34 @@ export default function Ventas() {
         if (mySeq !== reqSeq.current) return;
         if (terr) throw terr;
 
-        const map: Record<string, string[]> = {};
+        const tagMap: Record<string, string[]> = {};
         (trows ?? []).forEach((tr: any) => {
           const vid = String(tr.venta_id);
           const tg = String(tr.tag ?? "").trim().toUpperCase();
           if (!vid || !tg) return;
-          if (!map[vid]) map[vid] = [];
-          map[vid].push(tg);
+          if (!tagMap[vid]) tagMap[vid] = [];
+          tagMap[vid].push(tg);
         });
 
-        setTagsByVenta(map);
-        cacheRef.current[targetEstado] = { rows, tags: map, ts: Date.now() };
+        const { data: frows, error: ferr } = await supabase
+          .from("ventas_facturas")
+          .select("venta_id,numero_factura")
+          .in("venta_id", ids);
+        if (mySeq !== reqSeq.current) return;
+        if (ferr) throw ferr;
+
+        const facturasMap: Record<string, string[]> = {};
+        (frows ?? []).forEach((fr: any) => {
+          const vid = String(fr.venta_id ?? "").trim();
+          const num = String(fr.numero_factura ?? "").trim();
+          if (!vid || !num) return;
+          const bucket = facturasMap[vid] ?? (facturasMap[vid] = []);
+          if (!bucket.includes(num)) bucket.push(num);
+        });
+
+        setTagsByVenta(tagMap);
+        setFacturasByVenta(facturasMap);
+        cacheRef.current[targetEstado] = { rows, tags: tagMap, facturas: facturasMap, ts: Date.now() };
         setLoadedEstado(targetEstado);
       } catch (e) {
         // Si falla la carga, no dejes la UI pegada en "Cargando...".
@@ -397,6 +422,7 @@ export default function Ventas() {
       setListLoading(false);
       setRowsRaw(cached.rows);
       setTagsByVenta(cached.tags);
+      setFacturasByVenta(cached.facturas ?? {});
       setLoadedEstado(estado);
 
       const myReval = ++revalidateSeq.current;
@@ -466,13 +492,26 @@ export default function Ventas() {
       if (hastaMs && (rowDateMs == null || rowDateMs > hastaMs)) return false;
 
       if (!search) return true;
+
+
       const id = String(r.id);
       const cliente = String(r.cliente_nombre ?? "").toLowerCase();
       const vcode = String(r.vendedor_codigo ?? "").toLowerCase();
-      return id.includes(search) || cliente.includes(search) || vcode.includes(search);
+
+
+      const facturas = (facturasByVenta[String(r.id)] ?? []).map((x) => String(x ?? "").toLowerCase());
+
+
+      const searchDigits = search.replace(/\D+/g, "");
+      const facturaMatch =
+        facturas.some((n) => n.includes(search)) ||
+        (!!searchDigits && facturas.some((n) => n.replace(/\D+/g, "").includes(searchDigits)));
+
+
+      return id.includes(search) || cliente.includes(search) || vcode.includes(search) || facturaMatch;
     });
     return filtered;
-  }, [debouncedQ, rowsRaw, tagsByVenta, fClienteId, fDesde, fHasta]);
+  }, [debouncedQ, rowsRaw, tagsByVenta, facturasByVenta, fClienteId, fDesde, fHasta]);
 
   const filteredClientes = useMemo(() => {
     const qq = (fClienteQ ?? "").trim().toLowerCase();
@@ -589,6 +628,9 @@ export default function Ventas() {
     ({ item }: { item: VentaRow }) => {
       const chips = chipsById[item.id] ?? [];
       const vendedorChip = item.vendedor_codigo ? String(item.vendedor_codigo) : shortUid(item.vendedor_id);
+      const facturas = facturasByVenta[String(item.id)] ?? [];
+      const facturaLabel =
+        facturas.length === 1 ? `Factura: ${facturas[0]}` : facturas.length > 1 ? `Facturas: ${facturas.join(", ")}` : null;
 
       return (
         <Pressable
@@ -609,9 +651,11 @@ export default function Ventas() {
               </Text>
             </View>
           </View>
-          <Text style={[s.cardSub, { color: C.sub }]} numberOfLines={1}>
-            Fecha: {fmtDate(item.fecha)}
-          </Text>
+          {facturaLabel ? (
+            <Text style={[s.cardSub, { color: C.sub }]} numberOfLines={1}>
+              {facturaLabel}
+            </Text>
+          ) : null}
 
           {chips.length ? (
             <View style={s.chipsRow}>
@@ -641,6 +685,7 @@ export default function Ventas() {
       C.chipRedText,
       C.sub,
       C.text,
+      facturasByVenta,
       chipsById,
     ]
   );
@@ -771,6 +816,7 @@ export default function Ventas() {
                     setListLoading(false);
                     setRowsRaw(cached.rows);
                     setTagsByVenta(cached.tags);
+                    setFacturasByVenta(cached.facturas ?? {});
                     setLoadedEstado(nextEstado);
 
                     const myReval = ++revalidateSeq.current;
