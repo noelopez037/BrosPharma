@@ -6,19 +6,19 @@ import { Stack, useLocalSearchParams } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert,
-  Image,
-  Keyboard,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableWithoutFeedback,
-  View,
+    Alert,
+    Image,
+    Keyboard,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableWithoutFeedback,
+    View,
 } from "react-native";
 import ImageViewer from "react-native-image-zoom-viewer";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -930,15 +930,11 @@ export default function CxcVentaDetalle() {
                                 title="Rechazar"
                                 size="sm"
                                 variant="outline"
-                                style={{
-                                  flex: 1,
-                                  borderColor: "#E53935",
-                                }}
-                                textStyle={{
-                                  color: "#E53935",
-                                }}
+                                style={{ flex: 1, borderColor: "#E53935" }}
+                                textStyle={{ color: "#E53935" }}
                                 onPress={() => handleRechazarPagoReportado(p)}
                                 disabled={disabled}
+                                
                               />
                             </View>
                           </View>
