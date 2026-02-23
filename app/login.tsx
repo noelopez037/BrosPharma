@@ -11,12 +11,14 @@ import { useTheme } from "@react-navigation/native";
 import { router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Image,
   InteractionManager,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -58,8 +60,24 @@ export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
+  const [sendingReset, setSendingReset] = useState(false);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const showSub = Keyboard.addListener(showEvent, () => setIsKeyboardOpen(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setIsKeyboardOpen(false));
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const passRef = useRef<TextInput>(null);
+  const scrollRef = useRef<ScrollView>(null);
 
   const networkErrorMessage =
     "No hay conexión con el servidor. Verifica tu red e inténtalo de nuevo.";
@@ -177,28 +195,78 @@ export default function LoginScreen() {
     }
   };
 
+  const onForgotPassword = async () => {
+    if (loading || sendingReset) return;
+
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanEmail) {
+      Alert.alert("Falta correo", "Escribe tu correo para enviarte el link.");
+      return;
+    }
+
+    setSendingReset(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+        redirectTo: "brospharma://reset-password",
+      });
+
+      if (error) throw error;
+
+      Alert.alert("Listo", "Te enviamos un correo para restablecer tu contraseña.");
+    } catch (error: any) {
+      Alert.alert("No se pudo enviar", error?.message ?? String(error));
+    } finally {
+      if (aliveRef.current) setSendingReset(false);
+    }
+  };
+
+  const contentAlignmentStyle = isKeyboardOpen
+    ? {
+        justifyContent: "flex-start" as const,
+        paddingTop: Platform.OS === "ios" ? 28 : 18,
+      }
+    : {
+        justifyContent: "center" as const,
+        paddingTop: 0,
+      };
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={["top", "bottom"]}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.select({ ios: "padding", android: undefined })}
-        keyboardVerticalOffset={Platform.select({ ios: 10, android: 0 })}
+        keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}
       >
         <View style={{ flex: 1 }}>
           <ScrollView
-            contentContainerStyle={[styles.container, { paddingBottom: 24 }]}
+            ref={scrollRef}
+            contentContainerStyle={[
+              styles.container,
+              contentAlignmentStyle,
+              { paddingBottom: 24 },
+              isKeyboardOpen && { gap: 6 },
+            ]}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
-            automaticallyAdjustKeyboardInsets
           >
-            <Image
-              source={isDark ? logoLight : logoDark}
-              style={[styles.logo, isDark ? styles.logoTintDark : styles.logoTintLight]}
-              resizeMode="contain"
-              fadeDuration={0}
-            />
+            {!isKeyboardOpen ? (
+              <Image
+                source={isDark ? logoLight : logoDark}
+                style={[styles.logo, isDark ? styles.logoTintDark : styles.logoTintLight]}
+                resizeMode="contain"
+                fadeDuration={0}
+              />
+            ) : (
+              <View style={{ height: 12 }} />
+            )}
 
-            <Text maxFontSizeMultiplier={1.2} style={[styles.title, { color: C.text }]}>Iniciar sesión</Text>
+            <Text
+              maxFontSizeMultiplier={1.2}
+              style={[styles.title, { color: C.text }, isKeyboardOpen && { marginBottom: 6 }]}
+            >
+              Iniciar sesión
+            </Text>
 
             <Text maxFontSizeMultiplier={1.2} style={[styles.label, { color: C.text }]}>Correo</Text>
             <TextInput
@@ -215,6 +283,7 @@ export default function LoginScreen() {
               cursorColor={C.tint}
               keyboardAppearance={isDark ? "dark" : "light"}
               returnKeyType="next"
+              onFocus={() => scrollRef.current?.scrollTo({ y: 0, animated: true })}
               onSubmitEditing={() => passRef.current?.focus()}
             />
 
@@ -232,8 +301,29 @@ export default function LoginScreen() {
               cursorColor={C.tint}
               keyboardAppearance={isDark ? "dark" : "light"}
               returnKeyType="done"
+              onFocus={() => scrollRef.current?.scrollTo({ y: 140, animated: true })}
               onSubmitEditing={onLogin}
             />
+
+            <Pressable
+              onPress={onForgotPassword}
+              disabled={loading || sendingReset}
+              hitSlop={8}
+              style={[styles.forgotWrapper, (loading || sendingReset) && { opacity: 0.6 }]}
+            >
+              {sendingReset ? (
+                <View style={styles.forgotLoadingRow}>
+                  <ActivityIndicator size="small" color={C.tint} style={{ marginRight: 6 }} />
+                  <Text maxFontSizeMultiplier={1.2} style={[styles.forgotText, { color: C.tint }]}>
+                    Enviando...
+                  </Text>
+                </View>
+              ) : (
+                <Text maxFontSizeMultiplier={1.2} style={[styles.forgotText, { color: C.tint }]}>
+                  ¿Olvidaste tu contraseña?
+                </Text>
+              )}
+            </Pressable>
           </ScrollView>
 
           <View style={[styles.footer, { backgroundColor: C.bg, paddingBottom: Math.max(insets.bottom, 12) }]}>
@@ -282,6 +372,18 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     minHeight: 46,
     fontSize: 16,
+  },
+  forgotWrapper: {
+    alignSelf: "flex-end",
+    marginTop: 2,
+  },
+  forgotText: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  forgotLoadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
   },
   footer: {
     paddingHorizontal: 20,
