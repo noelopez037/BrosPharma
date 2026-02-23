@@ -18,8 +18,8 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AppButton } from "../../components/ui/app-button";
 import { RoleGate } from "../../components/auth/RoleGate";
+import { AppButton } from "../../components/ui/app-button";
 import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
@@ -36,7 +36,7 @@ type ProductoPick = {
 
 type KardexRow = {
   fecha: string;
-  tipo: "COMPRA" | "VENTA" | "DEVOLUCION";
+  tipo: "COMPRA" | "VENTA" | "DEVOLUCION" | "RESERVA" | "LIBERACION";
   compra_id: number | null;
   venta_id: number | null;
   estado: string | null;
@@ -49,6 +49,36 @@ type KardexRow = {
   salida: number;
   saldo: number;
 };
+
+type TotalesSimple = {
+  entradas: number;
+  salidas: number;
+  reservado: number;
+  saldo: number;
+};
+
+function normalizeKardexRows(rows: KardexRow[]): KardexRow[] {
+  if (!Array.isArray(rows) || rows.length === 0) return rows;
+
+  const reservaVentaIds = new Set<number>();
+  for (const row of rows) {
+    if (row.tipo === "RESERVA") {
+      const ventaId = row.venta_id;
+      if (typeof ventaId === "number" && Number.isFinite(ventaId)) {
+        reservaVentaIds.add(ventaId);
+      }
+    }
+  }
+
+  if (reservaVentaIds.size === 0) return rows;
+
+  return rows.filter((row) => {
+    if (row.tipo !== "VENTA") return true;
+    const ventaId = row.venta_id;
+    if (typeof ventaId !== "number" || !Number.isFinite(ventaId)) return true;
+    return !reservaVentaIds.has(ventaId);
+  });
+}
 
 function normalizeUpper(v: any) {
   return String(v ?? "").trim().toUpperCase();
@@ -137,6 +167,10 @@ export default function KardexScreen() {
   const [rows, setRows] = useState<KardexRow[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [busquedaEjecutada, setBusquedaEjecutada] = useState(false);
+  const viewRows = useMemo(() => normalizeKardexRows(rows), [rows]);
+  const [totalesLoading, setTotalesLoading] = useState(false);
+  const [totalesError, setTotalesError] = useState<string | null>(null);
+  const [totalesSimple, setTotalesSimple] = useState<TotalesSimple | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -164,12 +198,17 @@ export default function KardexScreen() {
         setProdLoading(false);
         prodReqSeq.current += 1; // invalida requests en vuelo
 
+        setTotalesSimple(null);
+        setTotalesError(null);
+        setTotalesLoading(false);
+
         // pickers iOS
         setShowDesdeIOS(false);
         setShowHastaIOS(false);
       };
     }, [])
   );
+
 
   const fetchProductos = useCallback(async () => {
     const seq = ++prodReqSeq.current;
@@ -218,6 +257,54 @@ export default function KardexScreen() {
     if (!prodModalOpen) return;
     fetchProductos();
   }, [fetchProductos, prodModalOpen]);
+
+  const fetchTotalesSimple = useCallback(async () => {
+    const productoId = producto?.id;
+    if (!productoId) {
+      setTotalesSimple(null);
+      setTotalesError(null);
+      setTotalesLoading(false);
+      return;
+    }
+
+    setTotalesLoading(true);
+    setTotalesError(null);
+    try {
+      const { data, error } = await supabase.rpc("rpc_inventario_totales_simple_v2", {
+        p_producto_id: productoId,
+      });
+      if (error) throw error;
+
+      const row = Array.isArray(data) ? (data?.[0] as any) : (data as any);
+      const toInt = (v: any) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? Math.trunc(n) : 0;
+      };
+
+      setTotalesSimple({
+        entradas: toInt(row?.entradas),
+        salidas: toInt(row?.salidas),
+        reservado: toInt(row?.reservado),
+        saldo: toInt(row?.saldo),
+      });
+    } catch (e: any) {
+      setTotalesSimple(null);
+      setTotalesError(e?.message ?? "No se pudieron cargar totales");
+    } finally {
+      setTotalesLoading(false);
+    }
+  }, [producto?.id]);
+
+  useEffect(() => {
+    void fetchTotalesSimple();
+  }, [fetchTotalesSimple]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!producto?.id) return;
+      void fetchTotalesSimple();
+    }, [fetchTotalesSimple, producto?.id])
+  );
 
   const openDesdePicker = () => {
     if (Platform.OS === "android") {
@@ -273,7 +360,14 @@ export default function KardexScreen() {
 
       const normalizeTipo = (v: any): KardexRow["tipo"] => {
         const t = String(v ?? "").trim().toUpperCase();
-        if (t === "COMPRA" || t === "VENTA" || t === "DEVOLUCION") return t;
+        if (
+          t === "COMPRA" ||
+          t === "VENTA" ||
+          t === "DEVOLUCION" ||
+          t === "RESERVA" ||
+          t === "LIBERACION"
+        )
+          return t;
         // fallback seguro para no reventar la UI
         return "VENTA";
       };
@@ -317,26 +411,9 @@ export default function KardexScreen() {
     setBusquedaEjecutada(true);
   }, [canSearch, desde, hasta, producto]);
 
-  const totals = useMemo(() => {
-    const upper = (v: any) => String(v ?? "").trim().toUpperCase();
-
-    // Comprado = solo COMPRA (ignora DEVOLUCION)
-    const entrada = rows.reduce((acc, r) => acc + (r.tipo === "COMPRA" ? Number(r.entrada ?? 0) : 0), 0);
-
-    // Vendido = solo VENTA no anulada
-    const salida = rows.reduce(
-      (acc, r) => acc + (r.tipo === "VENTA" && upper(r.estado) !== "ANULADA" ? Number(r.salida ?? 0) : 0),
-      0
-    );
-
-    const lastSaldo = rows.length ? Number(rows[rows.length - 1]?.saldo ?? 0) : 0;
-    const saldo = Number.isFinite(lastSaldo) ? lastSaldo : 0;
-    return { entrada, salida, saldo };
-  }, [rows]);
-
   const exportarCSV = async () => {
     try {
-      if (!rows?.length) {
+      if (!viewRows?.length) {
         Alert.alert("Sin datos", "No hay movimientos para exportar.");
         return;
       }
@@ -356,6 +433,24 @@ export default function KardexScreen() {
         return `${dd}/${mm}/${yyyy} ${hh}:${mi}`;
       };
 
+      const tipoParaCSV = (tipo: KardexRow["tipo"] | null | undefined) => {
+        const normalized = String(tipo ?? "").trim().toUpperCase();
+        if (!normalized) return "";
+        return normalized === "RESERVA" ? "VENTA" : normalized;
+      };
+
+      const slug = (value: string | null | undefined) => {
+        const base = String(value ?? "")
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "");
+        return base
+          .replace(/\s+/g, "-")
+          .replace(/[^A-Za-z0-9-]/g, "")
+          .replace(/-+/g, "-")
+          .replace(/^-|-$/g, "")
+          .toLowerCase();
+      };
+
       const headers = [
         "Fecha",
         "Tipo",
@@ -371,9 +466,9 @@ export default function KardexScreen() {
         "Factura",
       ];
 
-      const lines = rows.map((r) => [
+      const lines = viewRows.map((r) => [
         fmtFechaLocal(r.fecha),
-        r.tipo ?? "",
+        tipoParaCSV(r.tipo),
         r.compra_id ?? "",
         r.venta_id ?? "",
         r.estado ?? "",
@@ -386,16 +481,21 @@ export default function KardexScreen() {
         r.factura_numero ?? "",
       ]);
 
-      const csvContent = [headers, ...lines]
+      const csvBody = [headers, ...lines]
         .map((row) =>
           row
             .map((field) => `"${String(field ?? "").replace(/"/g, '""')}"`)
             .join(",")
         )
-        .join("\n");
+        .join("\r\n");
+      const csvContent = "\ufeff" + csvBody;
 
-      const fileUri =
-        (FileSystem.cacheDirectory ?? FileSystem.documentDirectory) + `kardex-${Date.now()}.csv`;
+      const prod = producto?.nombre ?? "producto";
+      const marca = producto?.marca ?? "";
+      const base = marca ? `${slug(prod)}-${slug(marca)}` : slug(prod);
+      const fileName = `kardex-${base || "producto"}-${fmtYmd(desde)}-a-${fmtYmd(hasta)}.csv`;
+
+      const fileUri = (FileSystem.cacheDirectory ?? FileSystem.documentDirectory) + fileName;
 
       await FileSystem.writeAsStringAsync(fileUri, csvContent, {
         encoding: FileSystem.EncodingType.UTF8,
@@ -415,38 +515,66 @@ export default function KardexScreen() {
     return `${producto.nombre}${marca}`;
   }, [producto]);
 
+  const headerTitle = useMemo(() => {
+    const prod = producto ? productoLabel : "—";
+    return `Kardex • ${prod} • ${fmtYmd(desde)}-${fmtYmd(hasta)}`;
+  }, [producto, productoLabel, desde, hasta]);
+
+  const totalesEntradasValue = totalesLoading ? "Cargando..." : totalesSimple?.entradas ?? "—";
+  const totalesSalidasValue = totalesLoading ? "Cargando..." : totalesSimple?.salidas ?? "—";
+  const totalesReservadoValue = totalesLoading ? "Cargando..." : totalesSimple?.reservado ?? "—";
+  const saldoRaw = totalesSimple?.saldo;
+  const totalesSaldoValue = totalesLoading ? "Cargando..." : saldoRaw ?? "—";
+  const saldoNegativo = !totalesLoading && typeof saldoRaw === "number" && saldoRaw < 0;
+
   const renderRow = ({ item }: { item: KardexRow }) => {
     const tipo = normalizeUpper(item?.tipo);
     const isCompra = tipo === "COMPRA";
     const isVenta = tipo === "VENTA";
     const isDev = tipo === "DEVOLUCION";
+    const isReserva = tipo === "RESERVA";
+    const isLiberacion = tipo === "LIBERACION";
 
     const entrada = Number(item?.entrada ?? 0);
     const salida = Number(item?.salida ?? 0);
-    const isEntrada = entrada > 0;
-    const qtyText = isEntrada ? `+${entrada}` : `-${salida}`;
+    const safeEntrada = Number.isFinite(entrada) ? entrada : 0;
+    const safeSalida = Number.isFinite(salida) ? salida : 0;
+    const isEntrada = isCompra || isDev || isLiberacion;
+    const qtyValue = Math.abs(isEntrada ? safeEntrada : safeSalida);
+    const qtyText = `${isEntrada ? "+" : "-"}${qtyValue}`;
 
-    const title = isCompra
-      ? item?.proveedor ?? "Compra"
-      : isVenta
-        ? item?.cliente ?? "Venta"
-        : isDev
-          ? item?.cliente ?? "Devolución"
-          : item?.cliente ?? item?.proveedor ?? "Movimiento";
+    let title = item?.cliente ?? item?.proveedor ?? "Movimiento";
+    if (isCompra) title = item?.proveedor ?? "Compra";
+    else if (isVenta) title = item?.cliente ?? "Venta";
+    else if (isReserva) title = item?.cliente ?? "Venta";
+    else if (isLiberacion) title = item?.cliente ?? "Liberación";
+    else if (isDev) title = item?.cliente ?? "Devolución";
 
     const estado = String(item?.estado ?? "").trim();
+    const estadoUpper = normalizeUpper(estado);
 
-    const tipoLabel = isCompra ? "COMPRA" : isVenta ? "VENTA" : isDev ? "DEVOLUCION" : tipo || "MOV";
+    const tipoLabel = isCompra
+      ? "COMPRA"
+      : isVenta
+        ? "VENTA"
+        : isDev
+          ? "DEVOLUCION"
+          : isReserva
+            ? "VENTA"
+            : isLiberacion
+              ? "LIBERACION"
+              : tipo || "MOV";
 
-    const meta = [
-      fmtFechaHora(item?.fecha),
-      tipoLabel,
-      item.factura_numero ? `FAC ${item.factura_numero}` : null,
-      isVenta && estado ? estado : null,
-      isDev && normalizeUpper(estado) === "ANULADA" ? "ANULADA" : null,
-    ]
-      .filter(Boolean)
-      .join(" • ");
+    const metaParts: string[] = [];
+    metaParts.push(fmtFechaHora(item?.fecha));
+    metaParts.push(tipoLabel);
+    if (item.factura_numero) metaParts.push(`FAC ${item.factura_numero}`);
+    if (isVenta && estado) metaParts.push(estado);
+    if (isReserva && estado) metaParts.push(estado);
+    if (isLiberacion) metaParts.push(estado || "ANULADA");
+    if (isDev && estadoUpper === "ANULADA") metaParts.push("ANULADA");
+
+    const meta = metaParts.filter(Boolean).join(" • ");
 
     return (
       <View style={s.card}>
@@ -467,16 +595,16 @@ export default function KardexScreen() {
   return (
     <>
       <Stack.Screen
-        options={{
-          headerShown: true,
-          title: "Kardex",
-        }}
-      />
+  options={{
+    headerShown: true,
+    title: "Kardex",
+  }}
+/>
 
       <RoleGate allow={["ADMIN"]} deniedText="Solo ADMIN puede usar esta pantalla." backHref="/(drawer)/(tabs)">
         <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
           <FlatList
-            data={rows}
+            data={viewRows}
             keyExtractor={(it, idx) =>
               `${String((it as any)?.tipo ?? "")}::${String((it as any)?.fecha ?? "")}::${String(
                 (it as any)?.compra_id ?? ""
@@ -581,7 +709,7 @@ export default function KardexScreen() {
                     loading={loading}
                   />
 
-                  {busquedaEjecutada && rows?.length > 0 ? (
+                  {busquedaEjecutada && viewRows?.length > 0 ? (
                     <View style={{ marginTop: 10 }}>
                       <AppButton title="Exportar CSV" variant="outline" onPress={exportarCSV} />
                     </View>
@@ -593,17 +721,22 @@ export default function KardexScreen() {
                 <View style={s.totalsCard}>
                   <Text style={s.totalsTitle}>Totales</Text>
                   <View style={s.totalsRow}>
-                    <Text style={s.totalsK}>Comprado</Text>
-                    <Text style={[s.totalsV, s.qtyIn]}>{totals.entrada}</Text>
+                    <Text style={s.totalsK}>Entradas</Text>
+                    <Text style={[s.totalsV, s.qtyIn]}>{totalesEntradasValue}</Text>
                   </View>
                   <View style={s.totalsRow}>
-                    <Text style={s.totalsK}>Vendido</Text>
-                    <Text style={[s.totalsV, s.qtyOut]}>{totals.salida}</Text>
+                    <Text style={s.totalsK}>Salidas</Text>
+                    <Text style={[s.totalsV, s.qtyOut]}>{totalesSalidasValue}</Text>
+                  </View>
+                  <View style={s.totalsRow}>
+                    <Text style={s.totalsK}>Reservado</Text>
+                    <Text style={[s.totalsV, s.qtyOut]}>{totalesReservadoValue}</Text>
                   </View>
                   <View style={[s.totalsRow, { marginTop: 6 }]}>
-                    <Text style={s.totalsK}>Saldo</Text>
-                    <Text style={s.totalsV}>{totals.saldo}</Text>
+                    <Text style={s.totalsK}>Saldo (disponible)</Text>
+                    <Text style={[s.totalsV, saldoNegativo ? s.qtyOut : null]}>{totalesSaldoValue}</Text>
                   </View>
+                  {totalesError ? <Text style={s.sub}>{totalesError}</Text> : null}
                 </View>
 
                 {loading ? (
@@ -670,14 +803,16 @@ export default function KardexScreen() {
                   keyExtractor={(it) => String(it.id)}
                   keyboardShouldPersistTaps="handled"
                   renderItem={({ item }) => (
-                    <Pressable
-                      onPress={() => {
-                        setProducto(item);
-                        setProdModalOpen(false);
-                        // opcional: al elegir producto, limpia resultados anteriores para evitar confusión
-                        setRows([]);
-                        setErrorMsg(null);
-                      }}
+                      <Pressable
+                        onPress={() => {
+                          setProducto(item);
+                          setProdModalOpen(false);
+                          // opcional: al elegir producto, limpia resultados anteriores para evitar confusión
+                          setRows([]);
+                          setErrorMsg(null);
+                          setTotalesSimple(null);
+                          setTotalesError(null);
+                        }}
                       style={({ pressed }) => [s.prodRow, pressed && Platform.OS === "ios" ? { opacity: 0.9 } : null]}
                     >
                       <View style={{ flex: 1 }}>
