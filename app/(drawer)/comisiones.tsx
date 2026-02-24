@@ -32,6 +32,7 @@ type RpcComisionRow = {
 type CxCVentaRow = {
   venta_id: number;
   fecha: string | null;
+  fecha_ultimo_pago: string | null;
   cliente_nombre: string | null;
   vendedor_id: string | null;
   vendedor_codigo: string | null;
@@ -237,7 +238,8 @@ export default function ComisionesScreen() {
         if (!Number.isFinite(saldoNum)) return false;
         if (!(saldoNum <= 0)) return false;
 
-        const ms = r?.fecha ? new Date(r.fecha).getTime() : NaN;
+        const pagoRaw = r?.fecha_ultimo_pago ? String(r.fecha_ultimo_pago) : "";
+        const ms = pagoRaw ? new Date(pagoRaw).getTime() : NaN;
         if (!Number.isFinite(ms)) return false;
         if (ms < fromMs || ms > toMs) return false;
 
@@ -248,10 +250,15 @@ export default function ComisionesScreen() {
         return true;
       })
       .sort((a, b) => {
-        const ad = a.fecha ? String(a.fecha) : "";
-        const bd = b.fecha ? String(b.fecha) : "";
-        if (ad === bd) return 0;
-        return ad < bd ? 1 : -1;
+        const ams = a.fecha_ultimo_pago ? new Date(a.fecha_ultimo_pago).getTime() : NaN;
+        const bms = b.fecha_ultimo_pago ? new Date(b.fecha_ultimo_pago).getTime() : NaN;
+        const aValid = Number.isFinite(ams);
+        const bValid = Number.isFinite(bms);
+        if (!aValid && !bValid) return 0;
+        if (!aValid) return 1;
+        if (!bValid) return -1;
+        if (ams === bms) return 0;
+        return ams > bms ? -1 : 1;
       });
 
     return rows;
@@ -404,7 +411,7 @@ export default function ComisionesScreen() {
               {item.cliente_nombre ?? "Cliente"}
             </Text>
             <Text style={s.sub}>Facturas: {fact}</Text>
-            <Text style={s.sub}>Fecha: {fmtDateLongEs(item.fecha)}</Text>
+            <Text style={s.sub}>Fecha pago: {fmtDateLongEs(item.fecha_ultimo_pago)}</Text>
             <Text style={s.sub}>Total: {fmtQ(item.total)} · Pagado: {fmtQ(item.pagado)}</Text>
           </View>
           <View style={{ alignItems: "flex-end" }}>
@@ -450,7 +457,7 @@ export default function ComisionesScreen() {
     } else {
       const grouped = new Map<string, CxCVentaRow[]>();
       ventasPagadasRaw.forEach((venta) => {
-        const ymd = venta?.fecha ? String(venta.fecha).slice(0, 10) : "SIN_FECHA";
+        const ymd = venta?.fecha_ultimo_pago ? String(venta.fecha_ultimo_pago).slice(0, 10) : "SIN_FECHA";
         if (!grouped.has(ymd)) grouped.set(ymd, []);
         grouped.get(ymd)!.push(venta);
       });
