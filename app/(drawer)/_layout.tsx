@@ -107,6 +107,7 @@ export default function DrawerLayout() {
   const isRecetasRoute = pathname === "/recetas-pendientes" || pathname.startsWith("/recetas-pendientes");
   const isComisionesRoute = pathname === "/comisiones" || pathname.startsWith("/comisiones");
   const isKardexRoute = pathname === "/kardex" || pathname.startsWith("/kardex");
+  const isReportesRoute = pathname === "/reportes" || pathname.startsWith("/reportes");
 
   useEffect(() => {
     let alive = true;
@@ -192,6 +193,7 @@ export default function DrawerLayout() {
   const showAnuladas = role === "ADMIN" || role === "BODEGA" || role === "FACTURACION" || role === "VENTAS";
   const showCuentasPorCobrar = role === "ADMIN" || role === "VENTAS";
   const showComisiones = role === "ADMIN" || role === "VENTAS";
+  const showReportes = role === "ADMIN";
 
   useEffect(() => {
     let alive = true;
@@ -586,10 +588,28 @@ export default function DrawerLayout() {
                    <Ionicons name="list-outline" size={22} color={isKardexRoute ? drawerActiveTint : drawerMuted} />
                    <Text style={[styles.menuLabel, { color: isKardexRoute ? drawerActiveTint : drawerMuted }]}>Kardex</Text>
                  </Pressable>
-               ) : null}
+                ) : null}
 
-               {(role === "ADMIN" || role === "VENTAS") ? (
-                 <Pressable
+                {!showReportes ? null : (
+                  <Pressable
+                    onPress={() => {
+                      closeDrawer();
+                      router.push("/reportes" as any);
+                    }}
+                    style={({ pressed }) => [
+                      styles.menuItem,
+                      { backgroundColor: isReportesRoute ? drawerActiveBg : "transparent" },
+                      pressed && { opacity: 0.85 },
+                    ]}
+                    accessibilityRole="button"
+                  >
+                    <Ionicons name="bar-chart-outline" size={22} color={isReportesRoute ? drawerActiveTint : drawerMuted} />
+                    <Text style={[styles.menuLabel, { color: isReportesRoute ? drawerActiveTint : drawerMuted }]}>Reportes</Text>
+                  </Pressable>
+                )}
+
+                {(role === "ADMIN" || role === "VENTAS") ? (
+                  <Pressable
                    onPress={() => {
                      closeDrawer();
                      router.push("/recetas-pendientes" as any);
