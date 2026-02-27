@@ -1,9 +1,8 @@
 // app/(drawer)/(tabs)/_layout.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
-import { useFocusEffect } from "@react-navigation/native";
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { InteractionManager, Platform } from "react-native";
+import React, { useEffect } from "react";
+import { Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useThemePref } from "../../../lib/themePreference";
@@ -18,28 +17,7 @@ export default function TabLayout() {
   const isDark = resolved === "dark";
 
   const { role, refreshRole } = useRole();
-  const [navKey, setNavKey] = useState(0);
-  const didFixRef = useRef(false);
   const insets = useSafeAreaInsets();
-
-  useFocusEffect(
-    useCallback(() => {
-      if (Platform.OS !== "ios") return;
-      if (didFixRef.current) return;
-      didFixRef.current = true;
-
-      const raf: (cb: any) => any =
-        (globalThis as any)?.requestAnimationFrame ?? ((cb: any) => setTimeout(cb, 0));
-
-      const task = InteractionManager.runAfterInteractions(() => {
-        raf(() => raf(() => setNavKey((k) => k + 1)));
-      });
-
-      return () => {
-        task?.cancel?.();
-      };
-    }, [])
-  );
 
   useEffect(() => {
     // Non-blocking refresh so FACTURACION rules apply ASAP.
@@ -55,20 +33,17 @@ export default function TabLayout() {
   const hideTabBar = role === "FACTURACION";
 
   return (
-      <Tabs
-        key={navKey}
-        detachInactiveScreens={false}
-        screenOptions={{
-          headerShown: false,
-          headerTitleAlign: "center",
-          headerStyle: { backgroundColor: background },
-          headerTitleStyle: {
-            color: text,
-            fontWeight: Platform.OS === "ios" ? "600" : "500",
-          },
-          headerTintColor: active,
-
-
+    <Tabs
+      detachInactiveScreens={false}
+      screenOptions={{
+        headerShown: false,
+        headerTitleAlign: "center",
+        headerStyle: { backgroundColor: background },
+        headerTitleStyle: {
+          color: text,
+          fontWeight: Platform.OS === "ios" ? "600" : "500",
+        },
+        headerTintColor: active,
         tabBarActiveTintColor: active,
         tabBarInactiveTintColor: inactive,
         tabBarStyle: hideTabBar
