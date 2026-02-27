@@ -20,6 +20,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
+import { getCached, setCached, LoteDetalle, ProductoDetalle, ProductoHead } from "../../lib/productoCache";
+import { useRole } from "../../lib/useRole";
 import { AppButton } from "../ui/app-button";
 import { HEADER_BG } from "../../src/theme/headerColors";
 
@@ -28,51 +30,6 @@ const BUCKET = "productos";
 type Props = {
   productoId: number;
   onClose: () => void;
-};
-
-type LoteRow = {
-  producto_id: number;
-  nombre: string;
-  marca: string | null;
-  image_path: string | null;
-  activo: boolean;
-  tiene_iva: boolean;
-  requiere_receta: boolean;
-
-  precio_compra_actual: number | null;
-  precio_min_venta: number | null;
-
-  lote_id: number | null;
-  lote: string | null;
-  fecha_exp: string | null;
-
-  stock_total_lote: number;
-  stock_reservado_lote: number;
-  stock_disponible_lote: number;
-};
-
-type ProductoHead = {
-  id: number;
-  nombre: string;
-  marca_id: number | null;
-  image_path: string | null;
-  activo: boolean;
-  tiene_iva: boolean;
-  requiere_receta: boolean;
-  marca_normalizada: string | null;
-};
-
-type ProductoCacheEntry = {
-  headProd: ProductoHead | null;
-  rows: LoteRow[];
-  imageUrl: string | null;
-  cachedAt: number;
-};
-
-type RoleCacheEntry = {
-  uid: string | null;
-  isAdmin: boolean;
-  cachedAt: number;
 };
 
 function fmtDate(iso: string | null) {
@@ -155,7 +112,7 @@ async function saveImageToPhotos(imageUrl: string) {
   } catch {}
 }
 
-const LoteItem = memo(function LoteItem({ item, s }: { item: LoteRow; s: ReturnType<typeof styles> }) {
+const LoteItem = memo(function LoteItem({ item, s }: { item: LoteDetalle; s: ReturnType<typeof styles> }) {
   return (
     <View style={s.loteCard}>
       <View style={{ flex: 1 }}>
@@ -164,9 +121,9 @@ const LoteItem = memo(function LoteItem({ item, s }: { item: LoteRow; s: ReturnT
       </View>
 
       <View style={{ alignItems: "flex-end" }}>
-        <Text style={s.loteNum}>{item.stock_disponible_lote}</Text>
+        <Text style={s.loteNum}>{item.stock_disponible}</Text>
         <Text style={s.loteSub}>
-          Total {item.stock_total_lote} • Res {item.stock_reservado_lote}
+          Total {item.stock_total} • Res {item.stock_reservado}
         </Text>
       </View>
     </View>
@@ -180,11 +137,12 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
   const s = useMemo(() => styles(C), [C]);
   const insets = useSafeAreaInsets();
 
+  const { isAdmin } = useRole();
+
   const aliveRef = useRef(true);
   const requestIdRef = useRef(0);
   const closingRef = useRef(false);
-  const roleCacheRef = useRef<RoleCacheEntry | null>(null);
-  const productoCacheRef = useRef<Map<number, ProductoCacheEntry>>(new Map());
+
   useEffect(() => {
     aliveRef.current = true;
     return () => {
@@ -193,10 +151,9 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
   }, []);
 
   const [loading, setLoading] = useState(true);
-  const [rows, setRows] = useState<LoteRow[]>([]);
+  const [rows, setRows] = useState<LoteDetalle[]>([]);
   const [headProd, setHeadProd] = useState<ProductoHead | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
 
   const [viewerOpen, setViewerOpen] = useState(false);
   const [savingPhoto, setSavingPhoto] = useState(false);
@@ -250,122 +207,50 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
     [closeWithAnim, resetWithAnim, translateY]
   );
 
-  const fetchRole = useCallback(async () => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    const uid = session?.user?.id ?? null;
-    const roleCache = roleCacheRef.current;
-    if (roleCache && roleCache.uid === uid) return roleCache.isAdmin;
-    if (!uid) {
-      roleCacheRef.current = { uid: null, isAdmin: false, cachedAt: Date.now() };
-      return false;
-    }
-
-    const { data: prof } = await supabase.from("profiles").select("role").eq("id", uid).maybeSingle();
-    const isAdminNext = (prof?.role ?? "").toUpperCase() === "ADMIN";
-    roleCacheRef.current = { uid, isAdmin: isAdminNext, cachedAt: Date.now() };
-    return isAdminNext;
-  }, []);
-
-  const fetchProductoHead = useCallback(async () => {
-    const cached = productoCacheRef.current.get(productoId);
-    if (cached?.headProd) {
-      return { headProd: cached.headProd, imageUrl: cached.imageUrl };
-    }
-
-    const { data, error } = await supabase
-      .from("productos")
-      .select(
-        "id,nombre,marca_id,image_path,activo,tiene_iva,requiere_receta,marcas:marcas!productos_marca_id_fk(nombre)"
-      )
-      .eq("id", productoId)
-      .maybeSingle();
-
-    if (error || !data) {
-      return { headProd: null as ProductoHead | null, imageUrl: null as string | null };
-    }
-
-    const marcaNorm =
-      (((data as any)?.marcas?.nombre as string | undefined) ??
-        ((data as any)?.marcas?.[0]?.nombre as string | undefined) ??
-        null);
-
-    const headNext: ProductoHead = {
-      id: data.id,
-      nombre: data.nombre,
-      marca_id: data.marca_id ?? null,
-      image_path: data.image_path ?? null,
-      activo: !!data.activo,
-      tiene_iva: !!data.tiene_iva,
-      requiere_receta: !!data.requiere_receta,
-      marca_normalizada: marcaNorm,
-    };
-
-    const imgPath = data.image_path;
-    if (imgPath) {
-      const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(imgPath);
-      return { headProd: headNext, imageUrl: pub.publicUrl ?? null };
-    } else {
-      return { headProd: headNext, imageUrl: null };
-    }
-  }, [productoId]);
-
-  const fetchLotes = useCallback(async () => {
-    const cached = productoCacheRef.current.get(productoId);
-    if (cached?.rows?.length) {
-      return cached.rows;
-    }
-
-    const { data, error } = await supabase
-      .from("vw_producto_lotes_detalle")
-      .select(
-        "producto_id,nombre,marca,image_path,activo,tiene_iva,requiere_receta,precio_compra_actual,precio_min_venta,lote_id,lote,fecha_exp,stock_total_lote,stock_reservado_lote,stock_disponible_lote"
-      )
-      .eq("producto_id", productoId)
-      .order("fecha_exp", { ascending: true });
-
-    if (error) {
-      return [] as LoteRow[];
-    }
-    return (data ?? []) as LoteRow[];
-  }, [productoId]);
-
   const fetchAll = useCallback(async () => {
     const requestId = ++requestIdRef.current;
     if (!aliveRef.current) return;
     if (closingRef.current) return;
+
+    const cached = getCached(productoId);
+    if (cached) {
+      if (requestId !== requestIdRef.current) return;
+      setHeadProd(cached.head);
+      setRows(cached.lotes);
+      if (cached.head.image_path) {
+        const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(cached.head.image_path);
+        setImageUrl(pub.publicUrl ?? null);
+      }
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
-      const [isAdminNext, headRes, lotesRes] = await Promise.all([
-        fetchRole(),
-        fetchProductoHead(),
-        fetchLotes(),
-      ]);
+      const { data, error } = await supabase.rpc('rpc_producto_detalle', { p_producto_id: productoId });
 
       if (!aliveRef.current) return;
       if (closingRef.current) return;
       if (requestId !== requestIdRef.current) return;
 
-      setIsAdmin(isAdminNext);
-      setHeadProd(headRes.headProd);
-      setRows(lotesRes);
-      setImageUrl(headRes.imageUrl);
+      if (error) throw error;
 
-      productoCacheRef.current.set(productoId, {
-        headProd: headRes.headProd,
-        rows: lotesRes,
-        imageUrl: headRes.imageUrl,
-        cachedAt: Date.now(),
-      });
+      const det = data as ProductoDetalle;
+      setCached(productoId, det);
+      setHeadProd(det.head);
+      setRows(det.lotes);
+
+      if (det.head.image_path) {
+        const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(det.head.image_path);
+        setImageUrl(pub.publicUrl ?? null);
+      }
     } finally {
       if (!aliveRef.current) return;
       if (closingRef.current) return;
       if (requestId !== requestIdRef.current) return;
       setLoading(false);
     }
-  }, [fetchLotes, fetchProductoHead, fetchRole, productoId]);
+  }, [productoId]);
 
   useEffect(() => {
     translateY.setValue(0);
@@ -405,27 +290,15 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
     };
   }, []);
 
-  const headFromView = rows[0] ?? null;
-  const headFromViewImagePath = (headFromView as any)?.image_path ?? null;
-
-  useEffect(() => {
-    if (imageUrl) return;
-    const path = headProd?.image_path ?? headFromViewImagePath;
-    if (!path) return;
-    const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(path);
-    if (!aliveRef.current) return;
-    setImageUrl(pub.publicUrl ?? null);
-  }, [headProd?.image_path, headFromViewImagePath, imageUrl]);
-
   const { displayNombre, displayMarca, precioMin, lotes, totalDisponible } = useMemo(() => {
-    const nombre = headProd?.nombre ?? headFromView?.nombre ?? "";
-    const marca = headProd?.marca_normalizada ?? headFromView?.marca ?? null;
-    const min = (headFromView as any)?.precio_min_venta ?? null;
-    const lotesDisponibles: LoteRow[] = [];
+    const nombre = headProd?.nombre ?? "";
+    const marca = headProd?.marca ?? null;
+    const min = headProd?.precio_min_venta ?? null;
+    const lotesDisponibles: LoteDetalle[] = [];
     let total = 0;
 
     for (const r of rows) {
-      const disp = Number((r as any).stock_disponible_lote ?? 0);
+      const disp = Number(r.stock_disponible ?? 0);
       if (disp > 0) {
         lotesDisponibles.push(r);
         total += disp;
@@ -439,14 +312,14 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
       lotes: lotesDisponibles,
       totalDisponible: total,
     };
-  }, [headFromView, headProd?.marca_normalizada, headProd?.nombre, rows]);
+  }, [headProd, rows]);
 
   const listContentStyle = useMemo(() => ({ paddingBottom: 8 }), []);
   const keyExtractor = useCallback(
-    (it: LoteRow) => String(it.lote_id ?? `${it.producto_id}-${it.lote}`),
+    (it: LoteDetalle) => String(it.lote_id ?? it.lote ?? "?"),
     []
   );
-  const renderItem = useCallback(({ item }: { item: LoteRow }) => <LoteItem item={item} s={s} />, [s]);
+  const renderItem = useCallback(({ item }: { item: LoteDetalle }) => <LoteItem item={item} s={s} />, [s]);
   const listEmpty = useMemo(
     () => (
       <View style={{ paddingVertical: 12 }}>
@@ -475,7 +348,6 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
     if (!isAdmin) return;
     onClose();
     setTimeout(() => {
-      // Importante: usar push para conservar historial y permitir volver con router.back()
       router.push({ pathname: "/producto-edit", params: { id: String(productoId) } } as any);
     }, 0);
   }, [isAdmin, onClose, productoId]);
@@ -501,7 +373,7 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
           <View style={s.center}>
             <Text style={[s.text, { opacity: 0.7 }]}>Cargando...</Text>
           </View>
-        ) : !headFromView && !headProd ? (
+        ) : !headProd ? (
           <View style={s.center}>
             <Text style={s.text}>Producto no encontrado</Text>
           </View>
