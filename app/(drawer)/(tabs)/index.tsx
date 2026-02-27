@@ -1349,17 +1349,19 @@ const s = StyleSheet.create({
   noticeTitle: { fontSize: 15, fontWeight: "900" },
   noticeSub: { marginTop: 6, fontSize: 13, fontWeight: "700" },
 
+  // Evita gap + % que causaba desalineación en web.
   kpiGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 12,
+    justifyContent: "space-between",
   },
   kpi: {
-    width: "48%" as any,
+    flexBasis: "48%" as any,
     borderWidth: 1,
     borderRadius: 16,
     padding: 12,
     minHeight: 84,
+    marginBottom: 12,
   },
   kpiLabel: { fontSize: 12, fontWeight: "900", letterSpacing: 0.4, textTransform: "uppercase" },
   kpiValue: { marginTop: 8, fontSize: 18, fontWeight: "900" },
