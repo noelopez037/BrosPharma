@@ -6,10 +6,10 @@ import {
 import { Drawer } from "expo-router/drawer";
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Platform, Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 
 import { DrawerActions, getFocusedRouteNameFromRoute } from "@react-navigation/native";
-import { router, useNavigation, usePathname } from "expo-router";
+import { Slot, router, useNavigation, usePathname } from "expo-router";
 import {
   beginPushLogoutGuard,
   disablePushForThisDevice,
@@ -108,6 +108,7 @@ export default function DrawerLayout() {
   const isComisionesRoute = pathname === "/comisiones" || pathname.startsWith("/comisiones");
   const isKardexRoute = pathname === "/kardex" || pathname.startsWith("/kardex");
   const isReportesRoute = pathname === "/reportes" || pathname.startsWith("/reportes");
+  const isCxcRoute = pathname === "/cxc" || pathname.startsWith("/cxc");
 
   useEffect(() => {
     let alive = true;
@@ -194,6 +195,115 @@ export default function DrawerLayout() {
   const showCuentasPorCobrar = role === "ADMIN" || role === "VENTAS";
   const showComisiones = role === "ADMIN" || role === "VENTAS";
   const showReportes = role === "ADMIN";
+  const canSeeRecetas = role === "ADMIN" || role === "VENTAS";
+
+  const webNavItems = useMemo(() => {
+    const items = [
+      {
+        key: "home",
+        label: isFacturacion ? "Ventas" : "Inicio",
+        icon: isFacturacion ? "cart-outline" : "home-outline",
+        href: isFacturacion ? "/(drawer)/(tabs)/ventas" : "/(drawer)/(tabs)",
+        active: isFacturacion ? isFactMainRoute : isTabsRoute,
+        visible: true,
+      },
+      {
+        key: "compras",
+        label: "Compras",
+        icon: "cart-outline",
+        href: "/(drawer)/compras",
+        active: isComprasRoute,
+        visible: isAdmin,
+      },
+      {
+        key: "clientes",
+        label: "Clientes",
+        icon: "people-outline",
+        href: "/(drawer)/clientes",
+        active: isClientesRoute,
+        visible: true,
+      },
+      {
+        key: "solicitudes",
+        label: "Solicitudes",
+        icon: "alert-circle-outline",
+        href: "/(drawer)/ventas-solicitudes",
+        active: isSolicitudesRoute,
+        visible: showSolicitudes,
+        badge: solicitudesCount,
+      },
+      {
+        key: "anuladas",
+        label: "Anuladas",
+        icon: "ban-outline",
+        href: "/(drawer)/ventas-anuladas",
+        active: isAnuladasRoute,
+        visible: showAnuladas,
+      },
+      {
+        key: "cxc",
+        label: "Cuentas por cobrar",
+        icon: "receipt-outline",
+        href: "/(drawer)/cxc",
+        active: isCxcRoute,
+        visible: showCuentasPorCobrar,
+      },
+      {
+        key: "comisiones",
+        label: "Comisiones",
+        icon: "cash-outline",
+        href: "/(drawer)/comisiones",
+        active: isComisionesRoute,
+        visible: showComisiones,
+      },
+      {
+        key: "kardex",
+        label: "Kardex",
+        icon: "list-outline",
+        href: "/(drawer)/kardex",
+        active: isKardexRoute,
+        visible: role === "ADMIN",
+      },
+      {
+        key: "reportes",
+        label: "Reportes",
+        icon: "bar-chart-outline",
+        href: "/(drawer)/reportes",
+        active: isReportesRoute,
+        visible: showReportes,
+      },
+      {
+        key: "recetas",
+        label: "Recetas pendientes",
+        icon: "document-text-outline",
+        href: "/(drawer)/recetas-pendientes",
+        active: isRecetasRoute,
+        visible: canSeeRecetas,
+      },
+    ];
+    return items.filter((item) => item.visible);
+  }, [
+    canSeeRecetas,
+    isAdmin,
+    isAnuladasRoute,
+    isClientesRoute,
+    isComisionesRoute,
+    isComprasRoute,
+    isCxcRoute,
+    isFactMainRoute,
+    isFacturacion,
+    isKardexRoute,
+    isRecetasRoute,
+    isReportesRoute,
+    isSolicitudesRoute,
+    isTabsRoute,
+    showAnuladas,
+    showComisiones,
+    showCuentasPorCobrar,
+    showReportes,
+    showSolicitudes,
+    solicitudesCount,
+  ]);
 
   useEffect(() => {
     let alive = true;
@@ -283,6 +393,155 @@ export default function DrawerLayout() {
       endPushLogoutGuard();
     }
   };
+
+  const webBg = isDark ? "#18191A" : "#F0F2F5";
+  const webCardBg = isDark ? "#242526" : "#FFFFFF";
+  const webCardBorder = isDark ? "#3A3B3C" : "#E4E6EB";
+
+  const handleWebNav = (href: string, active: boolean) => {
+    if (active) return;
+    router.replace(href as any);
+  };
+
+  if (isWeb) {
+    return (
+      <>
+        <StatusBar style="light" />
+        <View style={[styles.webShell, { backgroundColor: webBg }]}>
+          <View
+            style={[
+              styles.webSidebar,
+              { backgroundColor: drawerBg, borderRightColor: drawerBorder },
+            ]}
+          >
+            <View
+              style={[
+                styles.drawerHeader,
+                {
+                  backgroundColor: drawerBg,
+                  borderBottomColor: drawerBorder,
+                  paddingHorizontal: 24,
+                },
+              ]}
+            >
+              <View
+                style={[
+                  styles.brandMark,
+                  {
+                    backgroundColor: isDark ? drawerActiveBg : (alphaColor(header.bg, 0.10) as any),
+                    borderColor: isDark ? drawerBorder : (alphaColor(header.bg, 0.22) as any),
+                  },
+                ]}
+              >
+                <MaterialCommunityIcons name="needle" size={26} color={drawerActiveTint} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.drawerHeaderText, { color: drawerText }]}>Bros Pharma</Text>
+                <Text style={[styles.drawerHeaderSub, { color: drawerMuted }]} numberOfLines={1}>
+                  {headerSub}
+                </Text>
+              </View>
+            </View>
+
+            <ScrollView
+              style={styles.webMenuScroll}
+              contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 12, paddingBottom: 24 }}
+            >
+              <Text style={[styles.sectionLabel, { color: sectionLabelColor }]}>Navegación</Text>
+              {webNavItems.map((item) => {
+                const isActive = Boolean(item.active);
+                const tint = isActive ? drawerActiveTint : drawerMuted;
+                const bg = isActive ? drawerActiveBg : "transparent";
+                return (
+                  <Pressable
+                    key={item.key}
+                    onPress={() => handleWebNav(item.href, isActive)}
+                    style={({ pressed }) => [
+                      styles.webMenuItem,
+                      { backgroundColor: bg },
+                      pressed ? { opacity: 0.85 } : null,
+                    ]}
+                  >
+                    <Ionicons name={item.icon as any} size={22} color={tint} />
+                    <Text style={[styles.menuLabel, { color: tint }]} numberOfLines={1}>
+                      {item.label}
+                    </Text>
+                    <View style={{ flex: 1 }} />
+                    {item.badge && item.badge > 0 ? (
+                      <View style={styles.badge}>
+                        <Text style={styles.badgeText} numberOfLines={1}>
+                          {item.badge > 99 ? "99+" : String(item.badge)}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
+            <View style={{ paddingHorizontal: 24 }}>
+              <View style={[styles.themeRow, { borderTopColor: drawerBorder }]}>
+                <Text style={[styles.themeLabel, { color: drawerText }]}>Tema</Text>
+
+                <View style={styles.themeControls}>
+                  <Ionicons name="sunny-outline" size={18} color={drawerMuted} style={{ marginRight: 8 }} />
+
+                  <Switch
+                    value={mode === "dark"}
+                    onValueChange={(v) => setMode(v ? "dark" : "light")}
+                    trackColor={Platform.OS === "android" ? { false: switchTrackOff, true: switchTrackOn } : undefined}
+                    thumbColor={Platform.OS === "android" ? (mode === "dark" ? switchThumbOn : switchThumbOff) : undefined}
+                  />
+
+                  <Ionicons name="moon-outline" size={18} color={drawerMuted} style={{ marginLeft: 8 }} />
+                </View>
+              </View>
+
+              <Pressable
+                onPress={handleLogout}
+                style={({ pressed }) => [
+                  styles.logout,
+                  { borderTopColor: drawerBorder },
+                  pressed ? { opacity: 0.85 } : null,
+                ]}
+              >
+                <Ionicons name="log-out-outline" size={18} color={FB_DARK_DANGER} style={{ marginRight: 8 }} />
+                <Text style={styles.logoutText}>Cerrar sesión</Text>
+              </Pressable>
+            </View>
+          </View>
+
+          <View style={[styles.webMain, { backgroundColor: webBg }]}>
+            <View style={styles.webMainInner}>
+              <View
+                style={[
+                  styles.webCard,
+                  {
+                    backgroundColor: webCardBg,
+                    borderColor: webCardBorder,
+                    shadowOpacity: isDark ? 0 : 0.08,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.webCardInner,
+                    {
+                      backgroundColor: webCardBg,
+                    },
+                  ]}
+                >
+                  <View style={styles.webCardBody}>
+                    <Slot />
+                  </View>
+                </View>
+              </View>
+            </View>
+          </View>
+        </View>
+      </>
+    );
+  }
 
   return (
     <>
@@ -387,12 +646,22 @@ export default function DrawerLayout() {
             };
 
             return (
-          <DrawerContentScrollView
-            {...props}
-            contentContainerStyle={{ paddingBottom: 24, flexGrow: 1, justifyContent: "space-between", minHeight: "100%" }}
-          >
-            <View>
-            <View style={[styles.drawerHeader, { backgroundColor: drawerBg, borderBottomColor: drawerBorder }]}>
+              <View style={{ flex: 1 }}>
+                <DrawerContentScrollView
+                  {...props}
+                  style={{ flex: 1 }}
+                  contentContainerStyle={[
+                    styles.drawerContent,
+                    { backgroundColor: drawerBg },
+                  ]}
+                >
+                  <View>
+                    <View
+                      style={[
+                        styles.drawerHeader,
+                        { backgroundColor: drawerBg, borderBottomColor: drawerBorder },
+                      ]}
+                    >
               <View
                 style={[
                   styles.brandMark,
@@ -487,7 +756,7 @@ export default function DrawerLayout() {
                 <Pressable
                   onPress={() => {
                     closeDrawer();
-                    router.push("/ventas-solicitudes" as any);
+                    router.push("/(drawer)/ventas-solicitudes" as any);
                   }}
                     style={({ pressed }) => [
                       styles.menuItem,
@@ -522,7 +791,7 @@ export default function DrawerLayout() {
                  <Pressable
                   onPress={() => {
                     closeDrawer();
-                    router.push("/ventas-anuladas" as any);
+                    router.push("/(drawer)/ventas-anuladas" as any);
                   }}
                    style={({ pressed }) => [
                      styles.menuItem,
@@ -612,7 +881,7 @@ export default function DrawerLayout() {
                   <Pressable
                    onPress={() => {
                      closeDrawer();
-                     router.push("/recetas-pendientes" as any);
+                     router.push("/(drawer)/recetas-pendientes" as any);
                    }}
                     style={({ pressed }) => [
                       styles.menuItem,
@@ -628,49 +897,69 @@ export default function DrawerLayout() {
                  
            </View>
 
-            {/* Toggle Tema */}
-            <View style={[styles.themeRow, { borderTopColor: drawerBorder }]}>
-              <Text style={[styles.themeLabel, { color: drawerText }]}>Tema</Text>
+                  </View>
+                </DrawerContentScrollView>
 
-              <View style={styles.themeControls}>
-                <Ionicons
-                  name="sunny-outline"
-                  size={18}
-                  color={drawerMuted}
-                  style={{ marginRight: 8 }}
-                />
+                <View
+                  style={[
+                    styles.bottomSection,
+                    { borderTopColor: drawerBorder, backgroundColor: drawerBg },
+                  ]}
+                >
+                  {/* Toggle Tema */}
+                  <View style={styles.themeRow}>
+                    <Text style={[styles.themeLabel, { color: drawerText }]}>Tema</Text>
 
-                <Switch
-                  value={mode === "dark"}
-                  onValueChange={(v) => setMode(v ? "dark" : "light")}
-                  trackColor={Platform.OS === "android" ? { false: switchTrackOff, true: switchTrackOn } : undefined}
-                  thumbColor={Platform.OS === "android" ? (mode === "dark" ? switchThumbOn : switchThumbOff) : undefined}
-                />
+                    <View style={styles.themeControls}>
+                      <Ionicons
+                        name="sunny-outline"
+                        size={18}
+                        color={drawerMuted}
+                        style={{ marginRight: 8 }}
+                      />
 
-                <Ionicons
-                  name="moon-outline"
-                  size={18}
-                  color={drawerMuted}
-                  style={{ marginLeft: 8 }}
-                />
+                      <Switch
+                        value={mode === "dark"}
+                        onValueChange={(v) => setMode(v ? "dark" : "light")}
+                        trackColor={
+                          Platform.OS === "android"
+                            ? { false: switchTrackOff, true: switchTrackOn }
+                            : undefined
+                        }
+                        thumbColor={
+                          Platform.OS === "android"
+                            ? mode === "dark"
+                              ? switchThumbOn
+                              : switchThumbOff
+                            : undefined
+                        }
+                      />
+
+                      <Ionicons
+                        name="moon-outline"
+                        size={18}
+                        color={drawerMuted}
+                        style={{ marginLeft: 8 }}
+                      />
+                    </View>
+                  </View>
+
+                  <Pressable
+                    onPress={handleLogout}
+                    style={({ pressed }) => [styles.logout, pressed && { opacity: 0.85 }]}
+                    accessibilityLabel="Cerrar sesión"
+                    accessibilityRole="button"
+                  >
+                    <Ionicons
+                      name="log-out-outline"
+                      size={18}
+                      color={FB_DARK_DANGER}
+                      style={{ marginRight: 8 }}
+                    />
+                    <Text style={styles.logoutText}>Cerrar sesión</Text>
+                  </Pressable>
+                </View>
               </View>
-            </View>
-          </View>
-
-          <Pressable
-            onPress={handleLogout}
-            style={({ pressed }) => [
-              styles.logout,
-              { borderTopColor: drawerBorder },
-              pressed && { opacity: 0.85 },
-            ]}
-            accessibilityLabel="Cerrar sesión"
-            accessibilityRole="button"
-          >
-            <Ionicons name="log-out-outline" size={18} color={FB_DARK_DANGER} style={{ marginRight: 8 }} />
-            <Text style={styles.logoutText}>Cerrar sesión</Text>
-           </Pressable>
-           </DrawerContentScrollView>
             );
           })()
         )}
@@ -695,12 +984,44 @@ export default function DrawerLayout() {
           drawerIcon: ({ color, size }: any) => <Ionicons name="people-outline" size={size} color={color} />,
         }}
       />
+
+      <Drawer.Screen
+        name="ventas-solicitudes"
+        options={{
+          title: "Solicitudes",
+          drawerIcon: ({ color, size }: any) => (
+            <Ionicons name="alert-circle-outline" size={size} color={color} />
+          ),
+        }}
+      />
+
+      <Drawer.Screen
+        name="ventas-anuladas"
+        options={{
+          title: "Anuladas",
+          drawerIcon: ({ color, size }: any) => <Ionicons name="ban-outline" size={size} color={color} />,
+        }}
+      />
+
+      <Drawer.Screen
+        name="recetas-pendientes"
+        options={{
+          title: "Recetas pendientes",
+          drawerIcon: ({ color, size }: any) => (
+            <Ionicons name="document-text-outline" size={size} color={color} />
+          ),
+        }}
+      />
       </Drawer>
     </>
   );
 }
 
 const styles = StyleSheet.create({
+  drawerContent: {
+    paddingVertical: 12,
+    paddingBottom: 32,
+  },
   drawerHeader: {
     paddingHorizontal: 16,
     paddingTop: 14,
@@ -729,13 +1050,11 @@ const styles = StyleSheet.create({
     fontWeight: Platform.OS === "ios" ? "600" : "500",
   },
   themeRow: {
-    marginTop: 8,
-    paddingTop: 12,
-    paddingHorizontal: 16,
-    borderTopWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    width: "100%",
+    marginBottom: 12,
   },
   themeLabel: {
     fontSize: 16,
@@ -748,10 +1067,10 @@ const styles = StyleSheet.create({
   logout: {
     paddingVertical: 14,
     paddingHorizontal: 16,
-    borderTopWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    marginTop: 8,
   },
   logoutText: {
     color: FB_DARK_DANGER,
@@ -761,27 +1080,34 @@ const styles = StyleSheet.create({
   menuList: {
     paddingHorizontal: 16,
     paddingTop: 8,
-    paddingBottom: 8,
+    paddingBottom: 12,
   },
   sectionLabel: {
     fontSize: 12,
     fontWeight: Platform.OS === "ios" ? "700" : "600",
     letterSpacing: 0.6,
     textTransform: "uppercase",
-    marginTop: 10,
+    marginTop: 12,
     marginBottom: 8,
   },
   menuItem: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 12,
+    paddingVertical: 11,
     paddingHorizontal: 12,
     borderRadius: 12,
   },
   menuLabel: {
     fontSize: 16,
-    marginLeft: 12,
+    marginLeft: 10,
     fontWeight: Platform.OS === "ios" ? "600" : "500",
+  },
+  bottomSection: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 16,
+    paddingBottom: 12,
+    paddingHorizontal: 16,
+    marginTop: 12,
   },
 
   badge: {
@@ -798,5 +1124,63 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     includeFontPadding: false,
+  },
+
+  webShell: {
+    flex: 1,
+    flexDirection: "row",
+    minHeight: "100%",
+  },
+  webSidebar: {
+    width: 280,
+    borderRightWidth: StyleSheet.hairlineWidth,
+    paddingBottom: 16,
+  },
+  webMenuScroll: {
+    flex: 1,
+  },
+  webMenuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginBottom: 6,
+  },
+  webMain: {
+    flex: 1,
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+    alignItems: "stretch",
+  },
+  webMainInner: {
+    flex: 1,
+    width: "100%",
+    maxWidth: 1600,
+    marginLeft: "auto",
+    marginRight: "auto",
+  },
+  webCard: {
+    flex: 1,
+    borderRadius: 28,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 0,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOpacity: Platform.OS === "web" ? 0 : 0.08,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+  },
+  webCardInner: {
+    flex: 1,
+    padding: 24,
+    borderRadius: 24,
+    overflow: "hidden",
+  },
+  webCardBody: {
+    flex: 1,
+    width: "100%",
+    minHeight: 0,
+    overflow: "scroll" as any,
   },
 });

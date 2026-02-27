@@ -1,7 +1,9 @@
 module.exports = function (api) {
-  api.cache(true);
+  // Cache based on build env so dev/prod bundles don't reuse transforms.
+  api.cache.using(() => process.env.BABEL_ENV || process.env.NODE_ENV);
   return {
     presets: ["babel-preset-expo"],
-    plugins: ["expo-router/babel", "react-native-reanimated/plugin"],
+    // Keep Reanimated plugin last.
+    plugins: ["react-native-reanimated/plugin"],
   };
 };

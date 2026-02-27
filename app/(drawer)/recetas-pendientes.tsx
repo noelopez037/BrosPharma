@@ -4,11 +4,11 @@ import { Stack, router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { supabase } from "../lib/supabase";
-import { useRole } from "../lib/useRole";
-import { useThemePref } from "../lib/themePreference";
-import { AppButton } from "../components/ui/app-button";
-import { useGoHomeOnBack } from "../lib/useGoHomeOnBack";
+import { supabase } from "../../lib/supabase";
+import { useRole } from "../../lib/useRole";
+import { useThemePref } from "../../lib/themePreference";
+import { AppButton } from "../../components/ui/app-button";
+import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 
 type VentaRow = {
   id: number;
@@ -411,7 +411,7 @@ export default function RecetasPendientesScreen() {
 
   // navigation to detail
   const openDetail = useCallback((id: number) => {
-    router.push({ pathname: "/venta-detalle", params: { ventaId: String(id), returnTo: "/recetas-pendientes" } } as any);
+    router.push({ pathname: "/venta-detalle", params: { ventaId: String(id), returnTo: "/(drawer)/recetas-pendientes" } } as any);
   }, []);
 
   return (
