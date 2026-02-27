@@ -172,14 +172,16 @@ export default function LoginScreen() {
         });
       }
 
-      try {
-        const claimResult = await claimPushForCurrentSession(supabase, {
-          forceUpsert: true,
-          reason: "login",
-        });
-        if (__DEV__) console.info("[push] claim:login", claimResult);
-      } catch (e) {
-        console.error("[push] claim:login_error", e);
+      if (Platform.OS !== "web") {
+        try {
+          const claimResult = await claimPushForCurrentSession(supabase, {
+            forceUpsert: true,
+            reason: "login",
+          });
+          if (__DEV__) console.info("[push] claim:login", claimResult);
+        } catch (e) {
+          console.error("[push] claim:login_error", e);
+        }
       }
 
       await replaceToTabsDeferredOnce();

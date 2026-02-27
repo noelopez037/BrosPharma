@@ -29,14 +29,16 @@ import { getHeaderColors } from "../src/theme/headerColors";
 // in nested navigators right after auth transitions.
 enableScreens(Platform.OS !== "ios");
 
-Notifications.setNotificationHandler({
-  handleNotification: async () =>
-    ({
-      shouldShowAlert: true,
-      shouldPlaySound: true,
-      shouldSetBadge: true,
-    } as any),
-} as any);
+if (Platform.OS !== "web") {
+  Notifications.setNotificationHandler({
+    handleNotification: async () =>
+      ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: true,
+      } as any),
+  } as any);
+}
 
 function AppShell() {
   const { resolved } = useThemePref();
@@ -48,6 +50,8 @@ function AppShell() {
   const header = useMemo(() => getHeaderColors(isDark), [isDark]);
 
   useEffect(() => {
+    if (Platform.OS === "web" || typeof window === "undefined") return;
+
     let alive = true;
 
     const pushSubs: { remove: () => void }[] = [];
@@ -219,6 +223,8 @@ function AppShell() {
 
 export default function Layout() {
   useEffect(() => {
+    if (Platform.OS === "web" || typeof window === "undefined") return;
+
     const clearBadge = async () => {
       try {
         await Notifications.setBadgeCountAsync(0);
