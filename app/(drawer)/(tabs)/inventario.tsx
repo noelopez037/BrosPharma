@@ -1,6 +1,6 @@
 // app/(drawer)/(tabs)/inventario.tsx
 import { useFocusEffect, useTheme } from "@react-navigation/native";
-import { Stack, router } from "expo-router";
+import { Stack } from "expo-router";
 import React, { memo, useCallback, useMemo, useRef, useState } from "react";
 import {
   FlatList,
@@ -39,7 +39,7 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
 }
 
 function normalizeQuery(s: string) {
-  return s.trim();
+  return s.trim().replace(/[%_]/g, '\\$&');
 }
 
 const PAGE_SIZE = 30;
@@ -91,7 +91,7 @@ export default function InventarioScreen() {
   const [q, setQ] = useState("");
   const debouncedQ = useDebouncedValue(normalizeQuery(q), 300);
 
-  const { role, isAdmin, isReady: roleReady, refreshRole } = useRole();
+  const { isAdmin, refreshRole } = useRole();
   const [showInactive, setShowInactive] = useState(false);
 
   const [rows, setRows] = useState<Row[]>([]);
@@ -107,38 +107,12 @@ export default function InventarioScreen() {
   const [productoId, setProductoId] = useState<number | null>(null);
 
   const loadingMoreRef = useRef(false);
+  const pageRef = useRef(0);
   const requestSeq = useRef(0);
 
-  // Roles: toggle de inactivos SOLO para admin
-  useFocusEffect(
-    useCallback(() => {
-      void refreshRole();
-      return () => {};
-    }, [refreshRole])
-  );
-
   React.useEffect(() => {
-    if (!roleReady) return;
-    if (role === "FACTURACION") {
-      setShowInactive(false);
-      router.replace("/ventas" as any);
-      return;
-    }
     if (!isAdmin) setShowInactive(false);
-  }, [isAdmin, role, roleReady]);
-
-  // ✅ Limpiar buscador al SALIR de la pantalla (cuando pierde foco)
-  useFocusEffect(
-    useCallback(() => {
-      return () => {
-        setQ("");
-
-        // Tabs mantienen la pantalla montada: cerrar overlays al perder foco
-        setProductoOpen(false);
-        setProductoId(null);
-      };
-    }, [])
-  );
+  }, [isAdmin]);
 
   const fetchPage = useCallback(
     async (pageIndex: number, replace: boolean) => {
@@ -183,6 +157,7 @@ export default function InventarioScreen() {
     setInitialLoading(true);
     setHasMore(true);
     setPage(0);
+    pageRef.current = 0;
 
     try {
       await fetchPage(0, true);
@@ -195,14 +170,16 @@ export default function InventarioScreen() {
     }
   }, [fetchPage]);
 
-  // ✅ UNA sola fuente de verdad:
-  // - corre al entrar a la pantalla
-  // - vuelve a correr cuando cambia la búsqueda (solo estando enfocada)
   useFocusEffect(
     useCallback(() => {
+      void refreshRole();
       loadFirst();
-      return () => {};
-    }, [loadFirst])
+      return () => {
+        setQ("");
+        setProductoOpen(false);
+        setProductoId(null);
+      };
+    }, [refreshRole, loadFirst])
   );
 
   const loadMore = useCallback(async () => {
@@ -210,7 +187,8 @@ export default function InventarioScreen() {
     loadingMoreRef.current = true;
     setLoadingMore(true);
     try {
-      const next = page + 1;
+      const next = pageRef.current + 1;
+      pageRef.current = next;
       await fetchPage(next, false);
       setPage(next);
     } catch {
@@ -219,7 +197,7 @@ export default function InventarioScreen() {
       setLoadingMore(false);
       loadingMoreRef.current = false;
     }
-  }, [fetchPage, hasMore, page, initialLoading]);
+  }, [fetchPage, hasMore, initialLoading]);
 
   const closeProducto = useCallback(() => {
     setProductoOpen(false);
