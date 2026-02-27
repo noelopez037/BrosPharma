@@ -25,6 +25,10 @@ import { supabase } from "../lib/supabase";
 import { makeNativeTheme } from "../src/theme/navigationTheme";
 import { getHeaderColors } from "../src/theme/headerColors";
 
+if (Platform.OS === "web") {
+  require("../global.css");
+}
+
 // iOS: avoid rare initial hit-testing issues with react-native-screens
 // in nested navigators right after auth transitions.
 enableScreens(Platform.OS !== "ios");
@@ -247,7 +251,12 @@ export default function Layout() {
   }, []);
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView
+      style={[
+        { flex: 1 },
+        Platform.OS === "web" ? ({ minHeight: "100%" } as const) : null,
+      ]}
+    >
       <SafeAreaProvider initialMetrics={initialWindowMetrics}>
         <ThemePrefProvider>
           <RootLayout>

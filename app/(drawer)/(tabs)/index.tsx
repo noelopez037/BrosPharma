@@ -1137,13 +1137,13 @@ export default function Inicio() {
               label: "Solicitudes",
               value: d ? String(d.solicitudes) : "—",
               hint: "Pendientes",
-              onPress: () => router.push("/ventas-solicitudes" as any),
+              onPress: () => router.push("/(drawer)/ventas-solicitudes" as any),
             })}
             {renderKpi({
               label: "Recetas",
               value: d ? String(d.recetasPendMes) : "—",
               hint: "Pendientes del mes",
-              onPress: () => router.push("/recetas-pendientes" as any),
+              onPress: () => router.push("/(drawer)/recetas-pendientes" as any),
             })}
             {renderKpi({
               label: "CxC saldo",
@@ -1202,7 +1202,7 @@ export default function Inicio() {
               label: "Recetas",
               value: d ? String(d.recetasPendMes) : "—",
               hint: "Pendientes del mes",
-              onPress: () => router.push("/recetas-pendientes" as any),
+              onPress: () => router.push("/(drawer)/recetas-pendientes" as any),
             })}
             {renderKpi({
               label: "CxC saldo",
@@ -1214,7 +1214,7 @@ export default function Inicio() {
 
           <ListCard
             title="Recetas pendientes"
-            action={{ label: "Ver", onPress: () => router.push("/recetas-pendientes" as any) }}
+            action={{ label: "Ver", onPress: () => router.push("/(drawer)/recetas-pendientes" as any) }}
           >
             {(d?.recetasPendList ?? []).length ? (
               (d?.recetasPendList ?? []).map((v) =>

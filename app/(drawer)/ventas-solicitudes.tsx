@@ -13,16 +13,16 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { RoleGate } from "../components/auth/RoleGate";
-import { AppButton } from "../components/ui/app-button";
-import { navigateToVentaFromNotif } from "../lib/notifNavigation";
-import { emitSolicitudesChanged } from "../lib/solicitudesEvents";
-import { supabase } from "../lib/supabase";
-import { useThemePref } from "../lib/themePreference";
-import { alphaColor } from "../lib/ui";
-import { useGoHomeOnBack } from "../lib/useGoHomeOnBack";
-import { useRole } from "../lib/useRole";
-import { FB_DARK_DANGER } from "../src/theme/headerColors";
+import { RoleGate } from "../../components/auth/RoleGate";
+import { AppButton } from "../../components/ui/app-button";
+import { navigateToVentaFromNotif } from "../../lib/notifNavigation";
+import { emitSolicitudesChanged } from "../../lib/solicitudesEvents";
+import { supabase } from "../../lib/supabase";
+import { useThemePref } from "../../lib/themePreference";
+import { alphaColor } from "../../lib/ui";
+import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
+import { useRole } from "../../lib/useRole";
+import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
 type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "";
 

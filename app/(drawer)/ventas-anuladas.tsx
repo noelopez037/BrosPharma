@@ -5,13 +5,13 @@ import { Alert, SectionList, Platform, Pressable, StyleSheet, Text, TextInput, V
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { supabase } from "../lib/supabase";
-import { RoleGate } from "../components/auth/RoleGate";
-import { useThemePref } from "../lib/themePreference";
-import { alphaColor } from "../lib/ui";
-import { useGoHomeOnBack } from "../lib/useGoHomeOnBack";
-import { FB_DARK_DANGER } from "../src/theme/headerColors";
-import { useRole } from "../lib/useRole";
+import { supabase } from "../../lib/supabase";
+import { RoleGate } from "../../components/auth/RoleGate";
+import { useThemePref } from "../../lib/themePreference";
+import { alphaColor } from "../../lib/ui";
+import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
+import { FB_DARK_DANGER } from "../../src/theme/headerColors";
+import { useRole } from "../../lib/useRole";
 
 type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "";
 
