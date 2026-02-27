@@ -12,10 +12,12 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AppButton } from "../../../components/ui/app-button";
+import { VentaDetallePanel } from "../../../components/ventas/VentaDetallePanel";
 import { supabase } from "../../../lib/supabase";
 import { useRole } from "../../../lib/useRole";
 import { useThemePref } from "../../../lib/themePreference";
@@ -155,6 +157,9 @@ export default function Ventas() {
   const { colors } = useTheme();
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
+  const { width } = useWindowDimensions();
+  const isWeb = Platform.OS === "web";
+  const canSplit = isWeb && width >= 1100;
 
   const C = useMemo(
     () => ({
@@ -182,6 +187,13 @@ export default function Ventas() {
   const [estado, setEstado] = useState<Estado>("NUEVO");
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
+  const [selectedVentaId, setSelectedVentaId] = useState<number | null>(null);
+
+  React.useEffect(() => {
+    if (!canSplit) {
+      setSelectedVentaId(null);
+    }
+  }, [canSplit]);
 
   // filtros (tipo CxC): cliente + rango de fechas
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -624,6 +636,17 @@ export default function Ventas() {
 
   const keyExtractor = useCallback((it: VentaRow) => String(it.id), []);
 
+  const handleVentaPress = useCallback(
+    (id: number) => {
+      if (canSplit) {
+        setSelectedVentaId(id);
+        return;
+      }
+      router.push({ pathname: "/venta-detalle", params: { ventaId: String(id) } } as any);
+    },
+    [canSplit]
+  );
+
   const renderItem = useCallback(
     ({ item }: { item: VentaRow }) => {
       const chips = chipsById[item.id] ?? [];
@@ -634,7 +657,7 @@ export default function Ventas() {
 
       return (
         <Pressable
-          onPress={() => router.push({ pathname: "/venta-detalle", params: { ventaId: String(item.id) } } as any)}
+          onPress={() => handleVentaPress(item.id)}
           style={({ pressed }) => [
             s.card,
             { borderColor: C.border, backgroundColor: C.card },
@@ -685,8 +708,9 @@ export default function Ventas() {
       C.chipRedText,
       C.sub,
       C.text,
-      facturasByVenta,
       chipsById,
+      facturasByVenta,
+      handleVentaPress,
     ]
   );
 
@@ -748,6 +772,43 @@ export default function Ventas() {
       </View>
     ),
     [C.bg, C.sub]
+  );
+
+  const listComponent = (
+    <SectionList
+      sections={sections}
+      keyExtractor={keyExtractor}
+      refreshing={pullRefreshing}
+      onRefresh={onPullRefresh}
+      stickySectionHeadersEnabled
+      contentContainerStyle={{ padding: 16, paddingBottom: 28 }}
+      initialNumToRender={8}
+      maxToRenderPerBatch={5}
+      windowSize={7}
+      updateCellsBatchingPeriod={50}
+      removeClippedSubviews={Platform.OS === "android"}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+      automaticallyAdjustKeyboardInsets
+      renderItem={renderItem}
+      renderSectionHeader={renderSectionHeader}
+      ListHeaderComponent={
+        <View pointerEvents="none" style={{ height: 18, marginBottom: 8, justifyContent: "center" }}>
+          <Text
+            style={{
+              color: C.sub,
+              fontWeight: "800",
+              fontSize: 12,
+              opacity: revalidating && revalidatingEstado === estado && visibleRows.length ? 1 : 0,
+            }}
+          >
+            Actualizando...
+          </Text>
+        </View>
+      }
+      ListEmptyComponent={listEmptyComponent}
+      style={{ flex: 1 }}
+    />
   );
 
   return (
@@ -890,39 +951,22 @@ export default function Ventas() {
         </View>
       </View>
 
-       <SectionList
-         sections={sections}
-         keyExtractor={keyExtractor}
-         refreshing={pullRefreshing}
-         onRefresh={onPullRefresh}
-         stickySectionHeadersEnabled
-         contentContainerStyle={{ padding: 16, paddingBottom: 28 }}
-         initialNumToRender={8}
-        maxToRenderPerBatch={5}
-        windowSize={7}
-        updateCellsBatchingPeriod={50}
-        removeClippedSubviews={Platform.OS === "android"}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-        automaticallyAdjustKeyboardInsets
-        renderItem={renderItem}
-        renderSectionHeader={renderSectionHeader}
-        ListHeaderComponent={
-          <View pointerEvents="none" style={{ height: 18, marginBottom: 8, justifyContent: "center" }}>
-            <Text
-              style={{
-                color: C.sub,
-                fontWeight: "800",
-                fontSize: 12,
-                opacity: revalidating && revalidatingEstado === estado && visibleRows.length ? 1 : 0,
-              }}
-            >
-              Actualizando...
-            </Text>
+      {canSplit ? (
+        <View style={[s.splitWrap, { borderTopColor: C.border }]}>
+          <View style={[s.splitListPane, { borderRightColor: C.border }]}>{listComponent}</View>
+          <View style={s.splitDetailPane}>
+            {selectedVentaId ? (
+              <VentaDetallePanel ventaId={selectedVentaId} embedded />
+            ) : (
+              <View style={[s.splitPlaceholder, { borderColor: C.border }]}>
+                <Text style={[s.splitPlaceholderText, { color: C.sub }]}>Selecciona una venta para ver detalles</Text>
+              </View>
+            )}
           </View>
-        }
-        ListEmptyComponent={listEmptyComponent}
-      />
+        </View>
+      ) : (
+        listComponent
+      )}
 
       {/* Modal filtros */}
       {filtersOpen ? (
@@ -1239,6 +1283,20 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   filterTxt: { fontWeight: "800" },
+
+  splitWrap: { flex: 1, flexDirection: "row", borderTopWidth: StyleSheet.hairlineWidth },
+  splitListPane: { width: 520, maxWidth: 520, borderRightWidth: StyleSheet.hairlineWidth },
+  splitDetailPane: { flex: 1 },
+  splitPlaceholder: {
+    flex: 1,
+    margin: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  splitPlaceholderText: { fontSize: 15, fontWeight: "800", textAlign: "center" },
 
   card: { borderWidth: 1, borderRadius: 16, padding: 14, marginBottom: 12 },
   cardTopRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
