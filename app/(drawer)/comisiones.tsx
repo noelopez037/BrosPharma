@@ -493,7 +493,7 @@ export default function ComisionesScreen() {
   const renderListItem = useCallback(({ item }: { item: ListItem }) => {
     if (item.kind === "DAY_HEADER") {
       return (
-        <View style={[s.sectionHeader, { backgroundColor: colors.background, alignItems: "flex-end" }]}>
+        <View style={[s.sectionHeader, { backgroundColor: colors.background, width: "100%", alignItems: "stretch" }]}>
           <Text style={[s.sectionHeaderText, { color: colors.text + "AA", textAlign: "right" }]}>
             {item.ymd === "SIN_FECHA" ? "Sin fecha" : fmtDateLongEs(item.ymd)}
           </Text>
@@ -814,10 +814,10 @@ const styles = (colors: any) =>
 
     sectionTitle: { color: colors.text, fontSize: 15, fontWeight: "900" },
     sectionHeader: {
+      width: "100%",
       paddingHorizontal: 12,
       paddingTop: 8,
       paddingBottom: 6,
-      alignItems: "flex-end",
       zIndex: 10,
       ...(Platform.OS === "android" ? { elevation: 10 } : null),
     },
