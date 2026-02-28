@@ -162,7 +162,7 @@ export default function ComisionesScreen() {
 
   const { desde, hasta } = useMemo(() => monthRangeGtIso(selYear, selMonthIndex0), [selYear, selMonthIndex0]);
 
-  const openMonthPicker = () => {
+  const openMonthPicker = useCallback(() => {
     if (Platform.OS === "android") {
       const value = new Date(selYear, selMonthIndex0, 1);
       DateTimePickerAndroid.open({
@@ -177,7 +177,7 @@ export default function ComisionesScreen() {
       return;
     }
     setMonthOpenIOS(true);
-  };
+  }, [selYear, selMonthIndex0]);
 
   // filtro vendedor (ADMIN)
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -355,13 +355,14 @@ export default function ComisionesScreen() {
 
   const vendedorLabelById = useMemo(() => {
     const map = new Map<string, string>();
-    (vendedoresCache.length > 0 ? vendedoresCache : rows).forEach((r: any) => {
+    const base = vendedoresCache.length > 0 ? vendedoresCache : rowsRaw;
+    (base as any[]).forEach((r: any) => {
       const id = String(r.vendedor_id ?? "").trim();
       const code = String(r.vendedor_codigo ?? "").trim();
       if (id) map.set(id, code || id.slice(0, 8));
     });
     return map;
-  }, [rows, vendedoresCache]);
+  }, [rowsRaw, vendedoresCache]);
 
   const vendedorLabel = useMemo(() => {
     if (!fVendedorId) return "Todos";
@@ -484,12 +485,12 @@ export default function ComisionesScreen() {
   const stickyHeaderIndices = useMemo(() => {
     const idx: number[] = [];
     listData.forEach((it, i) => {
-      if (it.kind === "DAY_HEADER") idx.push(i + 1);
+      if (it.kind === "DAY_HEADER") idx.push(i);
     });
     return idx;
   }, [listData]);
 
-  const renderListItem = ({ item }: { item: ListItem }) => {
+  const renderListItem = useCallback(({ item }: { item: ListItem }) => {
     if (item.kind === "DAY_HEADER") {
       return (
         <View style={[s.sectionHeader, { backgroundColor: colors.background, alignItems: "flex-end" }]}>
@@ -526,65 +527,68 @@ export default function ComisionesScreen() {
       );
     }
     return null;
-  };
+  }, [s, colors, renderRow, renderVentaPagada]);
 
-  const ListHeader = (
-    <>
-      <View style={s.topRow}>
-        <Pressable
-          onPress={openMonthPicker}
-          style={({ pressed }) => [s.searchWrap, pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null]}
-        >
-          <Text style={s.monthTxt} numberOfLines={1}>
-            {monthLabel}
-          </Text>
-          <Text style={s.monthCaret}>▼</Text>
-        </Pressable>
-
-        {isAdmin ? (
+  const ListHeader = useMemo(
+    () => (
+      <>
+        <View style={s.topRow}>
           <Pressable
-            onPress={() => setFiltersOpen(true)}
-            style={({ pressed }) => [s.filterBtn, pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null]}
+            onPress={openMonthPicker}
+            style={({ pressed }) => [s.searchWrap, pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null]}
           >
-            <Text style={s.filterTxt}>Filtros</Text>
+            <Text style={s.monthTxt} numberOfLines={1}>
+              {monthLabel}
+            </Text>
+            <Text style={s.monthCaret}>▼</Text>
           </Pressable>
-        ) : null}
-      </View>
 
-      {/* Cards resumen */}
-      {isVentas ? (
-        <View style={s.card}>
-          <Text style={s.title}>Comisión del mes</Text>
-          <Text style={s.total}>{fmtQ(totals.totalComision)}</Text>
-          <Text style={s.sub}>Mes: {monthLabel}</Text>
+          {isAdmin ? (
+            <Pressable
+              onPress={() => setFiltersOpen(true)}
+              style={({ pressed }) => [s.filterBtn, pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null]}
+            >
+              <Text style={s.filterTxt}>Filtros</Text>
+            </Pressable>
+          ) : null}
         </View>
-      ) : (
-        <View style={s.summaryGrid}>
-          <View style={[s.card, s.summaryCard]}>
-            <Text style={s.title}>Total sin IVA</Text>
-            <Text style={s.total}>{fmtQ(totals.totalSinIva)}</Text>
-            <Text style={s.sub}>Mes: {monthLabel}</Text>
-          </View>
-          <View style={[s.card, s.summaryCard]}>
-            <Text style={s.title}>Total comisión</Text>
+
+        {/* Cards resumen */}
+        {isVentas ? (
+          <View style={s.card}>
+            <Text style={s.title}>Comisión del mes</Text>
             <Text style={s.total}>{fmtQ(totals.totalComision)}</Text>
             <Text style={s.sub}>Mes: {monthLabel}</Text>
           </View>
-        </View>
-      )}
+        ) : (
+          <View style={s.summaryGrid}>
+            <View style={[s.card, s.summaryCard]}>
+              <Text style={s.title}>Total sin IVA</Text>
+              <Text style={s.total}>{fmtQ(totals.totalSinIva)}</Text>
+              <Text style={s.sub}>Mes: {monthLabel}</Text>
+            </View>
+            <View style={[s.card, s.summaryCard]}>
+              <Text style={s.title}>Total comisión</Text>
+              <Text style={s.total}>{fmtQ(totals.totalComision)}</Text>
+              <Text style={s.sub}>Mes: {monthLabel}</Text>
+            </View>
+          </View>
+        )}
 
-      {initialLoading ? (
-        <View style={{ paddingVertical: 10 }}>
-          <Text style={[s.empty, { paddingTop: 0 }]}>Cargando...</Text>
-        </View>
-      ) : null}
+        {initialLoading ? (
+          <View style={{ paddingVertical: 10 }}>
+            <Text style={[s.empty, { paddingTop: 0 }]}>Cargando...</Text>
+          </View>
+        ) : null}
 
-      {!initialLoading && loadError ? (
-        <View style={{ paddingVertical: 10 }}>
-          <Text style={[s.empty, { paddingTop: 0 }]}>{loadError}</Text>
-        </View>
-      ) : null}
-    </>
+        {!initialLoading && loadError ? (
+          <View style={{ paddingVertical: 10 }}>
+            <Text style={[s.empty, { paddingTop: 0 }]}>{loadError}</Text>
+          </View>
+        ) : null}
+      </>
+    ),
+    [s, openMonthPicker, monthLabel, isAdmin, isVentas, totals, initialLoading, loadError]
   );
 
   return (
@@ -616,13 +620,18 @@ export default function ComisionesScreen() {
               paddingBottom: 16 + insets.bottom,
             }}
             ListHeaderComponent={ListHeader}
+            removeClippedSubviews={Platform.OS === "android"}
+            initialNumToRender={14}
+            maxToRenderPerBatch={14}
+            windowSize={9}
+            updateCellsBatchingPeriod={50}
           />
 
           {/* Modal: seleccionar mes (iOS) */}
           {monthOpenIOS ? (
             <Modal visible={monthOpenIOS} transparent animationType="fade" onRequestClose={() => setMonthOpenIOS(false)}>
               <Pressable style={[s.modalBackdrop, { backgroundColor: M.back }]} onPress={() => setMonthOpenIOS(false)} />
-              <View style={[s.modalCard, { backgroundColor: M.card, borderColor: M.border }]}>
+              <View style={[s.modalCard, { top: 14 + insets.top, backgroundColor: M.card, borderColor: M.border }]}>
                 <View style={s.modalHeader}>
                   <Text style={[s.modalTitle, { color: M.text }]}>Mes</Text>
                   <Pressable onPress={() => setMonthOpenIOS(false)} hitSlop={10}>
@@ -652,7 +661,7 @@ export default function ComisionesScreen() {
             <Modal visible={filtersOpen} transparent animationType="fade" onRequestClose={() => setFiltersOpen(false)}>
               <Pressable style={[s.modalBackdrop, { backgroundColor: M.back }]} onPress={() => setFiltersOpen(false)} />
 
-              <View style={[s.modalCard, { backgroundColor: M.card, borderColor: M.border }]}>
+              <View style={[s.modalCard, { top: 14 + insets.top, backgroundColor: M.card, borderColor: M.border }]}>
                 <View style={s.modalHeader}>
                   <Text style={[s.modalTitle, { color: M.text }]}>Filtros</Text>
                   <Pressable onPress={() => setFiltersOpen(false)} hitSlop={10}>
@@ -834,7 +843,6 @@ const styles = (colors: any) =>
       position: "absolute",
       left: 14,
       right: 14,
-      top: 90,
       borderRadius: 18,
       padding: 16,
       borderWidth: 1,
