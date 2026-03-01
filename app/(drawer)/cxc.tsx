@@ -295,28 +295,16 @@ export default function CuentasPorCobrarScreen() {
       throw error;
     }
 
-    let rows = (data ?? []) as CxCRow[];
-
     // Keep previous behavior: latest first
-    rows = [...rows].sort((a, b) => {
+    const rows = [...(data ?? []) as CxCRow[]].sort((a, b) => {
       const ad = a.fecha ? String(a.fecha) : "";
       const bd = b.fecha ? String(b.fecha) : "";
       if (ad === bd) return 0;
       return ad < bd ? 1 : -1;
     });
 
-    // client-side: search invoice numbers if not found server-side
-    if (dq) {
-      const qlow = dq.toLowerCase();
-      rows = rows.filter((r) => {
-        if ((r.cliente_nombre ?? "").toLowerCase().includes(qlow)) return true;
-        const arr = Array.isArray(r.facturas) ? r.facturas.map(String) : [];
-        return arr.some((f) => f.toLowerCase().includes(qlow));
-      });
-    }
-
     return rows;
-  }, [dq, fVendedorId, roleUp, uid]);
+  }, [fVendedorId, roleUp, uid]);
 
   useFocusEffect(
     useCallback(() => {
@@ -327,7 +315,7 @@ export default function CuentasPorCobrarScreen() {
         setLoadError(null);
         setInitialLoading(true);
         return () => {
-          if (fetchTokenRef.current === token) fetchTokenRef.current++;
+          fetchTokenRef.current++;
         };
       }
 
@@ -336,7 +324,7 @@ export default function CuentasPorCobrarScreen() {
         setLoadError(null);
         setInitialLoading(true);
         return () => {
-          if (fetchTokenRef.current === token) fetchTokenRef.current++;
+          fetchTokenRef.current++;
         };
       }
 
@@ -360,7 +348,7 @@ export default function CuentasPorCobrarScreen() {
 
       return () => {
         // invalidate any in-flight request so stale responses don't affect UI
-        if (fetchTokenRef.current === token) fetchTokenRef.current++;
+        fetchTokenRef.current++;
       };
     }, [fetchRows, isReady, uid])
   );
@@ -378,18 +366,12 @@ export default function CuentasPorCobrarScreen() {
     return { text: "PENDIENTE", kind: "warn" as const };
   };
 
-  // filtro client-side: estado pago
+  // filtro client-side: estado pago + búsqueda por texto
   const rows = useMemo(() => {
-    const isAdmin = roleUp === "ADMIN";
-    const isVentas = roleUp === "VENTAS";
     const desdeMs = fDesde ? startOfDay(fDesde).getTime() : null;
     const hastaMs = fHasta ? endOfDay(fHasta).getTime() : null;
 
     const filtered = rowsRaw.filter((r) => {
-      const vendId = String(r.vendedor_id ?? "").trim();
-      if (isVentas && uid && vendId !== uid) return false;
-      if (isAdmin && fVendedorId && vendId !== fVendedorId) return false;
-
       if (fClienteId && Number(r.cliente_id ?? 0) !== fClienteId) return false;
 
       const rowDateMs = r.fecha ? new Date(r.fecha).getTime() : null;
@@ -406,16 +388,25 @@ export default function CuentasPorCobrarScreen() {
       return saldo == null ? true : saldo > 0;
     });
 
-    if (fPago === "ALL") return unpaid;
-
-    return unpaid.filter((r) => {
+    let result = fPago === "ALL" ? unpaid : unpaid.filter((r) => {
       if (!r.fecha_vencimiento) return fPago === "PENDING";
       const d = dayDiffFromToday(r.fecha_vencimiento);
-    if (fPago === "OVERDUE") return d < 0;
+      if (fPago === "OVERDUE") return d < 0;
       if (fPago === "PENDING") return d >= 0;
       return true;
     });
-  }, [rowsRaw, fPago, fVendedorId, fClienteId, fDesde, fHasta, roleUp, uid]);
+
+    if (dq) {
+      const qlow = dq.toLowerCase();
+      result = result.filter((r) => {
+        if ((r.cliente_nombre ?? "").toLowerCase().includes(qlow)) return true;
+        const arr = Array.isArray(r.facturas) ? r.facturas.map(String) : [];
+        return arr.some((f) => f.toLowerCase().includes(qlow));
+      });
+    }
+
+    return result;
+  }, [rowsRaw, fPago, fClienteId, fDesde, fHasta, dq]);
 
   const sections = useMemo<CxcSection[]>(() => {
     const map = new Map<string, CxCRow[]>();
@@ -457,7 +448,7 @@ export default function CuentasPorCobrarScreen() {
     return map;
   }, [vendedoresDropdown]);
 
-  const renderItem = ({ item }: { item: CxCRow }) => {
+  const renderItem = useCallback(({ item }: { item: CxCRow }) => {
     const b = badge(item);
     const fact = Array.isArray(item.facturas) ? item.facturas.filter(Boolean).join(" · ") : "—";
     const vid = String(item.vendedor_id ?? "").trim();
@@ -490,7 +481,7 @@ export default function CuentasPorCobrarScreen() {
         </View>
       </Pressable>
     );
-  };
+  }, [s, M, vendedorLabelById]);
 
   const vendedorLabel = useMemo(() => {
     if (!fVendedorId) return "Todos";

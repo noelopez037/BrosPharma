@@ -33,6 +33,14 @@ type ClienteRow = {
   } | null;
 };
 
+// Se implementó infinite scroll con page size 50 usando cursor (nombre,id) para lista normal;
+// búsqueda trae todos los resultados para garantizar que el cliente se encuentre aunque no
+// esté en la primera página.
+const PAGE_SIZE = 50;
+
+const SELECT_COLS =
+  "id,nombre,nit,telefono,direccion,activo,vendedor_id,vendedor:profiles!clientes_vendedor_id_fkey(id,full_name,role)";
+
 function normalizeUpper(v: any) {
   return String(v ?? "").trim().toUpperCase();
 }
@@ -59,6 +67,11 @@ function makeSafeIlikePattern(input: string) {
     .trim();
 }
 
+/** Strip characters that would break PostgREST .or() filter string parsing. */
+function escapeCursorNombre(v: string): string {
+  return v.replace(/[,()\\]/g, " ").replace(/\s+/g, " ").trim();
+}
+
 function logClientesError(tag: string, error: any) {
   if (!error) return;
   console.warn(
@@ -80,7 +93,6 @@ export default function ClientesScreen() {
   const { role, uid, isReady, refreshRole } = useRole();
   const roleUp = normalizeUpper(role) as Role;
   const isAdmin = roleUp === "ADMIN";
-  const isVentas = roleUp === "VENTAS";
   const isBodega = roleUp === "BODEGA";
   const readOnly = isBodega;
   const canCreate = isAdmin;
@@ -92,10 +104,19 @@ export default function ClientesScreen() {
 
   const [rows, setRows] = useState<ClienteRow[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const hasLoadedOnceRef = useRef(false);
   const hasAnyRowsRef = useRef(false);
+  // Cursor for stable pagination: (nombre ASC, id ASC)
+  const cursorRef = useRef<{ nombre: string; id: number } | null>(null);
+  // Sequence number to discard stale async responses
+  const requestSeqRef = useRef(0);
+  // Ref guard to prevent concurrent loadNextPage calls without state timing issues
+  const isLoadingMoreRef = useRef(false);
+
   useEffect(() => {
     hasAnyRowsRef.current = rows.length > 0;
   }, [rows.length]);
@@ -104,33 +125,27 @@ export default function ClientesScreen() {
     if (!isAdmin && showInactive) setShowInactive(false);
   }, [isAdmin, showInactive]);
 
-  const fetchClientes = useCallback(async (roleOverride?: Role) => {
-    if (!isReady) return;
-    setErrorMsg(null);
-    const effectiveRoleUp = (roleOverride ?? roleUp) as Role;
-    if (!effectiveRoleUp) return;
+  /**
+   * Builds the base Supabase query with stable ordering (nombre ASC, id ASC),
+   * active/role filters, and optional search OR filter.
+   * Returns null if the query cannot proceed (e.g., VENTAS without uid).
+   */
+  const buildBaseQuery = useCallback(
+    (opts: { effectiveRoleUp: Role; safeSearch: string; includeSearch: boolean }) => {
+      const { effectiveRoleUp, safeSearch, includeSearch } = opts;
+      const isAdminNow = effectiveRoleUp === "ADMIN";
+      const isVentasNow = effectiveRoleUp === "VENTAS";
 
-    const isAdminNow = effectiveRoleUp === "ADMIN";
-    const isVentasNow = effectiveRoleUp === "VENTAS";
-
-    const safeSearch = dq ? makeSafeIlikePattern(dq) : "";
-
-    const buildQuery = (includeSearch: boolean) => {
       let req = supabase
         .from("clientes")
-        .select(
-          "id,nombre,nit,telefono,direccion,activo,vendedor_id,vendedor:profiles!clientes_vendedor_id_fkey(id,full_name,role)"
-        )
+        .select(SELECT_COLS)
         .order("nombre", { ascending: true })
-        .limit(500);
+        .order("id", { ascending: true });
 
       if (!isAdminNow || !showInactive) req = req.eq("activo", true);
 
       if (isVentasNow) {
-        if (!uid) {
-          setRows([]);
-          return null;
-        }
+        if (!uid) return null;
         req = req.eq("vendedor_id", uid);
       }
 
@@ -141,43 +156,155 @@ export default function ClientesScreen() {
       }
 
       return req;
-    };
+    },
+    [showInactive, uid]
+  );
 
-    const execute = async (includeSearch: boolean) => {
-      const query = buildQuery(includeSearch);
-      if (!query) return null;
-      return query;
-    };
+  /** Load first page in list mode (no search). Resets rows and cursor. */
+  const loadFirstPage = useCallback(
+    async (roleOverride?: Role) => {
+      if (!isReady) return;
+      const effectiveRoleUp = (roleOverride ?? roleUp) as Role;
+      if (!effectiveRoleUp) return;
 
-    const initialResult = await execute(Boolean(safeSearch));
-    if (!initialResult) return;
+      const seq = ++requestSeqRef.current;
+      setErrorMsg(null);
+      setHasMore(true);
+      cursorRef.current = null;
 
-    let { data, error } = initialResult;
-    let searchError: any = null;
-
-    if (error && safeSearch) {
-      searchError = error;
-      logClientesError("search error", error);
-      const fallbackResult = await execute(false);
-      if (!fallbackResult) return;
-      data = fallbackResult.data;
-      error = fallbackResult.error;
-      if (!error) {
-        setErrorMsg(
-          `Error al filtrar: ${searchError?.message ?? "desconocido"}. Mostrando todos los clientes.`
-        );
+      const query = buildBaseQuery({ effectiveRoleUp, safeSearch: "", includeSearch: false });
+      if (!query) {
+        setRows([]);
+        return;
       }
-    }
 
-    if (error) {
-      logClientesError("fetch error", error);
-      setErrorMsg(error.message ?? "Error al cargar clientes.");
-      setRows([]);
-      return;
-    }
+      const { data, error } = await query.limit(PAGE_SIZE);
+      if (seq !== requestSeqRef.current) return; // stale response, discard
 
-    setRows((data ?? []) as any);
-  }, [dq, isReady, roleUp, showInactive, uid]);
+      if (error) {
+        logClientesError("loadFirstPage", error);
+        setErrorMsg(error.message ?? "Error al cargar clientes.");
+        setRows([]);
+        return;
+      }
+
+      const fetched = (data ?? []) as ClienteRow[];
+      setRows(fetched);
+      if (fetched.length > 0) {
+        const last = fetched[fetched.length - 1];
+        cursorRef.current = { nombre: last.nombre, id: last.id };
+      }
+      setHasMore(fetched.length === PAGE_SIZE);
+    },
+    [isReady, roleUp, buildBaseQuery]
+  );
+
+  /**
+   * Load next page using (nombre, id) cursor.
+   * Only called from onEndReached when no search is active.
+   */
+  const loadNextPage = useCallback(async () => {
+    if (!isReady || isLoadingMoreRef.current || !hasMore || dq) return;
+    const effectiveRoleUp = roleUp as Role;
+    if (!effectiveRoleUp) return;
+    if (!cursorRef.current) return;
+
+    isLoadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const { nombre: lastNombre, id: lastId } = cursorRef.current;
+      // Sanitize for safe PostgREST .or() string (removes , ( ) \)
+      const escapedNombre = escapeCursorNombre(lastNombre);
+
+      const query = buildBaseQuery({ effectiveRoleUp, safeSearch: "", includeSearch: false });
+      if (!query) return;
+
+      // Cursor filter: (nombre > lastNombre) OR (nombre = lastNombre AND id > lastId)
+      const { data, error } = await query
+        .or(`nombre.gt.${escapedNombre},and(nombre.eq.${escapedNombre},id.gt.${lastId})`)
+        .limit(PAGE_SIZE);
+
+      if (error) {
+        logClientesError("loadNextPage", error);
+        return;
+      }
+
+      const fetched = (data ?? []) as ClienteRow[];
+      if (fetched.length > 0) {
+        // Append without duplicates (safety net for cursor edge cases)
+        setRows((prev) => {
+          const seenIds = new Set(prev.map((r) => r.id));
+          const newRows = fetched.filter((r) => !seenIds.has(r.id));
+          return [...prev, ...newRows];
+        });
+        const last = fetched[fetched.length - 1];
+        cursorRef.current = { nombre: last.nombre, id: last.id };
+      }
+      setHasMore(fetched.length === PAGE_SIZE);
+    } finally {
+      isLoadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [isReady, roleUp, hasMore, dq, buildBaseQuery]);
+
+  /**
+   * Search mode: fetch all matching rows without a page limit.
+   * Infinite scroll is disabled while a search is active.
+   */
+  const fetchSearch = useCallback(
+    async (roleOverride?: Role) => {
+      if (!isReady) return;
+      const effectiveRoleUp = (roleOverride ?? roleUp) as Role;
+      if (!effectiveRoleUp) return;
+
+      const safeSearch = makeSafeIlikePattern(dq);
+      if (!safeSearch) return;
+
+      const seq = ++requestSeqRef.current;
+      setErrorMsg(null);
+      setHasMore(false);
+
+      const query = buildBaseQuery({ effectiveRoleUp, safeSearch, includeSearch: true });
+      if (!query) {
+        setRows([]);
+        return;
+      }
+
+      const { data, error } = await query;
+      if (seq !== requestSeqRef.current) return;
+
+      if (error) {
+        logClientesError("fetchSearch error", error);
+        // Fallback: show first page without search filter
+        setErrorMsg(
+          `Error al filtrar: ${error.message ?? "desconocido"}. Mostrando todos los clientes.`
+        );
+        const fallback = buildBaseQuery({ effectiveRoleUp, safeSearch: "", includeSearch: false });
+        if (!fallback) {
+          setRows([]);
+          return;
+        }
+        const fallbackRes = await fallback.limit(PAGE_SIZE);
+        if (seq !== requestSeqRef.current) return;
+        if (!fallbackRes.error) {
+          const fetched = (fallbackRes.data ?? []) as ClienteRow[];
+          setRows(fetched);
+          if (fetched.length > 0) {
+            const last = fetched[fetched.length - 1];
+            cursorRef.current = { nombre: last.nombre, id: last.id };
+          }
+          setHasMore(fetched.length === PAGE_SIZE);
+        } else {
+          logClientesError("fetchSearch fallback", fallbackRes.error);
+          setRows([]);
+        }
+        return;
+      }
+
+      setRows((data ?? []) as ClienteRow[]);
+    },
+    [isReady, roleUp, dq, buildBaseQuery]
+  );
 
   // UX: swipe-back / back siempre regresa a Inicio.
   useGoHomeOnBack(true, "/(drawer)/(tabs)");
@@ -191,7 +318,11 @@ export default function ClientesScreen() {
         try {
           if (showLoading && alive) setInitialLoading(true);
           const freshRoleUp = normalizeUpper(await refreshRole("focus:clientes")) as Role;
-          await fetchClientes(freshRoleUp);
+          if (dq) {
+            await fetchSearch(freshRoleUp);
+          } else {
+            await loadFirstPage(freshRoleUp);
+          }
           hasLoadedOnceRef.current = true;
         } finally {
           if (showLoading && alive) setInitialLoading(false);
@@ -201,16 +332,20 @@ export default function ClientesScreen() {
       return () => {
         alive = false;
       };
-    }, [fetchClientes, isReady, refreshRole])
+    }, [fetchSearch, loadFirstPage, isReady, refreshRole, dq])
   );
 
   const renderItem = ({ item }: { item: ClienteRow }) => {
     const vendedorNombre = (item.vendedor?.full_name ?? "").trim();
-    const vendedorChipLabel = vendedorNombre || (item.vendedor_id ? item.vendedor_id : "Sin asignar");
+    const vendedorChipLabel =
+      vendedorNombre || (item.vendedor_id ? item.vendedor_id : "Sin asignar");
 
     return (
       <Pressable
-        style={({ pressed }) => [s.card, pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null]}
+        style={({ pressed }) => [
+          s.card,
+          pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
+        ]}
         onPress={() =>
           router.push({
             pathname: "/cliente-detalle" as any,
@@ -261,7 +396,12 @@ export default function ClientesScreen() {
       />
 
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
-        <View style={[s.stickyTop, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+        <View
+          style={[
+            s.stickyTop,
+            { backgroundColor: colors.background, borderBottomColor: colors.border },
+          ]}
+        >
           <View style={s.searchWrap}>
             <TextInput
               value={q}
@@ -294,7 +434,11 @@ export default function ClientesScreen() {
                 onValueChange={setShowInactive}
                 trackColor={{ false: colors.border, true: "#34C759" }}
                 thumbColor={Platform.OS === "android" ? "#FFFFFF" : undefined}
-                style={Platform.OS === "android" ? { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] } : undefined}
+                style={
+                  Platform.OS === "android"
+                    ? { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }
+                    : undefined
+                }
               />
             </View>
           ) : null}
@@ -333,6 +477,15 @@ export default function ClientesScreen() {
             paddingTop: 12,
             paddingBottom: 16 + bottomRail,
           }}
+          onEndReached={() => loadNextPage()}
+          onEndReachedThreshold={0.4}
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={{ paddingVertical: 16 }}>
+                <Text style={s.empty}>Cargando más...</Text>
+              </View>
+            ) : null
+          }
         />
 
         {canCreate ? (

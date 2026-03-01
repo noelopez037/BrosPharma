@@ -186,37 +186,9 @@ export default function VentasSolicitudesScreen() {
   useFocusEffect(
     useCallback(() => {
       void refreshRole("focus:ventas-solicitudes");
-      void reloadAll();
+      void reloadAll(); // Fix 1: single fetch path — useFocusEffect covers mount + focus
     }, [refreshRole, reloadAll])
   );
-
-  useEffect(() => {
-    if (!isReady || roleUp !== "ADMIN") return;
-    let alive = true;
-    (async () => {
-      try {
-        if (alive) {
-          setInitialLoading(true);
-          setInitialLoadingPagos(true);
-        }
-        await Promise.all([fetchSolicitudes(), fetchPagosPendientes()]);
-      } catch (e: any) {
-        Alert.alert("Error", e?.message ?? "No se pudieron cargar solicitudes");
-        if (alive) {
-          setRowsRaw([]);
-          setPagosPendientesRaw([]);
-        }
-      } finally {
-        if (alive) {
-          setInitialLoading(false);
-          setInitialLoadingPagos(false);
-        }
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [canView, fetchPagosPendientes, fetchSolicitudes, isReady, roleUp]);
 
   const rows = useMemo(() => {
     const search = q.trim().toLowerCase();
@@ -240,14 +212,21 @@ export default function VentasSolicitudesScreen() {
     });
   }, [pagosPendientesRaw, q]);
 
+  // Fix 3: stable derived IDs — only changes when the actual set of venta_ids changes
+  const ventaIdsPagos = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          pagosPendientesRaw
+            .map((p) => (p.venta_id == null ? null : Number(p.venta_id)))
+            .filter((id): id is number => typeof id === "number" && Number.isFinite(id))
+        )
+      ),
+    [pagosPendientesRaw]
+  );
+
   useEffect(() => {
-    const ventaIds = Array.from(
-      new Set(
-        pagosPendientesRaw
-          .map((p) => (p.venta_id == null ? null : Number(p.venta_id)))
-          .filter((id): id is number => typeof id === "number" && Number.isFinite(id))
-      )
-    );
+    const ventaIds = ventaIdsPagos; // Fix 3: use memoized IDs
 
     if (!ventaIds.length) {
       setVentasInfoById({});
@@ -285,7 +264,7 @@ export default function VentasSolicitudesScreen() {
     return () => {
       alive = false;
     };
-  }, [pagosPendientesRaw]);
+  }, [ventaIdsPagos]); // Fix 3: depend on stable memoized array reference
 
   useEffect(() => {
     const ids = Array.from(
@@ -367,7 +346,7 @@ export default function VentasSolicitudesScreen() {
         setActingVentaId(null);
       }
     },
-    [canResolve, fetchSolicitudes]
+    [canResolve, fetchSolicitudes, rowsRaw] // Fix 2: rowsRaw added to prevent stale closure
   );
 
   const confirmResolve = useCallback(
@@ -539,7 +518,7 @@ export default function VentasSolicitudesScreen() {
 
           <FlatList
             data={rows}
-            keyExtractor={(it) => String(it.venta_id)}
+            keyExtractor={(it) => `${it.venta_id}_${it.solicitud_at ?? ""}`} // Fix 4: composite key prevents duplicates
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
             automaticallyAdjustKeyboardInsets

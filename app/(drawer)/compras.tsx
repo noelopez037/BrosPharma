@@ -15,7 +15,7 @@
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   SectionList,
   Modal,
@@ -122,6 +122,81 @@ function endOfDay(d: Date) {
   return x;
 }
 
+// ─── Badge logic (module-level, sin dependencias de estado) ───────────────────
+function badge(c: CompraRow) {
+  const estado = normalizeUpper(c.estado);
+  const tipo = normalizeUpper(c.tipo_pago);
+  const saldo = Number(c.saldo_pendiente ?? 0);
+
+  if (estado === "ANULADA") return { text: "ANULADA", kind: "muted" as const };
+  if (tipo === "CONTADO") return { text: "PAGADA", kind: "ok" as const };
+
+  if (tipo === "CREDITO") {
+    if (saldo <= 0) return { text: "PAGADA", kind: "ok" as const };
+
+    if (c.fecha_vencimiento) {
+      const d = dayDiffFromToday(c.fecha_vencimiento);
+      if (d < 0) return { text: `VENCIDA • ${Math.abs(d)}d`, kind: "overdue" as const };
+      if (d === 0) return { text: "PENDIENTE • HOY", kind: "warn" as const };
+      return { text: `PENDIENTE • ${d}d`, kind: "warn" as const };
+    }
+    return { text: "PENDIENTE", kind: "warn" as const };
+  }
+
+  return { text: estado || tipo || "—", kind: "muted" as const };
+}
+
+// ─── Card memoizado para evitar re-renders innecesarios ───────────────────────
+const CompraCard = React.memo(function CompraCard({
+  item,
+  s,
+}: {
+  item: CompraRow;
+  s: any;
+}) {
+  const b = badge(item);
+  const tipo = normalizeUpper(item.tipo_pago);
+  const showSaldo = tipo === "CREDITO";
+  return (
+    <Pressable
+      style={s.card}
+      onPress={() =>
+        router.push({
+          pathname: "/compra-detalle",
+          params: { id: String(item.id) },
+        })
+      }
+    >
+      <View style={s.row}>
+        <View style={{ flex: 1 }}>
+          <Text style={s.title}>{item.proveedor ?? "Proveedor"}</Text>
+          <Text style={s.sub}>Factura: {item.numero_factura ?? "—"}</Text>
+          <Text style={s.sub}>Fecha: {fmtDate(item.fecha)}</Text>
+        </View>
+
+        <View style={{ alignItems: "flex-end" }}>
+          <Text
+            style={[
+              s.badge,
+              b.kind === "ok" && s.badgeOk,
+              b.kind === "warn" && s.badgeWarn,
+              b.kind === "overdue" && s.badgeOverdue,
+              b.kind === "muted" && s.badgeMuted,
+            ]}
+            numberOfLines={1}
+          >
+            {b.text}
+          </Text>
+
+          <Text style={s.total}>{fmtQ(item.monto_total)}</Text>
+
+          {showSaldo ? <Text style={s.saldo}>Saldo: {fmtQ(item.saldo_pendiente)}</Text> : null}
+        </View>
+      </View>
+    </Pressable>
+  );
+});
+
 export default function ComprasScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -154,9 +229,13 @@ export default function ComprasScreen() {
 
   const [rowsRaw, setRowsRaw] = useState<CompraRow[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const hasLoadedOnceRef = useRef(false);
   const hasAnyRowsRef = useRef(false);
+  // ─── Protección contra respuestas fuera de orden ──────────────────────────
+  const requestSeqRef = useRef(0);
+
   useEffect(() => {
     hasAnyRowsRef.current = rowsRaw.length > 0;
   }, [rowsRaw.length]);
@@ -227,6 +306,10 @@ export default function ComprasScreen() {
   }, []);
 
   const fetchCompras = useCallback(async () => {
+    // ─── Protección contra race conditions ──────────────────────────────────
+    requestSeqRef.current += 1;
+    const mySeq = requestSeqRef.current;
+
     let req = supabase
       .from("compras")
       .select(
@@ -241,7 +324,16 @@ export default function ComprasScreen() {
     if (fDesde) req = req.gte("fecha", startOfDay(fDesde).toISOString());
     if (fHasta) req = req.lte("fecha", endOfDay(fHasta).toISOString());
 
-    const { data } = await req;
+    const { data, error } = await req;
+
+    // Descartar respuesta si ya hay una más reciente en vuelo
+    if (mySeq !== requestSeqRef.current) return;
+
+    if (error) {
+      setErrorMsg("Error cargando compras");
+      return;
+    }
+    setErrorMsg(null);
     setRowsRaw((data ?? []) as CompraRow[]);
   }, [dq, fProveedorId, fDesde, fHasta]);
 
@@ -266,29 +358,6 @@ export default function ComprasScreen() {
       };
     }, [fetchCompras])
   );
-
-  const badge = (c: CompraRow) => {
-    const estado = normalizeUpper(c.estado);
-    const tipo = normalizeUpper(c.tipo_pago);
-    const saldo = Number(c.saldo_pendiente ?? 0);
-
-    if (estado === "ANULADA") return { text: "ANULADA", kind: "muted" as const };
-    if (tipo === "CONTADO") return { text: "PAGADA", kind: "ok" as const };
-
-    if (tipo === "CREDITO") {
-      if (saldo <= 0) return { text: "PAGADA", kind: "ok" as const };
-
-      if (c.fecha_vencimiento) {
-        const d = dayDiffFromToday(c.fecha_vencimiento);
-        if (d < 0) return { text: `VENCIDA • ${Math.abs(d)}d`, kind: "overdue" as const };
-        if (d === 0) return { text: "PENDIENTE • HOY", kind: "warn" as const };
-        return { text: `PENDIENTE • ${d}d`, kind: "warn" as const };
-      }
-      return { text: "PENDIENTE", kind: "warn" as const };
-    }
-
-    return { text: estado || tipo || "—", kind: "muted" as const };
-  };
 
   // filtro client-side: estado pago (porque depende de cálculo)
   const rows = useMemo(() => {
@@ -329,49 +398,11 @@ export default function ComprasScreen() {
     return out;
   }, [rows]);
 
-  const renderItem = ({ item }: { item: CompraRow }) => {
-    const b = badge(item);
-    const tipo = normalizeUpper(item.tipo_pago);
-    const showSaldo = tipo === "CREDITO";
-    return (
-      <Pressable
-        style={s.card}
-        onPress={() =>
-          router.push({
-            pathname: "/compra-detalle",
-            params: { id: String(item.id) },
-          })
-        }
-      >
-        <View style={s.row}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.title}>{item.proveedor ?? "Proveedor"}</Text>
-            <Text style={s.sub}>Factura: {item.numero_factura ?? "—"}</Text>
-            <Text style={s.sub}>Fecha: {fmtDate(item.fecha)}</Text>
-          </View>
-
-          <View style={{ alignItems: "flex-end" }}>
-            <Text
-              style={[
-                s.badge,
-                b.kind === "ok" && s.badgeOk,
-                b.kind === "warn" && s.badgeWarn,
-                b.kind === "overdue" && s.badgeOverdue,
-                b.kind === "muted" && s.badgeMuted,
-              ]}
-              numberOfLines={1}
-            >
-              {b.text}
-            </Text>
-
-            <Text style={s.total}>{fmtQ(item.monto_total)}</Text>
-
-            {showSaldo ? <Text style={s.saldo}>Saldo: {fmtQ(item.saldo_pendiente)}</Text> : null}
-          </View>
-        </View>
-      </Pressable>
-    );
-  };
+  // ─── renderItem memoizado ─────────────────────────────────────────────────
+  const renderItem = useCallback(
+    ({ item }: { item: CompraRow }) => <CompraCard item={item} s={s} />,
+    [s]
+  );
 
   const renderSectionHeader = ({ section }: { section: CompraSection }) => (
     <View style={[s.sectionHeader, { backgroundColor: colors.background, alignItems: "flex-end" }]}>
@@ -505,6 +536,10 @@ export default function ComprasScreen() {
           keyboardDismissMode="on-drag"
           automaticallyAdjustKeyboardInsets
           stickySectionHeadersEnabled={true}
+          initialNumToRender={12}
+          maxToRenderPerBatch={12}
+          windowSize={7}
+          updateCellsBatchingPeriod={50}
           contentContainerStyle={{
             paddingHorizontal: 12,
             paddingTop: 12,
@@ -514,7 +549,9 @@ export default function ComprasScreen() {
           ListEmptyComponent={
             !initialLoading ? (
               <View style={s.center}>
-                <Text style={s.empty}>Sin compras</Text>
+                <Text style={s.empty}>
+                  {errorMsg ?? "Sin compras"}
+                </Text>
               </View>
             ) : null
           }
@@ -542,143 +579,158 @@ export default function ComprasScreen() {
               onPress={() => setFiltersOpen(false)}
             />
 
-            <View style={[s.modalCard, { backgroundColor: M.card, borderColor: M.border }]}>
-              <View style={s.modalHeader}>
-                <Text style={[s.modalTitle, { color: M.text }]}>Filtros</Text>
-                <Pressable onPress={() => setFiltersOpen(false)} hitSlop={10}>
-                  <Text style={[s.modalClose, { color: M.sub }]}>Cerrar</Text>
-                </Pressable>
-              </View>
-
-            {/* Proveedor */}
-            <Text style={[s.sectionLabel, { color: M.text }]}>Proveedor</Text>
-
-            <Pressable
-              onPress={() => {
-                setProvOpen((v) => !v);
-                setShowDesdeIOS(false);
-                setShowHastaIOS(false);
-              }}
-              style={[s.dropdownInput, { borderColor: M.border, backgroundColor: M.fieldBg }]}
+            <View
+              style={[
+                s.modalCard,
+                {
+                  backgroundColor: M.card,
+                  borderColor: M.border,
+                  top: insets.top + 12,
+                  maxHeight: "80%",
+                },
+              ]}
             >
-              <Text style={[s.dropdownText, { color: M.text }]} numberOfLines={1}>
-                {proveedorLabel}
-              </Text>
-              <Text style={[s.dropdownCaret, { color: M.sub }]}>{provOpen ? "▲" : "▼"}</Text>
-            </Pressable>
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                <View style={s.modalHeader}>
+                  <Text style={[s.modalTitle, { color: M.text }]}>Filtros</Text>
+                  <Pressable onPress={() => setFiltersOpen(false)} hitSlop={10}>
+                    <Text style={[s.modalClose, { color: M.sub }]}>Cerrar</Text>
+                  </Pressable>
+                </View>
 
-            {provOpen ? (
-              <View style={[s.dropdownPanel, { borderColor: M.border, backgroundColor: M.fieldBg }]}>
-                <ScrollView style={{ maxHeight: 180 }} keyboardShouldPersistTaps="handled">
-                  <DDRow
-                    label="Todos"
-                    selected={!fProveedorId}
-                    onPress={() => {
-                      setFProveedorId(null);
-                      setProvOpen(false);
-                    }}
-                    isDark={isDark}
-                    M={M}
-                  />
-                  {proveedores.map((p) => (
+              {/* Proveedor */}
+              <Text style={[s.sectionLabel, { color: M.text }]}>Proveedor</Text>
+
+              <Pressable
+                onPress={() => {
+                  setProvOpen((v) => !v);
+                  setShowDesdeIOS(false);
+                  setShowHastaIOS(false);
+                }}
+                style={[s.dropdownInput, { borderColor: M.border, backgroundColor: M.fieldBg }]}
+              >
+                <Text style={[s.dropdownText, { color: M.text }]} numberOfLines={1}>
+                  {proveedorLabel}
+                </Text>
+                <Text style={[s.dropdownCaret, { color: M.sub }]}>{provOpen ? "▲" : "▼"}</Text>
+              </Pressable>
+
+              {provOpen ? (
+                <View style={[s.dropdownPanel, { borderColor: M.border, backgroundColor: M.fieldBg }]}>
+                  <ScrollView style={{ maxHeight: 180 }} keyboardShouldPersistTaps="handled">
                     <DDRow
-                      key={String(p.id)}
-                      label={p.nombre}
-                      selected={fProveedorId === p.id}
+                      label="Todos"
+                      selected={!fProveedorId}
                       onPress={() => {
-                        setFProveedorId(p.id);
+                        setFProveedorId(null);
                         setProvOpen(false);
                       }}
                       isDark={isDark}
                       M={M}
                     />
-                  ))}
-                </ScrollView>
+                    {proveedores.map((p) => (
+                      <DDRow
+                        key={String(p.id)}
+                        label={p.nombre}
+                        selected={fProveedorId === p.id}
+                        onPress={() => {
+                          setFProveedorId(p.id);
+                          setProvOpen(false);
+                        }}
+                        isDark={isDark}
+                        M={M}
+                      />
+                    ))}
+                  </ScrollView>
+                </View>
+              ) : null}
+
+              {/* Fechas */}
+              <View style={{ height: 10 }} />
+
+              <View style={s.twoCols}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.sectionLabel, { color: M.text }]}>Desde</Text>
+                  <Pressable
+                    onPress={openDesdePicker}
+                    style={[s.dateBox, { borderColor: M.border, backgroundColor: M.fieldBg }]}
+                  >
+                    <Text style={[s.dateTxt, { color: M.text }]}>
+                      {fDesde ? fmtDate(fDesde.toISOString()) : "—"}
+                    </Text>
+                  </Pressable>
+                </View>
+
+                <View style={{ width: 12 }} />
+
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.sectionLabel, { color: M.text }]}>Hasta</Text>
+                  <Pressable
+                    onPress={openHastaPicker}
+                    style={[s.dateBox, { borderColor: M.border, backgroundColor: M.fieldBg }]}
+                  >
+                    <Text style={[s.dateTxt, { color: M.text }]}>
+                      {fHasta ? fmtDate(fHasta.toISOString()) : "—"}
+                    </Text>
+                  </Pressable>
+                </View>
               </View>
-            ) : null}
 
-            {/* Fechas */}
-            <View style={{ height: 10 }} />
+              {/* iOS inline: cerrar al seleccionar */}
+              {Platform.OS === "ios" && showDesdeIOS ? (
+                <View style={[s.iosPickerWrap, { borderColor: M.border, backgroundColor: M.fieldBg }]}>
+                  <DateTimePicker
+                    value={fDesde ?? new Date()}
+                    mode="date"
+                    display="inline"
+                    themeVariant={isDark ? "dark" : "light"}
+                    onChange={(_ev, date) => {
+                      if (date) {
+                        setFDesde(date);
+                        setShowDesdeIOS(false); // ✅ CIERRA al escoger
+                      }
+                    }}
+                  />
+                </View>
+              ) : null}
 
-            <View style={s.twoCols}>
-              <View style={{ flex: 1 }}>
-                <Text style={[s.sectionLabel, { color: M.text }]}>Desde</Text>
-                <Pressable
-                  onPress={openDesdePicker}
-                  style={[s.dateBox, { borderColor: M.border, backgroundColor: M.fieldBg }]}
-                >
-                  <Text style={[s.dateTxt, { color: M.text }]}>
-                    {fDesde ? fmtDate(fDesde.toISOString()) : "—"}
-                  </Text>
-                </Pressable>
+              {Platform.OS === "ios" && showHastaIOS ? (
+                <View style={[s.iosPickerWrap, { borderColor: M.border, backgroundColor: M.fieldBg }]}>
+                  <DateTimePicker
+                    value={fHasta ?? new Date()}
+                    mode="date"
+                    display="inline"
+                    themeVariant={isDark ? "dark" : "light"}
+                    onChange={(_ev, date) => {
+                      if (date) {
+                        setFHasta(date);
+                        setShowHastaIOS(false); // ✅ CIERRA al escoger
+                      }
+                    }}
+                  />
+                </View>
+              ) : null}
+
+              {/* Estado */}
+              <View style={{ height: 10 }} />
+              <Text style={[s.sectionLabel, { color: M.text }]}>Estado de pago</Text>
+
+              <View style={s.chipsRow}>
+                <Chip text="Todos" active={fPago === "ALL"} onPress={() => setFPago("ALL")} M={M} isDark={isDark} />
+                <Chip text="Pagadas" active={fPago === "PAID"} onPress={() => setFPago("PAID")} M={M} isDark={isDark} />
+                <Chip text="Pendientes" active={fPago === "PENDING"} onPress={() => setFPago("PENDING")} M={M} isDark={isDark} />
+                <Chip text="Vencidas" active={fPago === "OVERDUE"} onPress={() => setFPago("OVERDUE")} M={M} isDark={isDark} />
               </View>
 
-              <View style={{ width: 12 }} />
-
-              <View style={{ flex: 1 }}>
-                <Text style={[s.sectionLabel, { color: M.text }]}>Hasta</Text>
-                <Pressable
-                  onPress={openHastaPicker}
-                  style={[s.dateBox, { borderColor: M.border, backgroundColor: M.fieldBg }]}
-                >
-                  <Text style={[s.dateTxt, { color: M.text }]}>
-                    {fHasta ? fmtDate(fHasta.toISOString()) : "—"}
-                  </Text>
-                </Pressable>
+              {/* Acciones */}
+              <View style={s.modalActions}>
+                <AppButton title="Limpiar" variant="ghost" size="sm" onPress={limpiarFiltros} />
+                <AppButton title="Aplicar" variant="primary" size="sm" onPress={aplicarFiltros} />
               </View>
-            </View>
-
-            {/* iOS inline: cerrar al seleccionar */}
-            {Platform.OS === "ios" && showDesdeIOS ? (
-              <View style={[s.iosPickerWrap, { borderColor: M.border, backgroundColor: M.fieldBg }]}>
-                <DateTimePicker
-                  value={fDesde ?? new Date()}
-                  mode="date"
-                  display="inline"
-                  themeVariant={isDark ? "dark" : "light"}
-                  onChange={(_ev, date) => {
-                    if (date) {
-                      setFDesde(date);
-                      setShowDesdeIOS(false); // ✅ CIERRA al escoger
-                    }
-                  }}
-                />
-              </View>
-            ) : null}
-
-            {Platform.OS === "ios" && showHastaIOS ? (
-              <View style={[s.iosPickerWrap, { borderColor: M.border, backgroundColor: M.fieldBg }]}>
-                <DateTimePicker
-                  value={fHasta ?? new Date()}
-                  mode="date"
-                  display="inline"
-                  themeVariant={isDark ? "dark" : "light"}
-                  onChange={(_ev, date) => {
-                    if (date) {
-                      setFHasta(date);
-                      setShowHastaIOS(false); // ✅ CIERRA al escoger
-                    }
-                  }}
-                />
-              </View>
-            ) : null}
-
-            {/* Estado */}
-            <View style={{ height: 10 }} />
-            <Text style={[s.sectionLabel, { color: M.text }]}>Estado de pago</Text>
-
-            <View style={s.chipsRow}>
-              <Chip text="Todos" active={fPago === "ALL"} onPress={() => setFPago("ALL")} M={M} isDark={isDark} />
-              <Chip text="Pagadas" active={fPago === "PAID"} onPress={() => setFPago("PAID")} M={M} isDark={isDark} />
-              <Chip text="Pendientes" active={fPago === "PENDING"} onPress={() => setFPago("PENDING")} M={M} isDark={isDark} />
-              <Chip text="Vencidas" active={fPago === "OVERDUE"} onPress={() => setFPago("OVERDUE")} M={M} isDark={isDark} />
-            </View>
-
-            {/* Acciones */}
-            <View style={s.modalActions}>
-              <AppButton title="Limpiar" variant="ghost" size="sm" onPress={limpiarFiltros} />
-              <AppButton title="Aplicar" variant="primary" size="sm" onPress={aplicarFiltros} />
-            </View>
+              </ScrollView>
             </View>
           </Modal>
         ) : null}
@@ -879,7 +931,6 @@ const styles = (colors: any) =>
       position: "absolute",
       left: 14,
       right: 14,
-      top: 90,
       borderRadius: 18,
       padding: 16,
       borderWidth: 1,

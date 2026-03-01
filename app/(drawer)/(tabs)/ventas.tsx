@@ -15,7 +15,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppButton } from "../../../components/ui/app-button";
 import { VentaDetallePanel } from "../../../components/ventas/VentaDetallePanel";
 import { supabase } from "../../../lib/supabase";
@@ -153,6 +153,144 @@ function showChip(tag: string) {
   );
 }
 
+type Colors = {
+  bg: string;
+  card: string;
+  text: string;
+  sub: string;
+  border: string;
+  tint: string;
+  chipBg: string;
+  chipRedBg: string;
+  chipRedText: string;
+  chipAmberBg: string;
+  chipAmberText: string;
+};
+
+const EMPTY_CHIPS: Chip[] = [];
+const EMPTY_FACTURAS: string[] = [];
+
+type VentaCardProps = {
+  item: VentaRow;
+  chips: Chip[];
+  facturas: string[];
+  onPress: (id: number) => void;
+  C: Colors;
+};
+
+const VentaCard = React.memo(
+  ({ item, chips, facturas, onPress, C }: VentaCardProps) => {
+    const vendedorChip = item.vendedor_codigo ? String(item.vendedor_codigo) : shortUid(item.vendedor_id);
+    const facturaLabel =
+      facturas.length === 1 ? `Factura: ${facturas[0]}` : facturas.length > 1 ? `Facturas: ${facturas.join(", ")}` : null;
+
+    return (
+      <Pressable
+        onPress={() => onPress(item.id)}
+        style={({ pressed }) => [
+          s.card,
+          { borderColor: C.border, backgroundColor: C.card },
+          pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
+        ]}
+      >
+        <View style={s.cardTopRow}>
+          <Text style={[s.cardTitle, { color: C.text, flex: 1 }]} numberOfLines={2}>
+            {item.cliente_nombre ?? "—"}
+          </Text>
+          <View style={[s.vendedorPill, { backgroundColor: C.chipBg, borderColor: C.border }]}>
+            <Text style={[s.vendedorPillText, { color: C.text }]} numberOfLines={1}>
+              {vendedorChip}
+            </Text>
+          </View>
+        </View>
+        {facturaLabel ? (
+          <Text style={[s.cardSub, { color: C.sub }]} numberOfLines={1}>
+            {facturaLabel}
+          </Text>
+        ) : null}
+
+        {chips.length ? (
+          <View style={s.chipsRow}>
+            {chips.slice(0, 4).map((c, idx) => {
+              const bg = c.tone === "red" ? C.chipRedBg : c.tone === "amber" ? C.chipAmberBg : C.chipBg;
+              const fg = c.tone === "red" ? C.chipRedText : c.tone === "amber" ? C.chipAmberText : C.sub;
+              return (
+                <View key={`${item.id}-${idx}`} style={[s.chip, { backgroundColor: bg, borderColor: C.border }]}>
+                  <Text style={[s.chipText, { color: fg }]} numberOfLines={1}>
+                    {c.label}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
+      </Pressable>
+    );
+  },
+  (prev, next) =>
+    prev.item.id === next.item.id &&
+    prev.chips === next.chips &&
+    prev.facturas === next.facturas &&
+    prev.onPress === next.onPress &&
+    prev.C === next.C
+);
+
+type VentasListEmptyProps = {
+  isLoading: boolean;
+  initialLoading: boolean;
+  loadedEstado: Estado | null;
+  estado: Estado;
+  visibleCount: number;
+  isDark: boolean;
+  C: Colors;
+};
+
+function VentasListEmpty({ isLoading, initialLoading, loadedEstado, estado, visibleCount, isDark, C }: VentasListEmptyProps) {
+  const showSkeleton = visibleCount === 0 && (isLoading || (initialLoading && loadedEstado !== estado));
+
+  if (showSkeleton) {
+    const skelBg = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)";
+    const skelHi = isDark ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.12)";
+    const items = Array.from({ length: 7 }).map((_, idx) => (
+      <View
+        key={`sk-${idx}`}
+        style={[
+          s.card,
+          {
+            borderColor: C.border,
+            backgroundColor: C.card,
+            overflow: "hidden",
+          },
+        ]}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <View
+            style={{
+              height: 18,
+              borderRadius: 10,
+              backgroundColor: skelHi,
+              flex: 1,
+              marginRight: 10,
+            }}
+          />
+          <View style={{ height: 28, width: 88, borderRadius: 999, backgroundColor: skelBg }} />
+        </View>
+        <View style={{ height: 10 }} />
+        <View style={{ height: 14, width: "56%", borderRadius: 8, backgroundColor: skelBg }} />
+        <View style={{ height: 12 }} />
+        <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+          <View style={{ height: 26, width: 110, borderRadius: 999, backgroundColor: skelBg }} />
+          <View style={{ height: 26, width: 84, borderRadius: 999, backgroundColor: skelBg }} />
+          <View style={{ height: 26, width: 96, borderRadius: 999, backgroundColor: skelBg }} />
+        </View>
+      </View>
+    ));
+    return <View>{items}</View>;
+  }
+
+  return <Text style={{ padding: 16, color: C.sub, fontWeight: "700" }}>Sin ventas</Text>;
+}
+
 export default function Ventas() {
   const { colors } = useTheme();
   const { resolved } = useThemePref();
@@ -160,6 +298,7 @@ export default function Ventas() {
   const { width } = useWindowDimensions();
   const isWeb = Platform.OS === "web";
   const canSplit = isWeb && width >= 1100;
+  const insets = useSafeAreaInsets();
 
   const C = useMemo(
     () => ({
@@ -236,6 +375,55 @@ export default function Ventas() {
     return () => clearTimeout(timer);
   }, [q]);
 
+  // [búsqueda server-side] cuando hay texto en el buscador, consulta Supabase directamente
+  React.useEffect(() => {
+    const trimmed = debouncedQ.trim();
+    if (!trimmed) {
+      // Sin texto → volver a resultados en memoria (limpiar búsqueda)
+      setSearchRows(null);
+      setSearchLoading(false);
+      return;
+    }
+
+    const mySeq = ++searchSeq.current;
+    setSearchLoading(true);
+
+    (async () => {
+      try {
+        // Buscar por nombre de cliente (siempre)
+        let query = supabase
+          .from("ventas")
+          .select("id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada")
+          .eq("estado", estado)
+          .ilike("cliente_nombre", `%${trimmed}%`)
+          .order("fecha", { ascending: false })
+          .limit(50);
+
+        // Si el texto es numérico también buscar por id exacto
+        const isNumeric = /^\d+$/.test(trimmed);
+        if (isNumeric) {
+          query = supabase
+            .from("ventas")
+            .select("id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada")
+            .eq("estado", estado)
+            .or(`cliente_nombre.ilike.%${trimmed}%,id.eq.${trimmed}`)
+            .order("fecha", { ascending: false })
+            .limit(50);
+        }
+
+        const { data, error } = await query;
+        if (mySeq !== searchSeq.current) return;
+        if (error) throw error;
+        // No se guarda en cache — resultado de búsqueda temporal
+        setSearchRows((data ?? []) as VentaRow[]);
+      } catch {
+        if (mySeq === searchSeq.current) setSearchRows([]);
+      } finally {
+        if (mySeq === searchSeq.current) setSearchLoading(false);
+      }
+    })();
+  }, [debouncedQ, estado]);
+
   const [rowsRaw, setRowsRaw] = useState<VentaRow[]>([]);
   const [tagsByVenta, setTagsByVenta] = useState<Record<string, string[]>>({});
   const [facturasByVenta, setFacturasByVenta] = useState<Record<string, string[]>>({});
@@ -256,6 +444,11 @@ export default function Ventas() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [listLoading, setListLoading] = useState(false);
   const [pullRefreshing, setPullRefreshing] = useState(false);
+
+  // [búsqueda server-side] estado separado para no interferir con listLoading
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchRows, setSearchRows] = useState<VentaRow[] | null>(null);
+  const searchSeq = useRef(0);
 
   const [facturadosAlert, setFacturadosAlert] = useState(false);
   const [nuevosAlert, setNuevosAlert] = useState(false);
@@ -281,6 +474,13 @@ export default function Ventas() {
   const verseOpacity = useRef(new Animated.Value(0)).current;
   const verseTranslateY = useRef(new Animated.Value(18)).current;
   const verseScale = useRef(new Animated.Value(0.96)).current;
+  const verseAnimRef = useRef<Animated.CompositeAnimation | null>(null);
+
+  React.useEffect(() => {
+    return () => {
+      verseAnimRef.current?.stop();
+    };
+  }, []);
 
   const [revalidating, setRevalidating] = useState(false);
   const [revalidatingEstado, setRevalidatingEstado] = useState<Estado | null>(null);
@@ -352,60 +552,40 @@ export default function Ventas() {
         const { data, error } = await supabase
           .from("ventas")
           .select(
-            "id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada"
+            `id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada,
+            ventas_tags!ventas_tags_venta_id_fkey(tag,removed_at),
+            ventas_facturas!ventas_facturas_venta_id_fkey(numero_factura)`
           )
           .eq("estado", targetEstado)
           .order("fecha", { ascending: false })
-          .limit(200);
+          .limit(50);
         if (mySeq !== reqSeq.current) return;
         if (error) throw error;
 
-        const rows = (data ?? []) as any as VentaRow[];
+        const raw = (data ?? []) as any[];
+        const rows: VentaRow[] = raw.map(({ ventas_tags: _t, ventas_facturas: _f, ...rest }) => rest as VentaRow);
         const prev = loadedEstadoRef.current === targetEstado ? rowsRawRef.current : null;
         if (!sameRowsQuick(prev, rows)) {
           setRowsRaw(rows);
         }
 
-        const ids = rows.map((r) => Number(r.id)).filter((x) => Number.isFinite(x) && x > 0);
-        if (!ids.length) {
-          setTagsByVenta({});
-          setFacturasByVenta({});
-          cacheRef.current[targetEstado] = { rows, tags: {}, facturas: {}, ts: Date.now() };
-          setLoadedEstado(targetEstado);
-          return;
-        }
-
-        const { data: trows, error: terr } = await supabase
-          .from("ventas_tags")
-          .select("venta_id,tag")
-          .in("venta_id", ids)
-          .is("removed_at", null);
-        if (mySeq !== reqSeq.current) return;
-        if (terr) throw terr;
-
         const tagMap: Record<string, string[]> = {};
-        (trows ?? []).forEach((tr: any) => {
-          const vid = String(tr.venta_id);
-          const tg = String(tr.tag ?? "").trim().toUpperCase();
-          if (!vid || !tg) return;
-          if (!tagMap[vid]) tagMap[vid] = [];
-          tagMap[vid].push(tg);
-        });
-
-        const { data: frows, error: ferr } = await supabase
-          .from("ventas_facturas")
-          .select("venta_id,numero_factura")
-          .in("venta_id", ids);
-        if (mySeq !== reqSeq.current) return;
-        if (ferr) throw ferr;
-
         const facturasMap: Record<string, string[]> = {};
-        (frows ?? []).forEach((fr: any) => {
-          const vid = String(fr.venta_id ?? "").trim();
-          const num = String(fr.numero_factura ?? "").trim();
-          if (!vid || !num) return;
-          const bucket = facturasMap[vid] ?? (facturasMap[vid] = []);
-          if (!bucket.includes(num)) bucket.push(num);
+        raw.forEach((r: any) => {
+          const vid = String(r.id);
+          (r.ventas_tags ?? []).forEach((tr: any) => {
+            if (tr.removed_at != null) return;
+            const tg = String(tr.tag ?? "").trim().toUpperCase();
+            if (!tg) return;
+            if (!tagMap[vid]) tagMap[vid] = [];
+            tagMap[vid].push(tg);
+          });
+          (r.ventas_facturas ?? []).forEach((fr: any) => {
+            const num = String(fr.numero_factura ?? "").trim();
+            if (!num) return;
+            const bucket = facturasMap[vid] ?? (facturasMap[vid] = []);
+            if (!bucket.includes(num)) bucket.push(num);
+          });
         });
 
         setTagsByVenta(tagMap);
@@ -423,42 +603,49 @@ export default function Ventas() {
     []
   );
 
+  const loadEstado = useCallback(
+    (targetEstado: Estado): Promise<void> => {
+      const now = Date.now();
+      const cached = cacheRef.current[targetEstado];
+      const cacheFresh = !!cached && now - cached.ts <= CACHE_TTL_MS;
+
+      if (cacheFresh) {
+        setListLoading(false);
+        setRowsRaw(cached.rows);
+        setTagsByVenta(cached.tags);
+        setFacturasByVenta(cached.facturas ?? {});
+        setLoadedEstado(targetEstado);
+
+        const myReval = ++revalidateSeq.current;
+        setRevalidatingEstado(targetEstado);
+        setRevalidating(true);
+        fetchVentas(targetEstado, { silent: true })
+          .catch(() => {})
+          .finally(() => {
+            if (myReval === revalidateSeq.current) {
+              setRevalidating(false);
+              setRevalidatingEstado(null);
+            }
+          });
+        return Promise.resolve();
+      } else {
+        setRevalidating(false);
+        setRevalidatingEstado(null);
+        setLoadedEstado(null);
+        return fetchVentas(targetEstado, { silent: false });
+      }
+    },
+    [fetchVentas]
+  );
+
   const fetchAll = useCallback(async () => {
     void refreshRole();
-
-    const now = Date.now();
-    const cached = cacheRef.current[estado];
-    const cacheFresh = !!cached && now - cached.ts <= CACHE_TTL_MS;
-
-    if (cacheFresh) {
-      setListLoading(false);
-      setRowsRaw(cached.rows);
-      setTagsByVenta(cached.tags);
-      setFacturasByVenta(cached.facturas ?? {});
-      setLoadedEstado(estado);
-
-      const myReval = ++revalidateSeq.current;
-      setRevalidatingEstado(estado);
-      setRevalidating(true);
-      fetchVentas(estado, { silent: true })
-        .catch(() => {})
-        .finally(() => {
-          if (myReval === revalidateSeq.current) {
-            setRevalidating(false);
-            setRevalidatingEstado(null);
-          }
-        });
-    } else {
-      // Cache vencido: evita mostrar data vieja.
-      setLoadedEstado(null);
-      await fetchVentas(estado, { silent: false });
-    }
-
+    await loadEstado(estado);
     // Respeta TTL de dots sin disparar rpc innecesario.
     const dotsCached = dotsCacheRef.current;
     const dotsFresh = !!dotsCached.data && Date.now() - dotsCached.timestamp < 25000;
     if (!dotsFresh) await refreshDots();
-  }, [estado, fetchVentas, refreshDots, refreshRole]);
+  }, [estado, loadEstado, refreshDots, refreshRole]);
 
   const onPullRefresh = useCallback(() => {
     setPullRefreshing(true);
@@ -488,6 +675,12 @@ export default function Ventas() {
 
   const rows = useMemo(() => {
     const search = debouncedQ.trim().toLowerCase();
+
+    // [búsqueda server-side] si hay texto y ya tenemos resultados del servidor, usarlos directamente
+    if (search && searchRows !== null) {
+      return searchRows;
+    }
+
     const desdeMs = fDesde ? startOfDay(fDesde).getTime() : null;
     const hastaMs = fHasta ? endOfDay(fHasta).getTime() : null;
 
@@ -523,7 +716,7 @@ export default function Ventas() {
       return id.includes(search) || cliente.includes(search) || vcode.includes(search) || facturaMatch;
     });
     return filtered;
-  }, [debouncedQ, rowsRaw, tagsByVenta, facturasByVenta, fClienteId, fDesde, fHasta]);
+  }, [debouncedQ, searchRows, rowsRaw, tagsByVenta, facturasByVenta, fClienteId, fDesde, fHasta]);
 
   const filteredClientes = useMemo(() => {
     const qq = (fClienteQ ?? "").trim().toLowerCase();
@@ -588,10 +781,12 @@ export default function Ventas() {
     setShowHastaIOS(false);
   }, []);
 
+  const visibleRows = useMemo(() => (loadedEstado === estado ? rows : []), [estado, loadedEstado, rows]);
+
   const chipsById = useMemo(() => {
     const map: Record<number, Chip[]> = {};
 
-    rowsRaw.forEach((item) => {
+    visibleRows.forEach((item) => {
       const tags = tagsByVenta[String(item.id)] ?? [];
       const chips: Chip[] = [];
 
@@ -619,9 +814,8 @@ export default function Ventas() {
     });
 
     return map;
-  }, [rowsRaw, tagsByVenta]);
+  }, [visibleRows, tagsByVenta]);
 
-  const visibleRows = useMemo(() => (loadedEstado === estado ? rows : []), [estado, loadedEstado, rows]);
   const sections = useMemo(() => groupVentasByDay(visibleRows), [visibleRows]);
 
   const tabs: { key: Estado; label: string }[] = useMemo(
@@ -648,122 +842,29 @@ export default function Ventas() {
   );
 
   const renderItem = useCallback(
-    ({ item }: { item: VentaRow }) => {
-      const chips = chipsById[item.id] ?? [];
-      const vendedorChip = item.vendedor_codigo ? String(item.vendedor_codigo) : shortUid(item.vendedor_id);
-      const facturas = facturasByVenta[String(item.id)] ?? [];
-      const facturaLabel =
-        facturas.length === 1 ? `Factura: ${facturas[0]}` : facturas.length > 1 ? `Facturas: ${facturas.join(", ")}` : null;
-
-      return (
-        <Pressable
-          onPress={() => handleVentaPress(item.id)}
-          style={({ pressed }) => [
-            s.card,
-            { borderColor: C.border, backgroundColor: C.card },
-            pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
-          ]}
-        >
-          <View style={s.cardTopRow}>
-            <Text style={[s.cardTitle, { color: C.text, flex: 1 }]} numberOfLines={2}>
-              {item.cliente_nombre ?? "—"}
-            </Text>
-            <View style={[s.vendedorPill, { backgroundColor: C.chipBg, borderColor: C.border }]}>
-              <Text style={[s.vendedorPillText, { color: C.text }]} numberOfLines={1}>
-                {vendedorChip}
-              </Text>
-            </View>
-          </View>
-          {facturaLabel ? (
-            <Text style={[s.cardSub, { color: C.sub }]} numberOfLines={1}>
-              {facturaLabel}
-            </Text>
-          ) : null}
-
-          {chips.length ? (
-            <View style={s.chipsRow}>
-              {chips.slice(0, 4).map((c, idx) => {
-                const bg = c.tone === "red" ? C.chipRedBg : c.tone === "amber" ? C.chipAmberBg : C.chipBg;
-                const fg = c.tone === "red" ? C.chipRedText : c.tone === "amber" ? C.chipAmberText : C.sub;
-                return (
-                  <View key={`${item.id}-${idx}`} style={[s.chip, { backgroundColor: bg, borderColor: C.border }]}>
-                    <Text style={[s.chipText, { color: fg }]} numberOfLines={1}>
-                      {c.label}
-                    </Text>
-                  </View>
-                );
-              })}
-            </View>
-          ) : null}
-        </Pressable>
-      );
-    },
-    [
-      C.border,
-      C.card,
-      C.chipAmberBg,
-      C.chipAmberText,
-      C.chipBg,
-      C.chipRedBg,
-      C.chipRedText,
-      C.sub,
-      C.text,
-      chipsById,
-      facturasByVenta,
-      handleVentaPress,
-    ]
+    ({ item }: { item: VentaRow }) => (
+      <VentaCard
+        item={item}
+        chips={chipsById[item.id] ?? EMPTY_CHIPS}
+        facturas={facturasByVenta[String(item.id)] ?? EMPTY_FACTURAS}
+        onPress={handleVentaPress}
+        C={C}
+      />
+    ),
+    [C, chipsById, facturasByVenta, handleVentaPress]
   );
 
-  const listEmptyComponent = useMemo(() => {
-    const now = Date.now();
-    const cached = cacheRef.current[estado];
-    const cacheFresh = !!cached && now - cached.ts <= CACHE_TTL_MS;
-    const showSkeleton =
-      visibleRows.length === 0 &&
-      ((initialLoading && loadedEstado !== estado) || (listLoading && !cacheFresh));
-
-    if (showSkeleton) {
-      const skelBg = isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)";
-      const skelHi = isDark ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.12)";
-      const items = Array.from({ length: 7 }).map((_, idx) => (
-        <View
-          key={`sk-${idx}`}
-          style={[
-            s.card,
-            {
-              borderColor: C.border,
-              backgroundColor: C.card,
-              overflow: "hidden",
-            },
-          ]}
-        >
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <View
-              style={{
-                height: 18,
-                borderRadius: 10,
-                backgroundColor: skelHi,
-                flex: 1,
-                marginRight: 10,
-              }}
-            />
-            <View style={{ height: 28, width: 88, borderRadius: 999, backgroundColor: skelBg }} />
-          </View>
-          <View style={{ height: 10 }} />
-          <View style={{ height: 14, width: "56%", borderRadius: 8, backgroundColor: skelBg }} />
-          <View style={{ height: 12 }} />
-          <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-            <View style={{ height: 26, width: 110, borderRadius: 999, backgroundColor: skelBg }} />
-            <View style={{ height: 26, width: 84, borderRadius: 999, backgroundColor: skelBg }} />
-            <View style={{ height: 26, width: 96, borderRadius: 999, backgroundColor: skelBg }} />
-          </View>
-        </View>
-      ));
-      return <View>{items}</View>;
-    }
-
-    return <Text style={{ padding: 16, color: C.sub, fontWeight: "700" }}>Sin ventas</Text>;
-  }, [C.border, C.card, C.sub, estado, initialLoading, isDark, listLoading, loadedEstado, visibleRows.length]);
+  const listEmptyComponent = (
+    <VentasListEmpty
+      isLoading={listLoading || searchLoading}
+      initialLoading={initialLoading}
+      loadedEstado={loadedEstado}
+      estado={estado}
+      visibleCount={visibleRows.length}
+      isDark={isDark}
+      C={C}
+    />
+  );
 
   const renderSectionHeader = useCallback(
     ({ section }: { section: { title: string } }) => (
@@ -821,7 +922,7 @@ export default function Ventas() {
               verseOpacity.setValue(0);
               verseTranslateY.setValue(18);
               verseScale.setValue(0.96);
-              Animated.parallel([
+              verseAnimRef.current = Animated.parallel([
                 Animated.timing(verseOpacity, {
                   toValue: 1,
                   duration: 180,
@@ -837,7 +938,8 @@ export default function Ventas() {
                   duration: 220,
                   useNativeDriver: true,
                 }),
-              ]).start();
+              ]);
+              verseAnimRef.current.start();
             }}
             style={({ pressed }) => [pressed ? { opacity: 0.85 } : null]}
           >
@@ -865,40 +967,9 @@ export default function Ventas() {
                 key={t.key}
                 onPress={() => {
                   if (t.key === estado) return;
-
                   const nextEstado = t.key;
                   setEstado(nextEstado);
-
-                  const now = Date.now();
-                  const cached = cacheRef.current[nextEstado];
-                  const cacheFresh = !!cached && now - cached.ts <= CACHE_TTL_MS;
-
-                  if (cacheFresh) {
-                    setListLoading(false);
-                    setRowsRaw(cached.rows);
-                    setTagsByVenta(cached.tags);
-                    setFacturasByVenta(cached.facturas ?? {});
-                    setLoadedEstado(nextEstado);
-
-                    const myReval = ++revalidateSeq.current;
-                    setRevalidatingEstado(nextEstado);
-                    setRevalidating(true);
-                    fetchVentas(nextEstado, { silent: true })
-                      .catch(() => {})
-                      .finally(() => {
-                        if (myReval === revalidateSeq.current) {
-                          setRevalidating(false);
-                          setRevalidatingEstado(null);
-                        }
-                      });
-                  } else {
-                    setRevalidating(false);
-                    setRevalidatingEstado(null);
-                    setLoadedEstado(null);
-                    setListLoading(true);
-                    fetchVentas(nextEstado, { silent: false }).catch(() => {});
-                  }
-
+                  loadEstado(nextEstado).catch(() => {});
                   const dotsCached = dotsCacheRef.current;
                   const dotsFresh = !!dotsCached.data && Date.now() - dotsCached.timestamp < 25000;
                   if (!dotsFresh) refreshDots().catch(() => {});
@@ -969,18 +1040,17 @@ export default function Ventas() {
       )}
 
       {/* Modal filtros */}
-      {filtersOpen ? (
-        <Modal
-          visible={filtersOpen}
-          transparent
-          animationType="fade"
-          onRequestClose={() => {
-            setFiltersOpen(false);
-            setClienteOpen(false);
-            setShowDesdeIOS(false);
-            setShowHastaIOS(false);
-          }}
-        >
+      <Modal
+        visible={filtersOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setFiltersOpen(false);
+          setClienteOpen(false);
+          setShowDesdeIOS(false);
+          setShowHastaIOS(false);
+        }}
+      >
           <Pressable
             style={[s.modalBackdrop, { backgroundColor: isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.35)" }]}
             onPress={() => {
@@ -991,6 +1061,7 @@ export default function Ventas() {
             }}
           />
 
+          <View pointerEvents="box-none" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "flex-start", paddingTop: Math.max(insets.top + 8, 48) }}>
           <View style={[s.modalCard, { backgroundColor: C.card, borderColor: C.border }]}>
           <View style={s.modalHeader}>
             <Text style={[s.modalTitle, { color: C.text }]}>Filtros</Text>
@@ -1140,16 +1211,15 @@ export default function Ventas() {
             <AppButton title="Aplicar" variant="primary" size="sm" onPress={aplicarFiltros} />
           </View>
           </View>
+          </View>
         </Modal>
-      ) : null}
 
-      {verseOpen ? (
-        <Modal
-          visible={verseOpen}
-          transparent
-          animationType="none"
-          onRequestClose={() => {
-            Animated.parallel([
+      <Modal
+        visible={verseOpen}
+        transparent
+        animationType="none"
+        onRequestClose={() => {
+          Animated.parallel([
               Animated.timing(verseOpacity, { toValue: 0, duration: 120, useNativeDriver: true }),
               Animated.timing(verseTranslateY, { toValue: 18, duration: 150, useNativeDriver: true }),
               Animated.timing(verseScale, { toValue: 0.96, duration: 150, useNativeDriver: true }),
@@ -1204,7 +1274,6 @@ export default function Ventas() {
           />
           </Animated.View>
         </Modal>
-      ) : null}
     </SafeAreaView>
   );
 }
@@ -1320,7 +1389,7 @@ const s = StyleSheet.create({
   sectionHeaderText: { fontSize: 13, fontWeight: "900", textAlign: "right" },
 
   modalBackdrop: { ...StyleSheet.absoluteFillObject },
-  modalCard: { position: "absolute", left: 14, right: 14, top: 90, borderRadius: 18, padding: 16, borderWidth: 1 },
+  modalCard: { marginHorizontal: 14, borderRadius: 18, padding: 16, borderWidth: 1 },
   modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   modalTitle: { fontSize: 22, fontWeight: "800" },
   modalClose: { fontSize: 15, fontWeight: "700" },

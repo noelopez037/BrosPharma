@@ -44,6 +44,7 @@ type AdminData = {
   cxcSaldoVencido: number;
   ventasMesTotal: number;
   ventasMesPorVendedor: VendedorMesTotal[];
+  ventasMes: number[]; // 12 values: Ene..Dic (global, todos los vendedores)
 };
 
 type VentasData = {
@@ -187,6 +188,7 @@ function MiniLine({
   }, [values, w]);
 
   const maxV = useMemo(() => Math.max(0, ...values.map((v) => Number(v) || 0)), [values]);
+  const allZero = useMemo(() => maxV === 0, [maxV]);
   const monthTotal = useMemo(
     () => safeNumber(values?.[Math.max(0, Math.min(11, currentMonthIndex))] ?? 0),
     [currentMonthIndex, values]
@@ -206,57 +208,63 @@ function MiniLine({
         <Text style={[s.lineMeta, { color: colors.sub }]}>Max: {fmtQ(maxV)}</Text>
       </View>
 
-      <View
-        style={[s.lineChart, { borderColor: colors.border, backgroundColor: colors.chipBg }]}
-        onLayout={(ev) => {
-          const next = Math.round(ev.nativeEvent.layout.width);
-          if (next !== w) setW(next);
-        }}
-      >
-        {pts.length >= 2
-          ? pts.slice(0, -1).map((p, idx) => {
-              const q = pts[idx + 1];
-              const dx = q.x - p.x;
-              const dy = q.y - p.y;
-              const dist = Math.sqrt(dx * dx + dy * dy);
-              const ang = (Math.atan2(dy, dx) * 180) / Math.PI;
-              const xm = (p.x + q.x) / 2;
-              const ym = (p.y + q.y) / 2;
-              return (
+      {allZero ? (
+        <View style={[s.lineChart, { borderColor: colors.border, backgroundColor: colors.chipBg, justifyContent: "center", alignItems: "center" }]}>
+          <Text style={[s.lineMeta, { color: colors.sub }]}>Sin ventas este año</Text>
+        </View>
+      ) : (
+        <View
+          style={[s.lineChart, { borderColor: colors.border, backgroundColor: colors.chipBg }]}
+          onLayout={(ev) => {
+            const next = Math.round(ev.nativeEvent.layout.width);
+            if (next !== w) setW(next);
+          }}
+        >
+          {pts.length >= 2
+            ? pts.slice(0, -1).map((p, idx) => {
+                const q = pts[idx + 1];
+                const dx = q.x - p.x;
+                const dy = q.y - p.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const ang = (Math.atan2(dy, dx) * 180) / Math.PI;
+                const xm = (p.x + q.x) / 2;
+                const ym = (p.y + q.y) / 2;
+                return (
+                  <View
+                    key={`seg-${idx}`}
+                    style={[
+                      s.lineSeg,
+                      {
+                        left: xm - dist / 2,
+                        top: ym - 1,
+                        width: dist,
+                        backgroundColor: colors.tint,
+                        transform: [{ rotateZ: `${ang}deg` }],
+                      },
+                    ]}
+                  />
+                );
+              })
+            : null}
+
+          {pts.length
+            ? pts.map((p) => (
                 <View
-                  key={`seg-${idx}`}
+                  key={`pt-${p.i}`}
                   style={[
-                    s.lineSeg,
+                    s.lineDot,
                     {
-                      left: xm - dist / 2,
-                      top: ym - 1,
-                      width: dist,
-                      backgroundColor: colors.tint,
-                      transform: [{ rotateZ: `${ang}deg` }],
+                      left: p.x - 3,
+                      top: p.y - 3,
+                      backgroundColor: colors.card,
+                      borderColor: colors.tint,
                     },
                   ]}
                 />
-              );
-            })
-          : null}
-
-        {pts.length
-          ? pts.map((p) => (
-              <View
-                key={`pt-${p.i}`}
-                style={[
-                  s.lineDot,
-                  {
-                    left: p.x - 3,
-                    top: p.y - 3,
-                    backgroundColor: colors.card,
-                    borderColor: colors.tint,
-                  },
-                ]}
-              />
-            ))
-          : null}
-      </View>
+              ))
+            : null}
+        </View>
+      )}
 
       <View style={s.lineLabelsRow}>
         {monthLabels.map((m, i) => (
@@ -451,6 +459,18 @@ export default function Inicio() {
     const { data, error } = await supabase.rpc('rpc_dashboard_admin');
     if (error) throw error;
     const d = data as any;
+
+    // Parse ventas_por_mes global: espera array de 12 números (índice 0=Ene). Fallback a ceros.
+    const rawMesAdmin: unknown = d.ventas_por_mes ?? null;
+    const parsedMesAdmin: unknown =
+      typeof rawMesAdmin === 'string'
+        ? (() => { try { return JSON.parse(rawMesAdmin); } catch { return null; } })()
+        : rawMesAdmin;
+    const ventasMes: number[] =
+      Array.isArray(parsedMesAdmin) && parsedMesAdmin.length > 0 && typeof parsedMesAdmin[0] === 'number'
+        ? Array.from({ length: 12 }, (_, i) => Number(parsedMesAdmin[i] ?? 0))
+        : new Array<number>(12).fill(0);
+
     return {
       solicitudes: Number(d.solicitudes ?? 0),
       recetasPendMes: Number(d.recetas_pendientes_mes ?? 0),
@@ -464,6 +484,7 @@ export default function Inicio() {
         vendedor_nombre: String(r.vendedor_nombre ?? 'Sin vendedor'),
         monto: Number(r.monto ?? 0),
       })),
+      ventasMes,
     } satisfies AdminData;
   }, []);
 
@@ -472,12 +493,56 @@ export default function Inicio() {
     if (error) throw error;
     const d = data as any;
 
-    // ventas_por_mes es array de montos por mes (puede tener gaps), necesitamos array de 12
-    const rawMeses: { mes: number; monto: number }[] = d.ventas_por_mes ?? [];
-    const ventasMes = Array.from({ length: 12 }, (_, i) => {
-      const found = rawMeses.find((r) => r.mes === i + 1);
-      return Number(found?.monto ?? 0);
-    });
+    // Resolves ventas_por_mes from multiple possible keys and formats.
+    const rawMesSource: unknown =
+      d.ventas_por_mes ??
+      d.ventas_mes ??
+      d.ventas_mes_por_mes ??
+      d.ventasPorMes ??
+      null;
+
+    const parsedSource: unknown =
+      typeof rawMesSource === 'string'
+        ? (() => { try { return JSON.parse(rawMesSource); } catch { return null; } })()
+        : rawMesSource;
+
+    const ventasMes = ((): number[] => {
+      const out = new Array<number>(12).fill(0);
+
+      // Format 1: plain number array — index 0..11 maps directly to Ene..Dic
+      if (Array.isArray(parsedSource) && parsedSource.length > 0 && typeof parsedSource[0] === 'number') {
+        for (let i = 0; i < 12; i++) out[i] = Number(parsedSource[i] ?? 0);
+        return out;
+      }
+
+      // Format 2: object array
+      if (Array.isArray(parsedSource) && parsedSource.length > 0) {
+        const rows = parsedSource as any[];
+        const getMes = (r: any): number => Number(r?.mes ?? r?.m ?? r?.month ?? r?.Month ?? NaN);
+        const mesValues = rows.map(getMes).filter((n) => Number.isFinite(n));
+        const maxMes = mesValues.length ? Math.max(...mesValues) : -1;
+        const nowMonth = new Date().getMonth() + 1; // 1-based calendar month
+        // 0-based detection:
+        //   a) any row explicitly has mes=0 (January in 0-based), OR
+        //   b) the highest mes equals the current calendar month minus 1
+        //      AND no row has the 1-based current month value
+        //      (handles partial-year data where January has no sales)
+        const is0Based =
+          mesValues.some((n) => n === 0) ||
+          (maxMes === nowMonth - 1 && !mesValues.includes(nowMonth));
+        for (const r of rows) {
+          let m = getMes(r);
+          if (!Number.isFinite(m)) continue;
+          if (is0Based) m += 1; // normalise to 1-based
+          if (m < 1 || m > 12) continue;
+          const v = Number(r?.monto ?? r?.total ?? r?.sum ?? r?.amount ?? 0);
+          out[m - 1] = v;
+        }
+        return out;
+      }
+
+      return out;
+    })();
 
     // recetas pendientes: seguir usando rpc_ventas_receta_pendiente_por_mes para obtener la lista
     const { year, month } = gtYearMonth();
@@ -875,6 +940,20 @@ export default function Inicio() {
               />
             ) : (
               <Text style={[s.empty, { color: C.sub }]}>{d ? "Sin ventas este mes" : "—"}</Text>
+            )}
+          </ListCard>
+
+          <ListCard title={`Ventas ${year} (Ene-Dic)`} colors={C}>
+            {d ? (
+              <MiniLine
+                values={d.ventasMes}
+                year={year}
+                currentMonthIndex={month - 1}
+                currentMonthLabel={mon}
+                colors={C}
+              />
+            ) : (
+              <Text style={[s.empty, { color: C.sub }]}>—</Text>
             )}
           </ListCard>
         </View>
