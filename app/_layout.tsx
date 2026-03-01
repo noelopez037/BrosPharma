@@ -22,6 +22,7 @@ import { ThemePrefProvider, useThemePref } from "../lib/themePreference";
 import { claimPushForCurrentSession } from "../lib/pushNotifications";
 import { parseVentaSolicitudAdminNotifData } from "../lib/pushPayload";
 import { supabase } from "../lib/supabase";
+import { invalidateAll } from "../lib/productoCache";
 import { makeNativeTheme } from "../src/theme/navigationTheme";
 import { getHeaderColors } from "../src/theme/headerColors";
 
@@ -242,11 +243,14 @@ export default function Layout() {
     const sub = AppState.addEventListener("change", (nextState: AppStateStatus) => {
       if (nextState === "active") {
         void clearBadge();
+        void supabase.auth.startAutoRefresh();
+        invalidateAll();
       }
     });
 
     return () => {
       sub.remove();
+      void supabase.auth.stopAutoRefresh();
     };
   }, []);
 

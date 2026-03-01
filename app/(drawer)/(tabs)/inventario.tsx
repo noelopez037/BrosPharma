@@ -118,6 +118,7 @@ export default function InventarioScreen() {
     async (pageIndex: number, replace: boolean) => {
       const seq = ++requestSeq.current;
 
+      const isSearching = Boolean(debouncedQ);
       const from = pageIndex * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
 
@@ -126,15 +127,17 @@ export default function InventarioScreen() {
         .select(
           "id,nombre,marca,activo,precio_min_venta,stock_disponible,lote_proximo,fecha_exp_proxima"
         )
-        .order("nombre", { ascending: true })
-        .range(from, to);
+        .order("nombre", { ascending: true });
+
+      // En modo lista normal paginar; en búsqueda traer todos los matches sin límite.
+      if (!isSearching) req = req.range(from, to);
 
       // Default: solo activos. Admin puede incluir inactivos con el toggle.
       if (!showInactive) {
         req = req.eq("activo", true);
       }
 
-      if (debouncedQ) {
+      if (isSearching) {
         req = req.or(`nombre.ilike.%${debouncedQ}%,marca.ilike.%${debouncedQ}%`);
       }
 
@@ -146,8 +149,14 @@ export default function InventarioScreen() {
       if (error) throw error;
 
       const list = (data ?? []) as Row[];
-      setHasMore(list.length === PAGE_SIZE);
-      setRows((prev) => (replace ? list : [...prev, ...list]));
+      // En búsqueda siempre reemplazar y desactivar infinite scroll.
+      if (isSearching) {
+        setHasMore(false);
+        setRows(list);
+      } else {
+        setHasMore(list.length === PAGE_SIZE);
+        setRows((prev) => (replace ? list : [...prev, ...list]));
+      }
     },
     [debouncedQ, showInactive]
   );
@@ -183,7 +192,7 @@ export default function InventarioScreen() {
   );
 
   const loadMore = useCallback(async () => {
-    if (!hasMore || loadingMoreRef.current || initialLoading) return;
+    if (debouncedQ || !hasMore || loadingMoreRef.current || initialLoading) return;
     loadingMoreRef.current = true;
     setLoadingMore(true);
     try {

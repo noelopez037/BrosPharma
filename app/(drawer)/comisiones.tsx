@@ -4,7 +4,7 @@ import { Stack, router } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
-  FlatList,
+  SectionList,
   Modal,
   Platform,
   Pressable,
@@ -379,26 +379,8 @@ export default function ComisionesScreen() {
     setVendedorOpen(false);
   };
 
-  const renderRow = ({ item }: { item: RpcComisionRow }) => {
-    const code = String(item.vendedor_codigo ?? "").trim() || "—";
-    return (
-      <View style={s.card}>
-        <View style={s.row}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.title} numberOfLines={1}>
-              {code}
-            </Text>
-            <Text style={s.sub}>Total sin IVA: {fmtQ(item.total_sin_iva)}</Text>
-            <Text style={s.sub}>Comisión: {fmtQ(item.comision_mes)}</Text>
-          </View>
-        </View>
-      </View>
-    );
-  };
-
-  const renderVentaPagada = ({ item }: { item: CxCVentaRow }) => {
+  const renderVentaPagada = useCallback(({ item }: { item: CxCVentaRow }) => {
     const fact = Array.isArray(item.facturas) ? item.facturas.filter(Boolean).join(" · ") : "—";
-    const saldo0 = Math.max(0, safeNumber(item.saldo));
     return (
       <Pressable
         onPress={() =>
@@ -421,113 +403,41 @@ export default function ComisionesScreen() {
         </View>
       </Pressable>
     );
-  };
+  }, [s]);
 
-  type ListItem =
-    | { kind: "COMISION"; key: string; row: RpcComisionRow }
-    | { kind: "VENTA_PAGADA"; key: string; row: CxCVentaRow }
-    | { kind: "SECTION"; key: string; title: string; subtitle?: string }
-    | { kind: "DAY_HEADER"; key: string; ymd: string }
-    | { kind: "EMPTY"; key: string; text: string };
+  type SectionData = { key: string; ymd: string; data: CxCVentaRow[] };
 
-  const listData = useMemo<ListItem[]>(() => {
-    if (initialLoading && rowsRaw.length === 0 && ventasPagadasRaw.length === 0) return [];
+  const sections = useMemo<SectionData[]>(() => {
+    if (ventasPagadasRaw.length === 0) return [];
 
-    const out: ListItem[] = [];
-
-    if (!isVentas) {
-      if (rows.length === 0) {
-        out.push({ kind: "EMPTY", key: "empty-comisiones", text: "No hay comisiones en este mes" });
-      } else {
-        rows.forEach((r, idx) => {
-          const k = String(r.vendedor_id ?? r.vendedor_codigo ?? idx);
-          out.push({ kind: "COMISION", key: `c-${k}`, row: r });
-        });
-      }
-    }
-
-    out.push({
-      kind: "SECTION",
-      key: "sec-paid",
-      title: "Ventas pagadas",
-      subtitle: `Mes: ${monthLabel}`,
+    const grouped = new Map<string, CxCVentaRow[]>();
+    ventasPagadasRaw.forEach((venta) => {
+      const ymd = venta?.fecha_ultimo_pago ? String(venta.fecha_ultimo_pago).slice(0, 10) : "SIN_FECHA";
+      if (!grouped.has(ymd)) grouped.set(ymd, []);
+      grouped.get(ymd)!.push(venta);
     });
 
-    if (ventasPagadasRaw.length === 0) {
-      out.push({ kind: "EMPTY", key: "empty-paid", text: "No hay ventas pagadas en este mes" });
-    } else {
-      const grouped = new Map<string, CxCVentaRow[]>();
-      ventasPagadasRaw.forEach((venta) => {
-        const ymd = venta?.fecha_ultimo_pago ? String(venta.fecha_ultimo_pago).slice(0, 10) : "SIN_FECHA";
-        if (!grouped.has(ymd)) grouped.set(ymd, []);
-        grouped.get(ymd)!.push(venta);
-      });
-
-      const orderedDays = Array.from(grouped.keys()).sort((a, b) => {
-        if (a === b) return 0;
-        if (a === "SIN_FECHA") return 1;
-        if (b === "SIN_FECHA") return -1;
-        return a < b ? 1 : -1;
-      });
-
-      orderedDays.forEach((ymd) => {
-        out.push({ kind: "DAY_HEADER", key: `dh-${ymd}`, ymd });
-        grouped.get(ymd)!.forEach((venta, idx) => {
-          const ventaKey = venta.venta_id != null ? `v-${venta.venta_id}` : `v-${ymd}-${idx}`;
-          out.push({ kind: "VENTA_PAGADA", key: ventaKey, row: venta });
-        });
-      });
-    }
-
-    return out;
-  }, [initialLoading, isVentas, monthLabel, rows, rowsRaw.length, ventasPagadasRaw]);
-
-  const stickyHeaderIndices = useMemo(() => {
-    const idx: number[] = [];
-    listData.forEach((it, i) => {
-      if (it.kind === "DAY_HEADER") idx.push(i);
+    const orderedDays = Array.from(grouped.keys()).sort((a, b) => {
+      if (a === b) return 0;
+      if (a === "SIN_FECHA") return 1;
+      if (b === "SIN_FECHA") return -1;
+      return a < b ? 1 : -1;
     });
-    return idx;
-  }, [listData]);
 
-  const renderListItem = useCallback(({ item }: { item: ListItem }) => {
-    if (item.kind === "DAY_HEADER") {
-      return (
-        <View style={[s.sectionHeader, { backgroundColor: colors.background, width: "100%", alignItems: "stretch" }]}>
-          <Text style={[s.sectionHeaderText, { color: colors.text + "AA", textAlign: "right" }]}>
-            {item.ymd === "SIN_FECHA" ? "Sin fecha" : fmtDateLongEs(item.ymd)}
-          </Text>
-        </View>
-      );
-    }
-    if (item.kind === "COMISION") return renderRow({ item: item.row });
-    if (item.kind === "VENTA_PAGADA") return renderVentaPagada({ item: item.row });
-    if (item.kind === "EMPTY") {
-      return (
-        <View style={s.card}>
-          <Text style={s.empty}>{item.text}</Text>
-        </View>
-      );
-    }
-    if (item.kind === "SECTION") {
-      if (item.subtitle) {
-        return (
-          <View style={[s.card, { paddingVertical: 10 }]}>
-            <Text style={s.sectionTitle}>{item.title}</Text>
-            <Text style={s.sub}>{item.subtitle}</Text>
-          </View>
-        );
-      }
-      return (
-        <View style={s.sectionHeader}>
-          <Text style={s.sectionHeaderText}>
-            {item.title === "Sin fecha" ? "Sin fecha" : fmtDateLongEs(item.title)}
-          </Text>
-        </View>
-      );
-    }
-    return null;
-  }, [s, colors, renderRow, renderVentaPagada]);
+    return orderedDays.map((ymd) => ({
+      key: `s-${ymd}`,
+      ymd,
+      data: grouped.get(ymd)!,
+    }));
+  }, [ventasPagadasRaw]);
+
+  const renderSectionHeader = useCallback(({ section }: { section: SectionData }) => (
+    <View style={[s.sectionHeader, { backgroundColor: colors.background, alignItems: "flex-end" }]}>
+      <Text style={[s.sectionHeaderText, { color: colors.text + "AA" }]}>
+        {section.ymd === "SIN_FECHA" ? "Sin fecha" : fmtDateLongEs(section.ymd)}
+      </Text>
+    </View>
+  ), [s, colors]);
 
   const ListHeader = useMemo(
     () => (
@@ -586,9 +496,48 @@ export default function ComisionesScreen() {
             <Text style={[s.empty, { paddingTop: 0 }]}>{loadError}</Text>
           </View>
         ) : null}
+
+        {/* Filas de comisiones (solo rol no-VENTAS) */}
+        {!isVentas ? (
+          rows.length === 0 && !initialLoading ? (
+            <View style={s.card}>
+              <Text style={s.empty}>No hay comisiones en este mes</Text>
+            </View>
+          ) : (
+            <>
+              {rows.map((r, idx) => {
+                const code = String(r.vendedor_codigo ?? "").trim() || "—";
+                return (
+                  <View key={String(r.vendedor_id ?? r.vendedor_codigo ?? idx)} style={s.card}>
+                    <View style={s.row}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.title} numberOfLines={1}>{code}</Text>
+                        <Text style={s.sub}>Total sin IVA: {fmtQ(r.total_sin_iva)}</Text>
+                        <Text style={s.sub}>Comisión: {fmtQ(r.comision_mes)}</Text>
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
+            </>
+          )
+        ) : null}
+
+        {/* Título sección ventas pagadas */}
+        <View style={[s.card, { paddingVertical: 10 }]}>
+          <Text style={s.sectionTitle}>Ventas pagadas</Text>
+          <Text style={s.sub}>Mes: {monthLabel}</Text>
+        </View>
+
+        {/* Empty state ventas pagadas */}
+        {ventasPagadasRaw.length === 0 && !initialLoading ? (
+          <View style={s.card}>
+            <Text style={s.empty}>No hay ventas pagadas en este mes</Text>
+          </View>
+        ) : null}
       </>
     ),
-    [s, openMonthPicker, monthLabel, isAdmin, isVentas, totals, initialLoading, loadError]
+    [s, openMonthPicker, monthLabel, isAdmin, isVentas, totals, initialLoading, loadError, rows, ventasPagadasRaw.length]
   );
 
   return (
@@ -605,12 +554,13 @@ export default function ComisionesScreen() {
         backHref="/(drawer)/(tabs)"
       >
         <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
-          <FlatList
+          <SectionList<CxCVentaRow, SectionData>
             style={{ backgroundColor: colors.background }}
-            data={listData}
-            keyExtractor={(it) => it.key}
-            renderItem={renderListItem}
-            stickyHeaderIndices={stickyHeaderIndices}
+            sections={sections}
+            keyExtractor={(item) => String(item.venta_id)}
+            renderItem={renderVentaPagada}
+            renderSectionHeader={renderSectionHeader}
+            stickySectionHeadersEnabled={true}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
             automaticallyAdjustKeyboardInsets
@@ -814,12 +764,9 @@ const styles = (colors: any) =>
 
     sectionTitle: { color: colors.text, fontSize: 15, fontWeight: "900" },
     sectionHeader: {
-      width: "100%",
-      paddingHorizontal: 12,
       paddingTop: 8,
       paddingBottom: 6,
-      zIndex: 10,
-      ...(Platform.OS === "android" ? { elevation: 10 } : null),
+      alignItems: "flex-end",
     },
     sectionHeaderText: { fontSize: 13, fontWeight: "900", textAlign: "right" },
     paidBadge: {

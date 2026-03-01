@@ -105,36 +105,20 @@ export default function VentasAnuladasScreen() {
   const [initialLoading, setInitialLoading] = useState(true);
 
   const fetchAnuladas = useCallback(async () => {
-    // Primero obtener IDs por tag (RLS limita para VENTAS).
-    const { data: trows, error: te } = await supabase
+    const { data, error } = await supabase
       .from("ventas_tags")
-      .select("venta_id,created_at")
+      .select("created_at, ventas:venta_id ( id, fecha, estado, cliente_nombre, vendedor_id, vendedor_codigo )")
       .eq("tag", "ANULADO")
       .is("removed_at", null)
       .order("created_at", { ascending: false })
       .limit(300);
-    if (te) throw te;
 
-    const ids = Array.from(
-      new Set((trows ?? []).map((r: any) => Number(r.venta_id)).filter((x) => Number.isFinite(x) && x > 0))
-    );
-    if (!ids.length) {
-      setRowsRaw([]);
-      return;
-    }
-
-    const orderMap = new Map<number, number>();
-    ids.forEach((id, idx) => orderMap.set(id, idx));
-
-    const { data, error } = await supabase
-      .from("ventas")
-      .select("id,fecha,estado,cliente_nombre,vendedor_id,vendedor_codigo")
-      .in("id", ids);
     if (error) throw error;
 
-    const rows = ((data ?? []) as any as VentaRow[])
-      .slice()
-      .sort((a, b) => (orderMap.get(Number(a.id)) ?? 999999) - (orderMap.get(Number(b.id)) ?? 999999));
+    const rows = (data ?? [])
+      .map((r: any) => r.ventas)
+      .filter(Boolean) as VentaRow[];
+
     setRowsRaw(rows);
   }, []);
 
