@@ -88,7 +88,12 @@ function extFromMime(mime: string) {
   return "jpg";
 }
 
-async function uriToBytes(uri: string) {
+async function uriToBytes(uri: string): Promise<Uint8Array> {
+  if (Platform.OS === "web") {
+    const res = await fetch(uri);
+    const ab = await res.arrayBuffer();
+    return new Uint8Array(ab);
+  }
   const anyFS: any = FileSystem as any;
   const encoding = anyFS?.EncodingType?.Base64 ?? "base64";
   const b64 = await anyFS.readAsStringAsync(uri, { encoding });
@@ -340,19 +345,53 @@ export default function CxcVentaDetalle() {
 
   const pickComprobante = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) { Alert.alert("Permiso requerido", "Permite acceso a tus fotos para seleccionar el comprobante."); return; }
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.9, allowsEditing: false });
+    if (!perm.granted) {
+      Alert.alert("Permiso requerido", "Permite acceso a tus fotos para seleccionar el comprobante.");
+      return;
+    }
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.9,
+      allowsEditing: false,
+    });
     if (res.canceled) return;
-    const a = res.assets?.[0]; if (!a?.uri) return;
-    const mimeType = (a as any).mimeType || "image/jpeg";
+    const a = res.assets?.[0];
+    if (!a?.uri) return;
+
+    let mimeType = (a as any).mimeType || "";
+    if (!mimeType && a.fileName) {
+      const ext = String(a.fileName).split(".").pop()?.toLowerCase() ?? "";
+      const map: Record<string, string> = {
+        jpg: "image/jpeg",
+        jpeg: "image/jpeg",
+        png: "image/png",
+        webp: "image/webp",
+      };
+      mimeType = map[ext] ?? "image/jpeg";
+    }
+    if (!mimeType) mimeType = "image/jpeg";
+
     setPagoImg({ uri: a.uri, mimeType });
   };
 
   const subirComprobanteSiExiste = async (ventaIdLocal: number): Promise<string | null> => {
     if (!pagoImg?.uri) return null;
     const path = makeComprobantePath(ventaIdLocal, pagoImg.mimeType);
+
+    if (Platform.OS === "web") {
+      const res = await fetch(pagoImg.uri);
+      const blob = await res.blob();
+      const { error } = await supabase.storage
+        .from(BUCKET_COMPROBANTES)
+        .upload(path, blob, { upsert: false, contentType: pagoImg.mimeType || "image/jpeg" });
+      if (error) throw error;
+      return path;
+    }
+
     const bytes = await uriToBytes(pagoImg.uri);
-    const { error } = await supabase.storage.from(BUCKET_COMPROBANTES).upload(path, bytes, { upsert: false, contentType: pagoImg.mimeType || "image/jpeg" });
+    const { error } = await supabase.storage
+      .from(BUCKET_COMPROBANTES)
+      .upload(path, bytes, { upsert: false, contentType: pagoImg.mimeType || "image/jpeg" });
     if (error) throw error;
     return path;
   };
