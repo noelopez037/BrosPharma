@@ -1,8 +1,8 @@
-import { Platform } from "react-native";
+import { Asset } from "expo-asset";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
-import * as FileSystem from "expo-file-system/legacy";
-import { Asset } from "expo-asset";
+import { Platform } from "react-native";
 
 type RpcHeader = Record<string, any>;
 type RpcTotals = Record<string, any>;
@@ -532,14 +532,6 @@ function buildEstadoCuentaHtml({ logoBase64, header, totals, rows }: { logoBase6
   </html>`;
 }
 
-function base64ToBlobUrl(base64: string) {
-  const bin = atob(base64);
-  const len = bin.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
-  const blob = new Blob([bytes], { type: "application/pdf" });
-  return URL.createObjectURL(blob);
-}
 
 export async function generarEstadoCuentaClientePdf(payload: EstadoCuentaClientePdfPayload, opts?: { fileName?: string }) {
   const logoBase64 = await readAssetAsBase64Png(require("../assets/images/logo.png"));
@@ -548,39 +540,28 @@ export async function generarEstadoCuentaClientePdf(payload: EstadoCuentaCliente
   const fileName = (opts?.fileName ?? "estado-cuenta").replace(/[^a-zA-Z0-9._-]+/g, "-");
 
   if (Platform.OS === "web") {
-    try {
-      // Prefer generating a PDF and opening/downloading it.
-      const out: any = await Print.printToFileAsync({ html, base64: true } as any);
-      const base64 = out?.base64 as string | undefined;
-      const uri = out?.uri as string | undefined;
+    if (typeof document !== "undefined") {
+      const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const win = window.open(url, "_blank", "noopener,noreferrer");
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
 
-      if (typeof window !== "undefined") {
-        const url = base64 ? base64ToBlobUrl(base64) : uri;
-        if (url) {
-          // Open in new tab; also try to trigger a download.
-          try {
-            window.open(url, "_blank", "noopener,noreferrer");
-          } catch {}
-          try {
-            if (typeof document !== "undefined") {
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = `${fileName}.pdf`;
-              a.rel = "noopener";
-              document.body.appendChild(a);
-              a.click();
-              a.remove();
-            }
-          } catch {}
-        }
+      if (!win) {
+        // Popup blocked — fallback via hidden iframe
+        const iframe = document.createElement("iframe");
+        iframe.style.display = "none";
+        document.body.appendChild(iframe);
+        iframe.contentDocument!.open();
+        iframe.contentDocument!.write(html);
+        iframe.contentDocument!.close();
+        iframe.onload = () => {
+          iframe.contentWindow!.print();
+          document.body.removeChild(iframe);
+        };
       }
-
-      return { uri: uri ?? null };
-    } catch {
-      // Fallback: browser print dialog (still from HTML via expo-print).
-      await Print.printAsync({ html } as any);
-      return { uri: null };
     }
+
+    return { uri: null };
   }
 
   const out = await Print.printToFileAsync({ html });

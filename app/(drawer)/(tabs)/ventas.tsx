@@ -1,3 +1,4 @@
+import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { router } from "expo-router";
 import React, { useCallback, useMemo, useRef, useState } from "react";
@@ -14,14 +15,13 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppButton } from "../../../components/ui/app-button";
 import { VentaDetallePanel } from "../../../components/ventas/VentaDetallePanel";
 import { supabase } from "../../../lib/supabase";
-import { useRole } from "../../../lib/useRole";
 import { useThemePref } from "../../../lib/themePreference";
 import { alphaColor } from "../../../lib/ui";
+import { useRole } from "../../../lib/useRole";
 import { FB_DARK_DANGER } from "../../../src/theme/headerColors";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
@@ -675,12 +675,6 @@ export default function Ventas() {
 
   const rows = useMemo(() => {
     const search = debouncedQ.trim().toLowerCase();
-
-    // [búsqueda server-side] si hay texto y ya tenemos resultados del servidor, usarlos directamente
-    if (search && searchRows !== null) {
-      return searchRows;
-    }
-
     const desdeMs = fDesde ? startOfDay(fDesde).getTime() : null;
     const hastaMs = fHasta ? endOfDay(fHasta).getTime() : null;
 
@@ -716,7 +710,7 @@ export default function Ventas() {
       return id.includes(search) || cliente.includes(search) || vcode.includes(search) || facturaMatch;
     });
     return filtered;
-  }, [debouncedQ, searchRows, rowsRaw, tagsByVenta, facturasByVenta, fClienteId, fDesde, fHasta]);
+  }, [debouncedQ, rowsRaw, tagsByVenta, facturasByVenta, fClienteId, fDesde, fHasta]);
 
   const filteredClientes = useMemo(() => {
     const qq = (fClienteQ ?? "").trim().toLowerCase();
@@ -856,7 +850,7 @@ export default function Ventas() {
 
   const listEmptyComponent = (
     <VentasListEmpty
-      isLoading={listLoading || searchLoading}
+      isLoading={listLoading}
       initialLoading={initialLoading}
       loadedEstado={loadedEstado}
       estado={estado}

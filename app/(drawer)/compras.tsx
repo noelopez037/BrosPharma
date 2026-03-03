@@ -27,6 +27,7 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
@@ -34,6 +35,7 @@ import { useThemePref } from "../../lib/themePreference";
 import { AppButton } from "../../components/ui/app-button";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useRole } from "../../lib/useRole";
+import { CompraDetallePanel } from "../../components/compras/CompraDetallePanel";
 
 
 // Carga silenciosa: evitar spinners y evitar doble fetch en mount.
@@ -150,22 +152,23 @@ function badge(c: CompraRow) {
 const CompraCard = React.memo(function CompraCard({
   item,
   s,
+  onPress,
+  selected,
+  tint,
 }: {
   item: CompraRow;
   s: any;
+  onPress: (id: number) => void;
+  selected?: boolean;
+  tint: string;
 }) {
   const b = badge(item);
   const tipo = normalizeUpper(item.tipo_pago);
   const showSaldo = tipo === "CREDITO";
   return (
     <Pressable
-      style={s.card}
-      onPress={() =>
-        router.push({
-          pathname: "/compra-detalle",
-          params: { id: String(item.id) },
-        })
-      }
+      style={[s.card, selected ? { borderColor: tint, borderWidth: 2 } : null]}
+      onPress={() => onPress(item.id)}
     >
       <View style={s.row}>
         <View style={{ flex: 1 }}>
@@ -206,6 +209,28 @@ export default function ComprasScreen() {
   // ✅ respetar toggle dark/light
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
+
+  const { width } = useWindowDimensions();
+  const isWeb = Platform.OS === "web";
+  const canSplit = isWeb && width >= 1100;
+
+  const [selectedCompraId, setSelectedCompraId] = useState<number | null>(null);
+
+  React.useEffect(() => {
+    if (!canSplit) {
+      setSelectedCompraId(null);
+    }
+  }, [canSplit]);
+
+  React.useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+    const styleTag = document.createElement("style");
+    styleTag.textContent = `input:focus { outline: none !important; }`;
+    document.head.appendChild(styleTag);
+    return () => {
+      document.head.removeChild(styleTag);
+    };
+  }, []);
 
   // UX: swipe-back / back siempre regresa a Inicio.
   useGoHomeOnBack(true, "/(drawer)/(tabs)");
@@ -398,10 +423,29 @@ export default function ComprasScreen() {
     return out;
   }, [rows]);
 
+  const openCompra = useCallback(
+    (id: number) => {
+      if (canSplit) {
+        setSelectedCompraId(id);
+        return;
+      }
+      router.push({ pathname: "/compra-detalle", params: { id: String(id) } });
+    },
+    [canSplit]
+  );
+
   // ─── renderItem memoizado ─────────────────────────────────────────────────
   const renderItem = useCallback(
-    ({ item }: { item: CompraRow }) => <CompraCard item={item} s={s} />,
-    [s]
+    ({ item }: { item: CompraRow }) => (
+      <CompraCard
+        item={item}
+        s={s}
+        onPress={openCompra}
+        selected={selectedCompraId === item.id}
+        tint={M.primary}
+      />
+    ),
+    [s, openCompra, selectedCompraId, M.primary]
   );
 
   const renderSectionHeader = ({ section }: { section: CompraSection }) => (
@@ -526,36 +570,80 @@ export default function ComprasScreen() {
           ) : null}
         </View>
 
-        <SectionList<CompraRow, CompraSection>
-          style={{ backgroundColor: colors.background }}
-          sections={sections}
-          keyExtractor={(it: CompraRow) => String(it.id)}
-          renderItem={renderItem}
-          renderSectionHeader={renderSectionHeader}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          automaticallyAdjustKeyboardInsets
-          stickySectionHeadersEnabled={true}
-          initialNumToRender={12}
-          maxToRenderPerBatch={12}
-          windowSize={7}
-          updateCellsBatchingPeriod={50}
-          contentContainerStyle={{
-            paddingHorizontal: 12,
-            paddingTop: 12,
-            paddingBottom: 16 + bottomRail,
-          }}
-          ListHeaderComponent={<View style={{ height: 0 }} />}
-          ListEmptyComponent={
-            !initialLoading ? (
-              <View style={s.center}>
-                <Text style={s.empty}>
-                  {errorMsg ?? "Sin compras"}
-                </Text>
-              </View>
-            ) : null
-          }
-        />
+        {canSplit ? (
+          <View style={s.splitWrap}>
+            <View style={[s.splitListPane, { borderRightColor: colors.border }]}>
+              <SectionList<CompraRow, CompraSection>
+                style={{ flex: 1, backgroundColor: colors.background }}
+                sections={sections}
+                keyExtractor={(it: CompraRow) => String(it.id)}
+                renderItem={renderItem}
+                renderSectionHeader={renderSectionHeader}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+                automaticallyAdjustKeyboardInsets
+                stickySectionHeadersEnabled={true}
+                initialNumToRender={12}
+                maxToRenderPerBatch={12}
+                windowSize={7}
+                updateCellsBatchingPeriod={50}
+                contentContainerStyle={{
+                  paddingHorizontal: 12,
+                  paddingTop: 12,
+                  paddingBottom: 16 + bottomRail,
+                }}
+                ListHeaderComponent={<View style={{ height: 0 }} />}
+                ListEmptyComponent={
+                  !initialLoading ? (
+                    <View style={s.center}>
+                      <Text style={s.empty}>{errorMsg ?? "Sin compras"}</Text>
+                    </View>
+                  ) : null
+                }
+              />
+            </View>
+            <View style={s.splitDetailPane}>
+              {selectedCompraId ? (
+                <CompraDetallePanel compraId={selectedCompraId} embedded />
+              ) : (
+                <View style={[s.splitPlaceholder, { borderColor: colors.border }]}>
+                  <Text style={[s.splitPlaceholderText, { color: M.sub }]}>
+                    Selecciona una compra para ver detalles
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+        ) : (
+          <SectionList<CompraRow, CompraSection>
+            style={{ backgroundColor: colors.background }}
+            sections={sections}
+            keyExtractor={(it: CompraRow) => String(it.id)}
+            renderItem={renderItem}
+            renderSectionHeader={renderSectionHeader}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets
+            stickySectionHeadersEnabled={true}
+            initialNumToRender={12}
+            maxToRenderPerBatch={12}
+            windowSize={7}
+            updateCellsBatchingPeriod={50}
+            contentContainerStyle={{
+              paddingHorizontal: 12,
+              paddingTop: 12,
+              paddingBottom: 16 + bottomRail,
+            }}
+            ListHeaderComponent={<View style={{ height: 0 }} />}
+            ListEmptyComponent={
+              !initialLoading ? (
+                <View style={s.center}>
+                  <Text style={s.empty}>{errorMsg ?? "Sin compras"}</Text>
+                </View>
+              ) : null
+            }
+          />
+        )}
 
         {canManage ? (
           <Pressable
@@ -835,6 +923,7 @@ const styles = (colors: any) =>
       color: colors.text,
       paddingVertical: 10,
       fontSize: 16,
+      ...(Platform.OS === "web" ? { outlineWidth: 0 } : null),
     },
     clearBtn: {
       width: 28,
@@ -906,6 +995,20 @@ const styles = (colors: any) =>
     total: { color: colors.text, fontWeight: "900", marginTop: 10, fontSize: 14 },
 
     saldo: { color: colors.text + "AA", marginTop: 4, fontSize: 12, fontWeight: "800" },
+
+    splitWrap: { flex: 1, flexDirection: "row" as const },
+    splitListPane: { width: 420, maxWidth: 420, borderRightWidth: StyleSheet.hairlineWidth },
+    splitDetailPane: { flex: 1 },
+    splitPlaceholder: {
+      flex: 1,
+      margin: 16,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderRadius: 18,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      padding: 24,
+    },
+    splitPlaceholderText: { fontSize: 15, fontWeight: "800" as const, textAlign: "center" as const },
 
     fab: {
       position: "absolute",
