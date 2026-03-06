@@ -47,6 +47,7 @@ export function CompraNuevaModal({ visible, onClose, onDone, isDark, colors, edi
       />
       <View style={[styles.panel, { backgroundColor: C.card }]}>
         <View style={[styles.header, { borderBottomColor: C.border }]}>
+          <View style={styles.closeBtnPlaceholder} />
           <Text style={[styles.headerTitle, { color: C.text }]}>{title}</Text>
           <Pressable onPress={onClose} style={styles.closeBtn} hitSlop={8}>
             <Text style={[styles.closeText, { color: C.sub }]}>✕</Text>
@@ -100,12 +101,12 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  headerTitle: { fontSize: 17, fontWeight: "700" },
+  headerTitle: { flex: 1, fontSize: 17, fontWeight: "700", textAlign: "center" },
   closeBtn: { padding: 8 },
+  closeBtnPlaceholder: { width: 32 },
   closeText: { fontSize: 16, fontWeight: "600" },
 });

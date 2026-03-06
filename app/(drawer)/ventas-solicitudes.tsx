@@ -24,6 +24,7 @@ import { useThemePref } from "../../lib/themePreference";
 import { alphaColor } from "../../lib/ui";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useRole } from "../../lib/useRole";
+import { onAppResumed } from "../../lib/resumeEvents";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
 type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "";
@@ -202,6 +203,8 @@ export default function VentasSolicitudesScreen() {
       void reloadAll();
     }, [refreshRole, reloadAll])
   );
+
+  useEffect(() => onAppResumed(() => { void reloadAll(); }), [reloadAll]);
 
   // Stable derived IDs for pagos — only changes when the actual set of venta_ids changes
   const ventaIdsPagos = useMemo(

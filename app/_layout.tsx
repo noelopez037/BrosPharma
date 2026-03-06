@@ -23,6 +23,7 @@ import { claimPushForCurrentSession } from "../lib/pushNotifications";
 import { parseVentaSolicitudAdminNotifData } from "../lib/pushPayload";
 import { supabase } from "../lib/supabase";
 import { invalidateAll } from "../lib/productoCache";
+import { emitAppResumed } from "../lib/resumeEvents";
 import { makeNativeTheme } from "../src/theme/navigationTheme";
 import { getHeaderColors } from "../src/theme/headerColors";
 
@@ -243,8 +244,14 @@ export default function Layout() {
     const sub = AppState.addEventListener("change", (nextState: AppStateStatus) => {
       if (nextState === "active") {
         void clearBadge();
-        void supabase.auth.startAutoRefresh();
-        invalidateAll();
+        void (async () => {
+          await supabase.auth.getSession();
+          void supabase.auth.startAutoRefresh();
+          invalidateAll();
+          emitAppResumed();
+        })();
+      } else if (nextState === "background") {
+        void supabase.auth.stopAutoRefresh();
       }
     });
 

@@ -1,7 +1,7 @@
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { router } from "expo-router";
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Modal,
@@ -23,6 +23,7 @@ import { supabase } from "../../../lib/supabase";
 import { useThemePref } from "../../../lib/themePreference";
 import { alphaColor } from "../../../lib/ui";
 import { useRole } from "../../../lib/useRole";
+import { onAppResumed } from "../../../lib/resumeEvents";
 import { FB_DARK_DANGER } from "../../../src/theme/headerColors";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
@@ -674,6 +675,8 @@ export default function Ventas() {
       };
     }, [fetchAll])
   );
+
+  useEffect(() => onAppResumed(() => { void fetchAll(); }), [fetchAll]);
 
   const rows = useMemo(() => {
     const search = debouncedQ.trim().toLowerCase();

@@ -9,6 +9,7 @@ import { useRole } from "../../lib/useRole";
 import { useThemePref } from "../../lib/themePreference";
 import { AppButton } from "../../components/ui/app-button";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
+import { onAppResumed } from "../../lib/resumeEvents";
 
 type VentaRow = {
   id: number;
@@ -396,6 +397,8 @@ export default function RecetasPendientesScreen() {
       };
     }, [loadAll])
   );
+
+  useEffect(() => onAppResumed(() => { void loadAll(); }), [loadAll]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

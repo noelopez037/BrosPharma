@@ -1,6 +1,8 @@
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ClienteFormModal } from "../../components/clientes/ClienteFormModal";
+import { useThemePref } from "../../lib/themePreference";
 import {
   FlatList,
   Platform,
@@ -16,6 +18,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { supabase } from "../../lib/supabase";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useRole } from "../../lib/useRole";
+import { onAppResumed } from "../../lib/resumeEvents";
 import { ClienteDetallePanel } from "../../components/clientes/ClienteDetallePanel";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
@@ -98,6 +101,23 @@ export default function ClientesScreen() {
       document.head.removeChild(styleTag);
     };
   }, []);
+
+  const { resolved } = useThemePref();
+  const isDark = resolved === "dark";
+
+  const modalColors = useMemo(
+    () => ({
+      bg: colors.background,
+      card: colors.card,
+      text: colors.text,
+      sub: String(colors.text ?? "") + "AA",
+      border: colors.border,
+      primary: String(colors.primary ?? "#153c9e"),
+    }),
+    [colors]
+  );
+
+  const [clienteFormOpen, setClienteFormOpen] = useState(false);
 
   const { role, uid, isReady, refreshRole } = useRole();
   const roleUp = normalizeUpper(role) as Role;
@@ -225,6 +245,8 @@ export default function ClientesScreen() {
       };
     }, [fetchClientes, isReady, refreshRole])
   );
+
+  useEffect(() => onAppResumed(() => { void fetchClientes(); }), [fetchClientes]);
 
   const renderItem = ({ item }: { item: ClienteRow }) => {
     const vendedorNombre = (item.vendedor?.full_name ?? "").trim();
@@ -401,13 +423,33 @@ export default function ClientesScreen() {
         {canCreate ? (
           <Pressable
             style={[s.fab, { backgroundColor: fabBg, bottom: 18 + bottomRail }]}
-            onPress={() => router.push("/cliente-form" as any)}
+            onPress={() => {
+              if (Platform.OS === "web") {
+                setClienteFormOpen(true);
+              } else {
+                router.push("/cliente-form" as any);
+              }
+            }}
             accessibilityRole="button"
             accessibilityLabel="Nuevo cliente"
           >
             <Text style={s.fabText}>＋</Text>
           </Pressable>
         ) : null}
+
+        <ClienteFormModal
+          visible={clienteFormOpen}
+          onClose={() => setClienteFormOpen(false)}
+          onDone={(newId) => {
+            setClienteFormOpen(false);
+            void fetchClientes();
+          }}
+          isDark={isDark}
+          colors={modalColors}
+          isAdmin={isAdmin}
+          vendedorId={isVentas ? (uid ?? null) : null}
+          uid={uid ?? null}
+        />
       </SafeAreaView>
     </>
   );
