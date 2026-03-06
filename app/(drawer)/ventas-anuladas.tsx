@@ -13,6 +13,7 @@ import { alphaColor } from "../../lib/ui";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 import { useRole } from "../../lib/useRole";
+import { onAppResumed } from "../../lib/resumeEvents";
 
 type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "";
 
@@ -174,6 +175,8 @@ export default function VentasAnuladasScreen() {
       };
     }, [fetchAnuladas, isReady, refreshRole, role])
   );
+
+  useEffect(() => onAppResumed(() => { void fetchAnuladas(); }), [fetchAnuladas]);
 
   // load clientes for filter dropdown
   useEffect(() => {

@@ -1,7 +1,7 @@
 // app/(drawer)/(tabs)/inventario.tsx
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack } from "expo-router";
-import React, { memo, useCallback, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
   Modal,
@@ -17,6 +17,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { supabase } from "../../../lib/supabase";
 import { ProductoModalContent } from "../../../components/producto/ProductoModalContent";
 import { useRole } from "../../../lib/useRole";
+import { onAppResumed } from "../../../lib/resumeEvents";
 
 type Row = {
   id: number;
@@ -190,6 +191,8 @@ export default function InventarioScreen() {
       };
     }, [refreshRole, loadFirst])
   );
+
+  useEffect(() => onAppResumed(() => { void refreshRole(); loadFirst(); }), [refreshRole, loadFirst]);
 
   const loadMore = useCallback(async () => {
     if (debouncedQ || !hasMore || loadingMoreRef.current || initialLoading) return;

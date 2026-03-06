@@ -24,6 +24,7 @@ import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useRole } from "../../lib/useRole";
+import { onAppResumed } from "../../lib/resumeEvents";
 
 type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "";
 
@@ -306,6 +307,8 @@ export default function KardexScreen() {
     }, [fetchTotalesSimple, producto?.id])
   );
 
+  useEffect(() => onAppResumed(() => { void fetchTotalesSimple(); }), [fetchTotalesSimple]);
+
   const openDesdePicker = () => {
     if (Platform.OS === "android") {
       DateTimePickerAndroid.open({
@@ -495,6 +498,19 @@ export default function KardexScreen() {
       const base = marca ? `${slug(prod)}-${slug(marca)}` : slug(prod);
       const fileName = `kardex-${base || "producto"}-${fmtYmd(desde)}-a-${fmtYmd(hasta)}.csv`;
 
+      if (Platform.OS === "web") {
+        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const link = (document as any).createElement("a");
+        link.href = url;
+        link.download = fileName;
+        (document as any).body.appendChild(link);
+        link.click();
+        (document as any).body.removeChild(link);
+        URL.revokeObjectURL(url);
+        return;
+      }
+
       const fileUri = (FileSystem.cacheDirectory ?? FileSystem.documentDirectory) + fileName;
 
       await FileSystem.writeAsStringAsync(fileUri, csvContent, {
@@ -514,11 +530,6 @@ export default function KardexScreen() {
     const marca = producto.marca ? ` • ${producto.marca}` : "";
     return `${producto.nombre}${marca}`;
   }, [producto]);
-
-  const headerTitle = useMemo(() => {
-    const prod = producto ? productoLabel : "—";
-    return `Kardex • ${prod} • ${fmtYmd(desde)}-${fmtYmd(hasta)}`;
-  }, [producto, productoLabel, desde, hasta]);
 
   const totalesEntradasValue = totalesLoading ? "Cargando..." : totalesSimple?.entradas ?? "—";
   const totalesSalidasValue = totalesLoading ? "Cargando..." : totalesSimple?.salidas ?? "—";
@@ -618,6 +629,7 @@ export default function KardexScreen() {
               paddingHorizontal: 12,
               paddingTop: 12,
               paddingBottom: 16 + insets.bottom,
+              ...(Platform.OS === "web" ? { maxWidth: 680, alignSelf: "center", width: "100%" } : undefined),
             }}
             ListHeaderComponent={
               <View style={Platform.OS === "web" ? { maxWidth: 680, alignSelf: "center", width: "100%" } : undefined}>
@@ -758,8 +770,15 @@ export default function KardexScreen() {
 
                   <View style={{ height: 10 }} />
 
-                  <View style={Platform.OS === "web" ? { flexDirection: "row", gap: 10, flexWrap: "wrap", justifyContent: "center" } : undefined}>
-                    <View style={Platform.OS === "web" ? { minWidth: 140 } : undefined}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      gap: 10,
+                      justifyContent: "center",
+                      marginTop: 4,
+                    }}
+                  >
+                    <View style={{ flex: 1, maxWidth: 180 }}>
                       <AppButton
                         title={loading ? "Buscando..." : "Buscar"}
                         variant="primary"
@@ -771,8 +790,14 @@ export default function KardexScreen() {
                     </View>
 
                     {busquedaEjecutada && viewRows?.length > 0 ? (
-                      <View style={Platform.OS === "web" ? { minWidth: 140 } : { marginTop: 10 }}>
-                        <AppButton title="Exportar CSV" variant="outline" onPress={exportarCSV} />
+                      <View style={{ flex: 1, maxWidth: 180 }}>
+                        <AppButton
+                          title="Exportar CSV"
+                          size="sm"
+                          onPress={exportarCSV}
+                          style={{ backgroundColor: "#217346", borderColor: "#217346" }}
+                          textStyle={{ color: "#ffffff" }}
+                        />
                       </View>
                     ) : null}
                   </View>
@@ -818,103 +843,118 @@ export default function KardexScreen() {
               animationType="fade"
               onRequestClose={() => setProdModalOpen(false)}
             >
-              <Pressable
-                style={[s.modalBackdrop, { backgroundColor: isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.35)" }]}
-                onPress={() => setProdModalOpen(false)}
-              />
-
               <View
-                pointerEvents="box-none"
-                style={Platform.OS === "web"
-                  ? { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" }
-                  : { position: "absolute", top: 90, left: 14, right: 14, bottom: 80 }
-                }
+                style={[
+                  s.modalOverlay,
+                  { backgroundColor: isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.35)" },
+                ]}
               >
-              <View style={[
-                s.modalCard,
-                { backgroundColor: colors.card, borderColor: colors.border },
-                Platform.OS === "web" ? { width: "100%", maxWidth: 480, flex: undefined, height: 500 } : null,
-              ]}>
-                <View style={s.modalHeader}>
-                  <Text style={s.modalTitle}>Seleccionar producto</Text>
-                  <Pressable onPress={() => setProdModalOpen(false)} hitSlop={10}>
-                    <Text style={s.modalClose}>Cerrar</Text>
-                  </Pressable>
-                </View>
-
-                <View style={s.searchWrap}>
-                  <TextInput
-                    value={prodQ}
-                    onChangeText={setProdQ}
-                    placeholder="Buscar por nombre..."
-                    placeholderTextColor={colors.text + "66"}
-                    style={s.searchInput}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    returnKeyType="search"
-                  />
-                  {prodQ.trim().length > 0 ? (
-                    <Pressable onPress={() => setProdQ("")} hitSlop={10} style={s.clearBtn}>
-                      <Text style={s.clearTxt}>×</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-
-                <View style={s.switchRow}>
-                  <Text style={s.switchLabel}>Solo activos</Text>
-                  <Switch
-                    value={soloActivos}
-                    onValueChange={setSoloActivos}
-                    trackColor={{ false: colors.border, true: "#34C759" }}
-                    thumbColor={Platform.OS === "android" ? "#FFFFFF" : undefined}
-                    style={Platform.OS === "android" ? { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] } : undefined}
-                  />
-                </View>
-
-                <FlatList
-                  data={prodRows}
-                  keyExtractor={(it) => String(it.id)}
-                  keyboardShouldPersistTaps="handled"
-                  renderItem={({ item }) => (
-                      <Pressable
-                        onPress={() => {
-                          setProducto(item);
-                          setProdModalOpen(false);
-                          // opcional: al elegir producto, limpia resultados anteriores para evitar confusión
-                          setRows([]);
-                          setErrorMsg(null);
-                          setTotalesSimple(null);
-                          setTotalesError(null);
-                        }}
-                      style={({ pressed }) => [s.prodRow, pressed && Platform.OS === "ios" ? { opacity: 0.9 } : null]}
-                    >
-                      <View style={{ flex: 1 }}>
-                        <Text style={s.prodTitle} numberOfLines={1}>
-                          {item.nombre}
-                          {item.marca ? ` • ${item.marca}` : ""}
-                        </Text>
-                        {!item.activo ? <Text style={s.prodSub}>INACTIVO</Text> : null}
-                      </View>
-                    </Pressable>
-                  )}
-                  ListEmptyComponent={
-                    prodLoading ? (
-                      <View style={{ paddingVertical: 14 }}>
-                        <Text style={s.empty}>Buscando...</Text>
-                      </View>
-                    ) : prodError ? (
-                      <View style={{ paddingVertical: 14 }}>
-                        <Text style={s.empty}>{prodError}</Text>
-                      </View>
-                    ) : (
-                      <View style={{ paddingVertical: 14 }}>
-                        <Text style={s.empty}>Sin resultados</Text>
-                      </View>
-                    )
-                  }
-                  style={{ marginTop: 10 }}
+                <Pressable
+                  style={StyleSheet.absoluteFill}
+                  onPress={() => setProdModalOpen(false)}
                 />
-              </View>
+
+                <View
+                  style={[
+                    s.modalCard,
+                    { backgroundColor: colors.card, borderColor: colors.border },
+                    Platform.OS === "web"
+                      ? { width: "100%", maxWidth: 440, maxHeight: "80vh" as any }
+                      : { width: "100%", maxHeight: "90%" as any },
+                  ]}
+                >
+                  <View style={s.modalHeader}>
+                    <Text style={s.modalTitle}>Seleccionar producto</Text>
+                    <Pressable onPress={() => setProdModalOpen(false)} hitSlop={10}>
+                      <Text style={s.modalClose}>Cerrar</Text>
+                    </Pressable>
+                  </View>
+
+                  <View style={s.searchWrap}>
+                    <TextInput
+                      value={prodQ}
+                      onChangeText={setProdQ}
+                      placeholder="Buscar por nombre..."
+                      placeholderTextColor={colors.text + "66"}
+                      style={[
+                        s.searchInput,
+                        Platform.OS === "web"
+                          ? ({ outlineStyle: "none", outlineWidth: 0, boxShadow: "none" } as any)
+                          : null,
+                      ]}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      returnKeyType="search"
+                    />
+                    {prodQ.trim().length > 0 ? (
+                      <Pressable onPress={() => setProdQ("")} hitSlop={10} style={s.clearBtn}>
+                        <Text style={s.clearTxt}>×</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+
+                  <View style={s.switchRow}>
+                    <Text style={s.switchLabel}>Solo activos</Text>
+                    <Switch
+                      value={soloActivos}
+                      onValueChange={setSoloActivos}
+                      trackColor={{ false: colors.border, true: "#34C759" }}
+                      thumbColor={Platform.OS === "android" ? "#FFFFFF" : undefined}
+                      style={Platform.OS === "android" ? { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] } : undefined}
+                    />
+                  </View>
+
+                  {prodQ.trim().length === 0 ? (
+                    <View style={{ paddingVertical: 18, alignItems: "center" }}>
+                      <Text style={s.empty}>Escribe para buscar productos</Text>
+                    </View>
+                  ) : (
+                    <View style={{ flex: 1, minHeight: 0 }}>
+                      <FlatList
+                        data={prodRows}
+                        keyExtractor={(it) => String(it.id)}
+                        keyboardShouldPersistTaps="handled"
+                        renderItem={({ item }) => (
+                          <Pressable
+                            onPress={() => {
+                              setProducto(item);
+                              setProdModalOpen(false);
+                              setRows([]);
+                              setErrorMsg(null);
+                              setTotalesSimple(null);
+                              setTotalesError(null);
+                            }}
+                            style={({ pressed }) => [s.prodRow, pressed && Platform.OS === "ios" ? { opacity: 0.9 } : null]}
+                          >
+                            <View style={{ flex: 1 }}>
+                              <Text style={s.prodTitle} numberOfLines={1}>
+                                {item.nombre}
+                                {item.marca ? ` • ${item.marca}` : ""}
+                              </Text>
+                              {!item.activo ? <Text style={s.prodSub}>INACTIVO</Text> : null}
+                            </View>
+                          </Pressable>
+                        )}
+                        ListEmptyComponent={
+                          prodLoading ? (
+                            <View style={{ paddingVertical: 14 }}>
+                              <Text style={s.empty}>Buscando...</Text>
+                            </View>
+                          ) : prodError ? (
+                            <View style={{ paddingVertical: 14 }}>
+                              <Text style={s.empty}>{prodError}</Text>
+                            </View>
+                          ) : (
+                            <View style={{ paddingVertical: 14 }}>
+                              <Text style={s.empty}>Sin resultados</Text>
+                            </View>
+                          )
+                        }
+                        style={{ marginTop: 10 }}
+                      />
+                    </View>
+                  )}
+                </View>
               </View>
             </Modal>
           ) : null}
@@ -1003,14 +1043,16 @@ const styles = (colors: any, isDark: boolean) =>
     meta: { color: colors.text + "AA", fontSize: 11, fontWeight: "800", marginTop: 4 },
 
     // modal
-    modalBackdrop: { ...StyleSheet.absoluteFillObject },
+    modalOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 16,
+    },
     modalCard: {
-      flex: 1,
       borderRadius: 18,
       padding: 16,
       borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.card,
     },
     modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
     modalTitle: { color: colors.text, fontSize: 18, fontWeight: "900" },

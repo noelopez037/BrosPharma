@@ -23,6 +23,7 @@ import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useRole } from "../../lib/useRole";
+import { onAppResumed } from "../../lib/resumeEvents";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
 type CxCRow = {
@@ -371,6 +372,8 @@ export default function CuentasPorCobrarScreen() {
       };
     }, [fetchRows, isReady, uid])
   );
+
+  useEffect(() => onAppResumed(() => { void fetchRows(); }), [fetchRows]);
 
   const badge = (c: CxCRow) => {
     const saldoNum = Number(c.saldo);

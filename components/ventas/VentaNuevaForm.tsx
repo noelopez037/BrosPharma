@@ -458,14 +458,11 @@ export function VentaNuevaForm({ onDone, isDark, colors: C, canCreate }: Props) 
           style={[
             styles.input,
             {
-              height: 90,
-              textAlignVertical: "top",
               borderColor: C.border,
               color: C.text,
               backgroundColor: C.card,
             },
           ]}
-          multiline
         />
 
         {/* Product lines */}

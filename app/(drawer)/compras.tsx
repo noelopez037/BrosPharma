@@ -35,6 +35,7 @@ import { useThemePref } from "../../lib/themePreference";
 import { AppButton } from "../../components/ui/app-button";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useRole } from "../../lib/useRole";
+import { onAppResumed } from "../../lib/resumeEvents";
 import { CompraDetallePanel } from "../../components/compras/CompraDetallePanel";
 import { CompraNuevaModal } from "../../components/compras/CompraNuevaModal";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
@@ -386,6 +387,8 @@ export default function ComprasScreen() {
       };
     }, [fetchCompras])
   );
+
+  useEffect(() => onAppResumed(() => { void fetchCompras(); }), [fetchCompras]);
 
   // filtro client-side: estado pago (porque depende de cálculo)
   const rows = useMemo(() => {

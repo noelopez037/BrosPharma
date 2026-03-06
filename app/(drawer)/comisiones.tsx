@@ -22,6 +22,7 @@ import { supabase } from "../../lib/supabase";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useThemePref } from "../../lib/themePreference";
 import { useRole } from "../../lib/useRole";
+import { onAppResumed } from "../../lib/resumeEvents";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
 type RpcComisionRow = {
@@ -353,6 +354,8 @@ export default function ComisionesScreen() {
       };
     }, [fetchRows, fetchVentasPagadas, fVendedorId, isAdmin, isAllowed, isReady, uid])
   );
+
+  useEffect(() => onAppResumed(() => { void fetchRows(); void fetchVentasPagadas(); }), [fetchRows, fetchVentasPagadas]);
 
   // Filtrado por rol (defensivo; el backend ya aplica seguridad)
   const rows = useMemo(() => {

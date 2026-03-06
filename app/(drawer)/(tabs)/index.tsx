@@ -16,6 +16,7 @@ import { supabase } from "../../../lib/supabase";
 import { useThemePref } from "../../../lib/themePreference";
 import { alphaColor } from "../../../lib/ui";
 import { useRole } from "../../../lib/useRole";
+import { onAppResumed } from "../../../lib/resumeEvents";
 import { FB_DARK_DANGER } from "../../../src/theme/headerColors";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -786,6 +787,8 @@ export default function Inicio() {
   );
 
   // ─── Focus effect ─────────────────────────────────────────────────────────
+
+  useEffect(() => onAppResumed(() => { void loadAll({}); }), [loadAll]);
 
   useFocusEffect(
     useCallback(() => {
