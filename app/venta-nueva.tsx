@@ -77,7 +77,7 @@ async function uriToArrayBuffer(uri: string): Promise<ArrayBuffer> {
   return await res.arrayBuffer();
 }
 
-export default function VentaNuevaScreen() {
+export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {}) {
   const DONE_ID = "doneAccessory";
   const { scrollRef, handleFocus } = useKeyboardAutoScroll(110);
   const insets = useSafeAreaInsets();
@@ -107,7 +107,7 @@ export default function VentaNuevaScreen() {
     [isDark, colors.background, colors.border, colors.card, colors.primary, colors.text]
   );
 
-  const { draft, setCliente, setComentarios, addLinea, removeLinea, updateLinea, reset, setRecetaUri } =
+  const { draft, setCliente, setComentarios, addLinea, removeLinea, updateLinea, setProductoEnLinea, reset, setRecetaUri } =
     useVentaDraft();
   const { cliente, comentarios, lineas, receta_uri } = draft;
 
@@ -121,6 +121,22 @@ export default function VentaNuevaScreen() {
   const { role, isReady: roleReady, refreshRole } = useRole();
   const [saving, setSaving] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(false);
+
+  // Web inline dropdown state (only used when Platform.OS === 'web' && !!onDone)
+  const [clienteDropOpen, setClienteDropOpen] = useState(false);
+  const [clienteDropQ, setClienteDropQ] = useState("");
+  const [clienteDropResults, setClienteDropResults] = useState<any[]>([]);
+  const [clienteDropLoading, setClienteDropLoading] = useState(false);
+  const [openProdKey, setOpenProdKey] = useState<string | null>(null);
+  const [prodQByKey, setProdQByKey] = useState<Record<string, string>>({});
+  const [prodResultsByKey, setProdResultsByKey] = useState<Record<string, any[]>>({});
+  const [prodLoadingByKey, setProdLoadingByKey] = useState<Record<string, boolean>>({});
+  const [addClienteOpen, setAddClienteOpen] = useState(false);
+  const [newClienteNombre, setNewClienteNombre] = useState("");
+  const [newClienteNit, setNewClienteNit] = useState("");
+  const [newClienteTelefono, setNewClienteTelefono] = useState("");
+  const [newClienteDireccion, setNewClienteDireccion] = useState("");
+  const [savingNewCliente, setSavingNewCliente] = useState(false);
 
   // En modo edicion: sumar la cantidad original de la venta al disponible,
   // porque el RPC libera y re-reserva (el UI debe permitir editar sin bloquearse).
@@ -159,6 +175,89 @@ export default function VentaNuevaScreen() {
     },
     [effectiveStockByProd, isEdit, originalQtyByProd]
   );
+
+  const isWebModal = Platform.OS === "web" && !!onDone;
+
+  const searchClientes = useCallback(async (term: string) => {
+    if (term.trim().length < 2) {
+      setClienteDropResults([]);
+      setClienteDropLoading(false);
+      return;
+    }
+    setClienteDropLoading(true);
+    try {
+      const { data } = await supabase
+        .from("clientes")
+        .select("id,nombre,nit,telefono,direccion")
+        .ilike("nombre", `%${term.trim()}%`)
+        .limit(20);
+      setClienteDropResults(data ?? []);
+    } catch {
+      setClienteDropResults([]);
+    } finally {
+      setClienteDropLoading(false);
+    }
+  }, []);
+
+  const searchProductos = useCallback(async (term: string, lineKey: string) => {
+    if (term.trim().length < 2) {
+      setProdResultsByKey((prev) => ({ ...prev, [lineKey]: [] }));
+      setProdLoadingByKey((prev) => ({ ...prev, [lineKey]: false }));
+      return;
+    }
+    setProdLoadingByKey((prev) => ({ ...prev, [lineKey]: true }));
+    try {
+      const { data } = await supabase
+        .from("vw_inventario_productos_v2")
+        .select("id,nombre,marca,stock_disponible,precio_min_venta,tiene_iva,requiere_receta")
+        .eq("activo", true)
+        .ilike("nombre", `%${term.trim()}%`)
+        .limit(20);
+      const rows = data ?? [];
+      // Sort: in-stock first, out-of-stock at the bottom (stable within each group)
+      const inStock = rows.filter((p: any) => Number(p.stock_disponible ?? 0) > 0);
+      const outOfStock = rows.filter((p: any) => Number(p.stock_disponible ?? 0) <= 0);
+      setProdResultsByKey((prev) => ({ ...prev, [lineKey]: [...inStock, ...outOfStock] }));
+    } catch {
+      setProdResultsByKey((prev) => ({ ...prev, [lineKey]: [] }));
+    } finally {
+      setProdLoadingByKey((prev) => ({ ...prev, [lineKey]: false }));
+    }
+  }, []);
+
+  const saveNewCliente = useCallback(async () => {
+    if (!newClienteNombre.trim()) return;
+    setSavingNewCliente(true);
+    try {
+      const { data, error } = await supabase
+        .from("clientes")
+        .insert({
+          nombre: newClienteNombre.trim(),
+          nit: newClienteNit.trim() || null,
+          telefono: newClienteTelefono.trim() || null,
+          direccion: newClienteDireccion.trim() || null,
+        })
+        .select("id,nombre,nit,telefono,direccion")
+        .single();
+      if (error) throw error;
+      setCliente({
+        id: Number((data as any).id),
+        nombre: String((data as any).nombre ?? ""),
+        nit: (data as any).nit == null ? null : String((data as any).nit),
+        telefono: (data as any).telefono == null ? null : String((data as any).telefono),
+        direccion: (data as any).direccion == null ? null : String((data as any).direccion),
+      });
+      setAddClienteOpen(false);
+      setNewClienteNombre("");
+      setNewClienteNit("");
+      setNewClienteTelefono("");
+      setNewClienteDireccion("");
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "No se pudo crear el cliente");
+    } finally {
+      setSavingNewCliente(false);
+    }
+  }, [newClienteNombre, newClienteNit, newClienteTelefono, newClienteDireccion, setCliente]);
 
   useFocusEffect(
     useCallback(() => {
@@ -485,6 +584,8 @@ export default function VentaNuevaScreen() {
                 if (isEdit) {
                   // Volver al detalle existente (evita duplicar pantallas de detalle en el stack).
                   goBackSafe({ pathname: "/venta-detalle" as any, params: { id: String(editId) } } as any);
+                } else if (onDone) {
+                  onDone();
                 } else {
                   router.replace("/ventas" as any);
                 }
@@ -507,7 +608,7 @@ export default function VentaNuevaScreen() {
     <>
       <Stack.Screen
         options={{
-          headerShown: true,
+          headerShown: !(onDone != null && Platform.OS === "web"),
           title: loadingEdit ? "Cargando..." : isEdit ? "Editar venta" : "Nueva venta",
           headerBackTitle: "Atrás",
         }}
@@ -529,23 +630,105 @@ export default function VentaNuevaScreen() {
             automaticallyAdjustKeyboardInsets
           >
           <Text style={[styles.label, { color: C.text }]}>Cliente</Text>
-          <Pressable
-            onPress={() => {
-              if (!canCreate) return;
-              if (!canEditNow) return;
-              skipResetOnFocusRef.current = true;
-              router.push("/select-cliente" as any);
-            }}
-            style={({ pressed }) => [
-              styles.select,
-              { borderColor: C.border, backgroundColor: C.card },
-              pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
-            ]}
-          >
-            <Text style={[styles.selectText, { color: cliente ? C.text : C.sub }]} numberOfLines={1}>
-              {cliente ? `${cliente.nombre} • NIT: ${cliente.nit ?? "CF"}` : "Seleccionar cliente..."}
-            </Text>
-          </Pressable>
+          {isWebModal ? (
+            <View>
+              <Pressable
+                onPress={() => {
+                  if (!canCreate || !canEditNow) return;
+                  if (!clienteDropOpen) setClienteDropOpen(true);
+                }}
+                style={[
+                  styles.select,
+                  { borderColor: clienteDropOpen ? C.blueText : C.border, backgroundColor: C.card },
+                ]}
+              >
+                <Text style={[styles.selectText, { color: cliente ? C.text : C.sub }]} numberOfLines={1}>
+                  {cliente ? `${cliente.nombre} • NIT: ${cliente.nit ?? "CF"}` : "Seleccionar cliente..."}
+                </Text>
+              </Pressable>
+              {clienteDropOpen ? (
+                <View style={[styles.dropdown, { borderColor: C.border, backgroundColor: C.card }]}>
+                  <TextInput
+                    autoFocus
+                    value={clienteDropQ}
+                    onChangeText={(t) => { setClienteDropQ(t); searchClientes(t); }}
+                    placeholder="Buscar cliente..."
+                    placeholderTextColor={C.sub}
+                    style={[styles.dropdownInput, { borderColor: C.border, color: C.text, backgroundColor: C.bg }]}
+                    onBlur={() => setTimeout(() => setClienteDropOpen(false), 150)}
+                  />
+                  <ScrollView style={styles.dropdownScroll} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                    {clienteDropQ.trim().length < 2 ? (
+                      <Text style={[styles.dropdownMsg, { color: C.sub }]}>Escribe para buscar...</Text>
+                    ) : clienteDropLoading ? (
+                      <Text style={[styles.dropdownMsg, { color: C.sub }]}>Buscando...</Text>
+                    ) : clienteDropResults.length === 0 ? (
+                      <Text style={[styles.dropdownMsg, { color: C.sub }]}>Sin resultados</Text>
+                    ) : (
+                      clienteDropResults.map((c: any) => (
+                        <Pressable
+                          key={String(c.id)}
+                          onPressIn={() => {
+                            setCliente({
+                              id: Number(c.id),
+                              nombre: String(c.nombre ?? ""),
+                              nit: c.nit ?? null,
+                              telefono: c.telefono ?? null,
+                              direccion: c.direccion ?? null,
+                            });
+                            setClienteDropOpen(false);
+                            setClienteDropQ("");
+                            setClienteDropResults([]);
+                          }}
+                          style={({ pressed }) => [
+                            styles.dropdownItem,
+                            { borderBottomColor: C.border },
+                            pressed ? { backgroundColor: C.blue } : null,
+                          ]}
+                        >
+                          <Text style={[styles.dropdownItemText, { color: C.text }]} numberOfLines={1}>{c.nombre}</Text>
+                          <Text style={[styles.dropdownItemSub, { color: C.sub }]}>NIT: {c.nit ?? "CF"}</Text>
+                        </Pressable>
+                      ))
+                    )}
+                  </ScrollView>
+                  <Pressable
+                    onPress={() => {
+                      setClienteDropOpen(false);
+                      setClienteDropQ("");
+                      setClienteDropResults([]);
+                      setAddClienteOpen(true);
+                    }}
+                    style={({ pressed }) => [
+                      styles.addClienteBtn,
+                      { borderTopColor: C.border },
+                      pressed ? { backgroundColor: C.blue } : null,
+                    ]}
+                  >
+                    <Text style={[styles.addClienteBtnText, { color: C.blueText }]}>+ Agregar nuevo cliente</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+            </View>
+          ) : (
+            <Pressable
+              onPress={() => {
+                if (!canCreate) return;
+                if (!canEditNow) return;
+                skipResetOnFocusRef.current = true;
+                router.push("/select-cliente" as any);
+              }}
+              style={({ pressed }) => [
+                styles.select,
+                { borderColor: C.border, backgroundColor: C.card },
+                pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
+              ]}
+            >
+              <Text style={[styles.selectText, { color: cliente ? C.text : C.sub }]} numberOfLines={1}>
+                {cliente ? `${cliente.nombre} • NIT: ${cliente.nit ?? "CF"}` : "Seleccionar cliente..."}
+              </Text>
+            </Pressable>
+          )}
 
           {cliente ? (
             <View style={styles.clientMeta}>
@@ -600,23 +783,107 @@ export default function VentaNuevaScreen() {
                 </View>
 
                 <Text style={[styles.label, { color: C.text }]}>Producto</Text>
-                <Pressable
-                  onPress={() => {
-                    if (!canCreate) return;
-                    if (!canEditNow) return;
-                    skipResetOnFocusRef.current = true;
-                    router.push({ pathname: "/select-producto", params: { lineKey: l.key, mode: "venta" } });
-                  }}
-                  style={({ pressed }) => [
-                    styles.select,
-                    { borderColor: C.border, backgroundColor: C.card },
-                    pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
-                  ]}
-                >
-                  <Text style={[styles.selectText, { color: l.producto_id ? C.text : C.sub }]} numberOfLines={1}>
-                    {l.producto_id ? l.producto_label : "Seleccionar producto..."}
-                  </Text>
-                </Pressable>
+                {isWebModal ? (
+                  <View>
+                    <Pressable
+                      onPress={() => {
+                        if (!canCreate || !canEditNow) return;
+                        if (openProdKey !== l.key) setOpenProdKey(l.key);
+                      }}
+                      style={[
+                        styles.select,
+                        { borderColor: openProdKey === l.key ? C.blueText : C.border, backgroundColor: C.card },
+                      ]}
+                    >
+                      <Text style={[styles.selectText, { color: l.producto_id ? C.text : C.sub }]} numberOfLines={1}>
+                        {l.producto_id ? l.producto_label : "Seleccionar producto..."}
+                      </Text>
+                    </Pressable>
+                    {openProdKey === l.key ? (
+                      <View style={[styles.dropdown, { borderColor: C.border, backgroundColor: C.card }]}>
+                        <TextInput
+                          autoFocus
+                          value={prodQByKey[l.key] ?? ""}
+                          onChangeText={(t) => {
+                            setProdQByKey((prev) => ({ ...prev, [l.key]: t }));
+                            searchProductos(t, l.key);
+                          }}
+                          placeholder="Buscar producto..."
+                          placeholderTextColor={C.sub}
+                          style={[styles.dropdownInput, { borderColor: C.border, color: C.text, backgroundColor: C.bg }]}
+                          onBlur={() => setTimeout(() => setOpenProdKey((k) => k === l.key ? null : k), 150)}
+                        />
+                        <ScrollView style={styles.dropdownScroll} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                          {(prodQByKey[l.key] ?? "").trim().length < 2 ? (
+                            <Text style={[styles.dropdownMsg, { color: C.sub }]}>Escribe para buscar...</Text>
+                          ) : prodLoadingByKey[l.key] ? (
+                            <Text style={[styles.dropdownMsg, { color: C.sub }]}>Buscando...</Text>
+                          ) : (prodResultsByKey[l.key] ?? []).length === 0 ? (
+                            <Text style={[styles.dropdownMsg, { color: C.sub }]}>Sin resultados</Text>
+                          ) : (
+                            (prodResultsByKey[l.key] ?? []).map((p: any) => {
+                              const pLabel = `${p.nombre ?? ""}${p.marca ? ` • ${p.marca}` : ""}`.trim();
+                              const stock = Number(p.stock_disponible ?? 0);
+                              const inStock = stock > 0;
+                              return (
+                                <Pressable
+                                  key={String(p.id)}
+                                  onPressIn={() => {
+                                    if (!inStock) return;
+                                    setProductoEnLinea({
+                                      lineKey: l.key,
+                                      producto_id: Number(p.id),
+                                      producto_label: pLabel,
+                                      stock_disponible: stock,
+                                      precio_min_venta: p.precio_min_venta == null ? null : Number(p.precio_min_venta),
+                                      tiene_iva: !!p.tiene_iva,
+                                      requiere_receta: !!p.requiere_receta,
+                                    });
+                                    setOpenProdKey(null);
+                                    setProdQByKey((prev) => ({ ...prev, [l.key]: "" }));
+                                    setProdResultsByKey((prev) => ({ ...prev, [l.key]: [] }));
+                                  }}
+                                  style={({ pressed }) => [
+                                    styles.dropdownItem,
+                                    { borderBottomColor: C.border },
+                                    !inStock
+                                      ? { opacity: 0.45, cursor: "not-allowed" as any }
+                                      : pressed ? { backgroundColor: C.blue } : null,
+                                  ]}
+                                >
+                                  <Text style={[styles.dropdownItemText, { color: inStock ? C.text : C.sub }]} numberOfLines={1}>
+                                    {p.nombre ?? ""}
+                                  </Text>
+                                  <Text style={[styles.dropdownItemSub, { color: inStock ? C.sub : C.danger }]}>
+                                    {p.marca ? `${p.marca} • ` : ""}Stock: {stock} {inStock ? `• Min: ${fmtQ(p.precio_min_venta)}` : "unidades"}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })
+                          )}
+                        </ScrollView>
+                      </View>
+                    ) : null}
+                  </View>
+                ) : (
+                  <Pressable
+                    onPress={() => {
+                      if (!canCreate) return;
+                      if (!canEditNow) return;
+                      skipResetOnFocusRef.current = true;
+                      router.push({ pathname: "/select-producto", params: { lineKey: l.key, mode: "venta" } });
+                    }}
+                    style={({ pressed }) => [
+                      styles.select,
+                      { borderColor: C.border, backgroundColor: C.card },
+                      pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
+                    ]}
+                  >
+                    <Text style={[styles.selectText, { color: l.producto_id ? C.text : C.sub }]} numberOfLines={1}>
+                      {l.producto_id ? l.producto_label : "Seleccionar producto..."}
+                    </Text>
+                  </Pressable>
+                )}
 
                 {l.producto_id ? (
                   <Text style={[styles.help, { color: C.sub }]}>
@@ -740,6 +1007,65 @@ export default function VentaNuevaScreen() {
 
         <DoneAccessory nativeID={DONE_ID} />
       </SafeAreaView>
+
+      {isWebModal && addClienteOpen ? (
+        <View style={styles.addClienteOverlay}>
+          <Pressable
+            style={[styles.addClienteBackdrop, { backgroundColor: isDark ? "rgba(0,0,0,0.65)" : "rgba(0,0,0,0.5)" }]}
+            onPress={() => setAddClienteOpen(false)}
+          />
+          <View style={[styles.addClientePanel, { backgroundColor: C.card }]}>
+            <View style={[styles.addClienteHeader, { borderBottomColor: C.border }]}>
+              <Text style={[styles.addClienteTitle, { color: C.text }]}>Nuevo cliente</Text>
+              <Pressable onPress={() => setAddClienteOpen(false)} style={styles.addClienteClose} hitSlop={8}>
+                <Text style={[styles.addClienteCloseText, { color: C.sub }]}>✕</Text>
+              </Pressable>
+            </View>
+            <ScrollView style={styles.addClienteScroll} keyboardShouldPersistTaps="handled">
+              <Text style={[styles.label, { color: C.text }]}>Nombre *</Text>
+              <TextInput
+                value={newClienteNombre}
+                onChangeText={setNewClienteNombre}
+                placeholder="Nombre del cliente"
+                placeholderTextColor={C.sub}
+                style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.bg }]}
+                autoFocus
+              />
+              <Text style={[styles.label, { color: C.text }]}>NIT</Text>
+              <TextInput
+                value={newClienteNit}
+                onChangeText={setNewClienteNit}
+                placeholder="CF"
+                placeholderTextColor={C.sub}
+                style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.bg }]}
+              />
+              <Text style={[styles.label, { color: C.text }]}>Teléfono</Text>
+              <TextInput
+                value={newClienteTelefono}
+                onChangeText={setNewClienteTelefono}
+                placeholder="—"
+                placeholderTextColor={C.sub}
+                keyboardType="phone-pad"
+                style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.bg }]}
+              />
+              <Text style={[styles.label, { color: C.text }]}>Dirección</Text>
+              <TextInput
+                value={newClienteDireccion}
+                onChangeText={setNewClienteDireccion}
+                placeholder="—"
+                placeholderTextColor={C.sub}
+                style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.bg }]}
+              />
+              <AppButton
+                title={savingNewCliente ? "Guardando..." : "Guardar cliente"}
+                onPress={saveNewCliente}
+                disabled={!newClienteNombre.trim() || savingNewCliente}
+                style={[styles.saveBtn, { backgroundColor: C.blueText, marginTop: 16, marginBottom: 20 }] as any}
+              />
+            </ScrollView>
+          </View>
+        </View>
+      ) : null}
     </>
   );
 }
@@ -818,4 +1144,106 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   photoPreview: { width: 140, height: 140, borderRadius: 14 },
+
+  // Web inline dropdown
+  dropdown: {
+    marginTop: 4,
+    borderWidth: 1,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  dropdownInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    margin: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 15,
+  },
+  dropdownScroll: {
+    maxHeight: 200,
+  },
+  dropdownMsg: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 14,
+  },
+  dropdownItem: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  dropdownItemText: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  dropdownItemSub: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+
+  addClienteBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+  },
+  addClienteBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+
+  // Add-client inline modal (web only)
+  addClienteOverlay: {
+    position: "fixed" as any,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 100001,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  addClienteBackdrop: {
+    position: "absolute" as any,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  addClientePanel: {
+    maxWidth: 420,
+    width: "100%" as any,
+    maxHeight: "85vh" as any,
+    borderRadius: 16,
+    overflow: "hidden" as any,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.28,
+    shadowRadius: 24,
+    elevation: 20,
+  },
+  addClienteHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  addClienteTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+  },
+  addClienteClose: {
+    padding: 8,
+  },
+  addClienteCloseText: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  addClienteScroll: {
+    paddingHorizontal: 20,
+    paddingTop: 4,
+  },
 });

@@ -86,13 +86,14 @@ function fmtMoney2(n: number | null | undefined) {
 export function VentaDraftProvider({ children }: { children: React.ReactNode }) {
   const [draft, setDraft] = useState<VentaDraft>(initialDraft);
 
-  const api = useMemo<Ctx>(() => {
-    return {
-      draft,
-
-      setCliente: (c) => setDraft((d) => ({ ...d, cliente: c })),
-      setComentarios: (s) => setDraft((d) => ({ ...d, comentarios: s })),
-      setRecetaUri: (uri) => setDraft((d) => ({ ...d, receta_uri: uri })),
+  // Stable: all functions use setDraft(updater) and never close over draft,
+  // so they can live in a useMemo([]) and keep the same reference forever.
+  // This prevents useFocusEffect in venta-nueva from re-firing on every keystroke.
+  const stableFns = useMemo(
+    () => ({
+      setCliente: (c: Cliente | null) => setDraft((d) => ({ ...d, cliente: c })),
+      setComentarios: (s: string) => setDraft((d) => ({ ...d, comentarios: s })),
+      setRecetaUri: (uri: string | null) => setDraft((d) => ({ ...d, receta_uri: uri })),
 
       addLinea: () =>
         setDraft((d) => ({
@@ -113,7 +114,7 @@ export function VentaDraftProvider({ children }: { children: React.ReactNode }) 
           ],
         })),
 
-      removeLinea: (key) =>
+      removeLinea: (key: string) =>
         setDraft((d) => {
           const exists = d.lineas.some((l) => l.key === key);
           if (!exists) return d;
@@ -142,7 +143,7 @@ export function VentaDraftProvider({ children }: { children: React.ReactNode }) 
           return { ...d, lineas: d.lineas.filter((l) => l.key !== key) };
         }),
 
-      updateLinea: (key, patch) =>
+      updateLinea: (key: string, patch: Partial<VentaLinea>) =>
         setDraft((d) => ({
           ...d,
           lineas: d.lineas.map((l) => (l.key === key ? { ...l, ...patch } : l)),
@@ -156,6 +157,14 @@ export function VentaDraftProvider({ children }: { children: React.ReactNode }) 
         precio_min_venta,
         tiene_iva,
         requiere_receta,
+      }: {
+        lineKey: string;
+        producto_id: number;
+        producto_label: string;
+        stock_disponible: number;
+        precio_min_venta: number | null;
+        tiene_iva: boolean;
+        requiere_receta: boolean;
       }) =>
         setDraft((d) => ({
           ...d,
@@ -177,8 +186,11 @@ export function VentaDraftProvider({ children }: { children: React.ReactNode }) 
         })),
 
       reset: () => setDraft(initialDraft),
-    };
-  }, [draft]);
+    }),
+    [] // setDraft is stable from useState; initialDraft is a module-level constant
+  );
+
+  const api = useMemo<Ctx>(() => ({ draft, ...stableFns }), [draft, stableFns]);
 
   return <VentaDraftContext.Provider value={api}>{children}</VentaDraftContext.Provider>;
 }

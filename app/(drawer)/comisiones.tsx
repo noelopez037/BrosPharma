@@ -12,14 +12,17 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppButton } from "../../components/ui/app-button";
 import { RoleGate } from "../../components/auth/RoleGate";
+import { ComisionVentaDetallePanel } from "../../components/comisiones/ComisionVentaDetallePanel";
 import { supabase } from "../../lib/supabase";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useThemePref } from "../../lib/themePreference";
 import { useRole } from "../../lib/useRole";
+import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
 type RpcComisionRow = {
   vendedor_id: string | null;
@@ -136,6 +139,22 @@ export default function ComisionesScreen() {
     }),
     [isDark, colors.primary]
   );
+
+  const { width } = useWindowDimensions();
+  const canSplit = Platform.OS === "web" && width >= 1100;
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!canSplit) setSelectedId(null);
+  }, [canSplit]);
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const style = document.createElement("style");
+    style.textContent = "input:focus { outline: none !important; }";
+    document.head.appendChild(style);
+    return () => { document.head.removeChild(style); };
+  }, []);
 
   const { role, uid, isReady, refreshRole } = useRole();
   const roleUp = normalizeUpper(role);
@@ -383,10 +402,18 @@ export default function ComisionesScreen() {
     const fact = Array.isArray(item.facturas) ? item.facturas.filter(Boolean).join(" · ") : "—";
     return (
       <Pressable
-        onPress={() =>
-          router.push({ pathname: "/cxc-venta-detalle", params: { ventaId: String(item.venta_id) } } as any)
-        }
-        style={({ pressed }) => [s.card, pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null]}
+        onPress={() => {
+          if (canSplit) {
+            setSelectedId(item.venta_id);
+          } else {
+            router.push({ pathname: "/cxc-venta-detalle", params: { ventaId: String(item.venta_id) } } as any);
+          }
+        }}
+        style={({ pressed }) => [
+          s.card,
+          canSplit && selectedId === item.venta_id && { borderColor: colors.primary, borderWidth: 2 },
+          pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
+        ]}
       >
         <View style={s.row}>
           <View style={{ flex: 1 }}>
@@ -403,7 +430,7 @@ export default function ComisionesScreen() {
         </View>
       </Pressable>
     );
-  }, [s]);
+  }, [s, canSplit, selectedId, colors.primary]);
 
   type SectionData = { key: string; ymd: string; data: CxCVentaRow[] };
 
@@ -439,48 +466,91 @@ export default function ComisionesScreen() {
     </View>
   ), [s, colors]);
 
+  const hasActiveFilters = !!fVendedorId;
+
   const ListHeader = useMemo(
     () => (
       <>
         <View style={s.topRow}>
-          <Pressable
-            onPress={openMonthPicker}
-            style={({ pressed }) => [s.searchWrap, pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null]}
-          >
-            <Text style={s.monthTxt} numberOfLines={1}>
-              {monthLabel}
-            </Text>
-            <Text style={s.monthCaret}>▼</Text>
-          </Pressable>
+          {Platform.OS === "web" ? (
+            <input
+              type="month"
+              value={`${selYear}-${String(selMonthIndex0 + 1).padStart(2, "0")}`}
+              onChange={(e) => {
+                const val = (e.target as HTMLInputElement).value;
+                if (val) {
+                  const [yr, mo] = val.split("-").map(Number);
+                  setSelYear(yr);
+                  setSelMonthIndex0(mo - 1);
+                }
+              }}
+              style={{
+                flex: 1,
+                borderWidth: 1,
+                borderStyle: "solid",
+                borderColor: M.border,
+                borderRadius: 12,
+                padding: 12,
+                fontSize: 16,
+                fontWeight: "700",
+                boxSizing: "border-box",
+                backgroundColor: M.card,
+                color: M.text,
+                fontFamily: "inherit",
+                cursor: "pointer",
+                outline: "none",
+                colorScheme: isDark ? "dark" : "light",
+              } as any}
+            />
+          ) : (
+            <Pressable
+              onPress={openMonthPicker}
+              style={({ pressed }) => [s.searchWrap, pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null]}
+            >
+              <Text style={s.monthTxt} numberOfLines={1}>
+                {monthLabel}
+              </Text>
+              <Text style={s.monthCaret}>▼</Text>
+            </Pressable>
+          )}
 
           {isAdmin ? (
             <Pressable
               onPress={() => setFiltersOpen(true)}
-              style={({ pressed }) => [s.filterBtn, pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null]}
+              style={({ pressed }) => [
+                s.filterBtn,
+                { borderColor: hasActiveFilters ? FB_DARK_DANGER : colors.border },
+                pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
+              ]}
             >
-              <Text style={s.filterTxt}>Filtros</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Text style={[s.filterTxt, { color: hasActiveFilters ? FB_DARK_DANGER : colors.text }]}>Filtros</Text>
+                {hasActiveFilters ? (
+                  <View style={[s.filterDot, { backgroundColor: FB_DARK_DANGER }]} />
+                ) : null}
+              </View>
             </Pressable>
           ) : null}
         </View>
 
-        {/* Cards resumen */}
+        {/* Cards resumen compactas */}
         {isVentas ? (
-          <View style={s.card}>
-            <Text style={s.title}>Comisión del mes</Text>
-            <Text style={s.total}>{fmtQ(totals.totalComision)}</Text>
-            <Text style={s.sub}>Mes: {monthLabel}</Text>
+          <View style={s.summaryBar}>
+            <View style={s.summaryItem}>
+              <Text style={s.summaryLabel}>Comisión del mes</Text>
+              <Text style={s.summaryValue}>{fmtQ(totals.totalComision)}</Text>
+            </View>
           </View>
         ) : (
-          <View style={s.summaryGrid}>
-            <View style={[s.card, s.summaryCard]}>
-              <Text style={s.title}>Total sin IVA</Text>
-              <Text style={s.total}>{fmtQ(totals.totalSinIva)}</Text>
-              <Text style={s.sub}>Mes: {monthLabel}</Text>
+          <View style={s.summaryBar}>
+            <View style={s.summaryItem}>
+              <Text style={s.summaryLabel}>Sin IVA</Text>
+              <Text style={s.summaryValue}>{fmtQ(totals.totalSinIva)}</Text>
             </View>
-            <View style={[s.card, s.summaryCard]}>
-              <Text style={s.title}>Total comisión</Text>
-              <Text style={s.total}>{fmtQ(totals.totalComision)}</Text>
-              <Text style={s.sub}>Mes: {monthLabel}</Text>
+            <View style={s.summaryDivider} />
+            <View style={s.summaryItem}>
+              <Text style={s.summaryLabel}>Comisión</Text>
+              <Text style={s.summaryValue}>{fmtQ(totals.totalComision)}</Text>
             </View>
           </View>
         )}
@@ -504,29 +574,34 @@ export default function ComisionesScreen() {
               <Text style={s.empty}>No hay comisiones en este mes</Text>
             </View>
           ) : (
-            <>
+            <View style={[s.card, { paddingHorizontal: 0, paddingVertical: 0, overflow: "hidden", marginBottom: 10 }]}>
               {rows.map((r, idx) => {
                 const code = String(r.vendedor_codigo ?? "").trim() || "—";
                 return (
-                  <View key={String(r.vendedor_id ?? r.vendedor_codigo ?? idx)} style={s.card}>
-                    <View style={s.row}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={s.title} numberOfLines={1}>{code}</Text>
-                        <Text style={s.sub}>Total sin IVA: {fmtQ(r.total_sin_iva)}</Text>
-                        <Text style={s.sub}>Comisión: {fmtQ(r.comision_mes)}</Text>
-                      </View>
-                    </View>
+                  <View
+                    key={String(r.vendedor_id ?? r.vendedor_codigo ?? idx)}
+                    style={[
+                      s.vendedorRow,
+                      idx < rows.length - 1 && {
+                        borderBottomWidth: StyleSheet.hairlineWidth,
+                        borderBottomColor: colors.border,
+                      },
+                    ]}
+                  >
+                    <Text style={[s.title, { flex: 1 }]} numberOfLines={1}>{code}</Text>
+                    <Text style={s.sub}>Sin IVA: {fmtQ(r.total_sin_iva)}</Text>
+                    <Text style={[s.sub, { marginLeft: 12 }]}>Comisión: {fmtQ(r.comision_mes)}</Text>
                   </View>
                 );
               })}
-            </>
+            </View>
           )
         ) : null}
 
         {/* Título sección ventas pagadas */}
-        <View style={[s.card, { paddingVertical: 10 }]}>
-          <Text style={s.sectionTitle}>Ventas pagadas</Text>
-          <Text style={s.sub}>Mes: {monthLabel}</Text>
+        <View style={s.ventasPagadasHeader}>
+          <Text style={s.ventasPagadasTitle}>Ventas pagadas</Text>
+          <Text style={[s.sub, { marginTop: 0 }]}>{monthLabel}</Text>
         </View>
 
         {/* Empty state ventas pagadas */}
@@ -537,7 +612,7 @@ export default function ComisionesScreen() {
         ) : null}
       </>
     ),
-    [s, openMonthPicker, monthLabel, isAdmin, isVentas, totals, initialLoading, loadError, rows, ventasPagadasRaw.length]
+    [s, openMonthPicker, monthLabel, selYear, selMonthIndex0, M, isAdmin, isVentas, totals, initialLoading, loadError, rows, ventasPagadasRaw.length, hasActiveFilters, colors.border, colors.text]
   );
 
   return (
@@ -554,31 +629,75 @@ export default function ComisionesScreen() {
         backHref="/(drawer)/(tabs)"
       >
         <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
-          <SectionList<CxCVentaRow, SectionData>
-            style={{ backgroundColor: colors.background }}
-            sections={sections}
-            keyExtractor={(item) => String(item.venta_id)}
-            renderItem={renderVentaPagada}
-            renderSectionHeader={renderSectionHeader}
-            stickySectionHeadersEnabled={true}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-            automaticallyAdjustKeyboardInsets
-            contentContainerStyle={{
-              paddingHorizontal: 12,
-              paddingTop: 12,
-              paddingBottom: 16 + insets.bottom,
-            }}
-            ListHeaderComponent={ListHeader}
-            removeClippedSubviews={Platform.OS === "android"}
-            initialNumToRender={14}
-            maxToRenderPerBatch={14}
-            windowSize={9}
-            updateCellsBatchingPeriod={50}
-          />
+          {canSplit ? (
+            <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.background }}>
+              <View style={{ width: 420, maxWidth: 420, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: colors.border }}>
+                <SectionList<CxCVentaRow, SectionData>
+                  style={{ backgroundColor: colors.background }}
+                  sections={sections}
+                  keyExtractor={(item) => String(item.venta_id)}
+                  renderItem={renderVentaPagada}
+                  renderSectionHeader={renderSectionHeader}
+                  stickySectionHeadersEnabled={true}
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="on-drag"
+                  automaticallyAdjustKeyboardInsets
+                  contentContainerStyle={{
+                    paddingHorizontal: 12,
+                    paddingTop: 12,
+                    paddingBottom: 16 + insets.bottom,
+                  }}
+                  ListHeaderComponent={ListHeader}
+                  removeClippedSubviews={Platform.OS === "android"}
+                  initialNumToRender={14}
+                  maxToRenderPerBatch={14}
+                  windowSize={9}
+                  updateCellsBatchingPeriod={50}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                {selectedId ? (
+                  <ComisionVentaDetallePanel ventaId={selectedId} embedded />
+                ) : (
+                  <View style={{
+                    flex: 1, margin: 16, borderWidth: StyleSheet.hairlineWidth,
+                    borderRadius: 18, borderColor: colors.border,
+                    alignItems: "center", justifyContent: "center", padding: 24,
+                  }}>
+                    <Text style={{ fontSize: 15, fontWeight: "800", textAlign: "center", color: colors.text + "99" }}>
+                      Selecciona una venta para ver detalles
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          ) : (
+            <SectionList<CxCVentaRow, SectionData>
+              style={{ backgroundColor: colors.background }}
+              sections={sections}
+              keyExtractor={(item) => String(item.venta_id)}
+              renderItem={renderVentaPagada}
+              renderSectionHeader={renderSectionHeader}
+              stickySectionHeadersEnabled={true}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              automaticallyAdjustKeyboardInsets
+              contentContainerStyle={{
+                paddingHorizontal: 12,
+                paddingTop: 12,
+                paddingBottom: 16 + insets.bottom,
+              }}
+              ListHeaderComponent={ListHeader}
+              removeClippedSubviews={Platform.OS === "android"}
+              initialNumToRender={14}
+              maxToRenderPerBatch={14}
+              windowSize={9}
+              updateCellsBatchingPeriod={50}
+            />
+          )}
 
           {/* Modal: seleccionar mes (iOS) */}
-          {monthOpenIOS ? (
+          {monthOpenIOS && Platform.OS !== "web" ? (
             <Modal visible={monthOpenIOS} transparent animationType="fade" onRequestClose={() => setMonthOpenIOS(false)}>
               <Pressable style={[s.modalBackdrop, { backgroundColor: M.back }]} onPress={() => setMonthOpenIOS(false)} />
               <View style={[s.modalCard, { top: 14 + insets.top, backgroundColor: M.card, borderColor: M.border }]}>
@@ -611,7 +730,33 @@ export default function ComisionesScreen() {
             <Modal visible={filtersOpen} transparent animationType="fade" onRequestClose={() => setFiltersOpen(false)}>
               <Pressable style={[s.modalBackdrop, { backgroundColor: M.back }]} onPress={() => setFiltersOpen(false)} />
 
-              <View style={[s.modalCard, { top: 14 + insets.top, backgroundColor: M.card, borderColor: M.border }]}>
+              <View
+                pointerEvents="box-none"
+                style={
+                  Platform.OS === "web"
+                    ? {
+                        position: "absolute",
+                        top: 0, left: 0, right: 0, bottom: 0,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }
+                    : {
+                        position: "absolute",
+                        top: 0, left: 0, right: 0, bottom: 0,
+                        justifyContent: "flex-start",
+                        paddingTop: 14 + insets.top,
+                      }
+                }
+              >
+              <View
+                style={[
+                  s.modalCard,
+                  { backgroundColor: M.card, borderColor: M.border },
+                  Platform.OS === "web"
+                    ? { width: "100%", maxWidth: 480, marginHorizontal: 0 }
+                    : null,
+                ]}
+              >
                 <View style={s.modalHeader}>
                   <Text style={[s.modalTitle, { color: M.text }]}>Filtros</Text>
                   <Pressable onPress={() => setFiltersOpen(false)} hitSlop={10}>
@@ -668,6 +813,7 @@ export default function ComisionesScreen() {
               <View style={s.modalActions}>
                 <AppButton title="Limpiar" variant="ghost" size="sm" onPress={limpiarFiltros} />
                 <AppButton title="Aplicar" variant="primary" size="sm" onPress={aplicarFiltros} />
+              </View>
               </View>
               </View>
             </Modal>
@@ -745,6 +891,7 @@ const styles = (colors: any) =>
       justifyContent: "center",
     },
     filterTxt: { color: colors.text, fontWeight: "800" },
+    filterDot: { width: 8, height: 8, borderRadius: 99 },
 
     center: { flex: 1, alignItems: "center", justifyContent: "center" },
     empty: { color: colors.text },
@@ -782,14 +929,42 @@ const styles = (colors: any) =>
       overflow: "hidden",
     },
 
-    summaryGrid: { flexDirection: "row", gap: 10 },
-    summaryCard: { flex: 1 },
+    summaryBar: {
+      flexDirection: "row" as const,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+      borderRadius: 14,
+      marginBottom: 10,
+      overflow: "hidden" as const,
+    },
+    summaryItem: { flex: 1, paddingVertical: 10, paddingHorizontal: 14 },
+    summaryLabel: { fontSize: 12, fontWeight: "700" as const, color: colors.text + "AA" },
+    summaryValue: { fontSize: 16, fontWeight: "900" as const, color: colors.text, marginTop: 2 },
+    summaryDivider: {
+      width: StyleSheet.hairlineWidth,
+      backgroundColor: colors.border,
+      marginVertical: 10,
+    },
+    vendedorRow: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+    },
+    ventasPagadasHeader: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "space-between" as const,
+      paddingHorizontal: 4,
+      paddingVertical: 6,
+      marginBottom: 4,
+    },
+    ventasPagadasTitle: { fontSize: 15, fontWeight: "900" as const, color: colors.text },
 
     modalBackdrop: { ...StyleSheet.absoluteFillObject },
     modalCard: {
-      position: "absolute",
-      left: 14,
-      right: 14,
+      marginHorizontal: 14,
       borderRadius: 18,
       padding: 16,
       borderWidth: 1,

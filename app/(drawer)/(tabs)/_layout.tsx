@@ -55,7 +55,7 @@ export default function TabLayout() {
               height: 56 + Math.max(insets.bottom, 6),
             },
         tabBarLabelStyle: {
-          fontSize: Platform.OS === "ios" ? 11 : 12,
+          fontSize: Platform.OS === "web" ? 15 : Platform.OS === "ios" ? 11 : 12,
           fontWeight: Platform.OS === "ios" ? "500" : "400",
         },
       }}

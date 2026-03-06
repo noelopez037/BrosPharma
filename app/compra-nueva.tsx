@@ -642,24 +642,36 @@ export default function CompraNuevaScreen() {
             <>
               <Text style={[styles.label, { color: C.text }]}>Vencimiento (crédito)</Text>
 
-              <Pressable
-                onPress={() =>
-                  openDatePicker({
-                    title: "Vencimiento (crédito)",
-                    initial: fechaVenc ? new Date(`${fechaVenc}T12:00:00`) : addDays(new Date(), 30),
-                    onConfirm: (d) => setFechaVenc(toYMD(d)),
-                  })
-                }
-                style={({ pressed }) => [
-                  styles.select,
-                  { borderColor: C.border, backgroundColor: C.card },
-                  pressed && { opacity: 0.85 },
-                ]}
-              >
-                <Text style={[styles.selectText, { color: C.text }]}>
-                  {fechaVenc ?? "Seleccionar fecha..."}
-                </Text>
-              </Pressable>
+              {Platform.OS === "web" ? (
+                <input
+                  type="date"
+                  value={fechaVenc ?? ""}
+                  onChange={(e) => {
+                    const val = (e.target as HTMLInputElement).value;
+                    setFechaVenc(val || null);
+                  }}
+                  style={{ borderWidth: 1, borderStyle: "solid", borderColor: C.border, borderRadius: 12, padding: 12, fontSize: 16, width: "100%", backgroundColor: "transparent", color: C.text, fontFamily: "inherit", cursor: "pointer" } as any}
+                />
+              ) : (
+                <Pressable
+                  onPress={() =>
+                    openDatePicker({
+                      title: "Vencimiento (crédito)",
+                      initial: fechaVenc ? new Date(`${fechaVenc}T12:00:00`) : addDays(new Date(), 30),
+                      onConfirm: (d) => setFechaVenc(toYMD(d)),
+                    })
+                  }
+                  style={({ pressed }) => [
+                    styles.select,
+                    { borderColor: C.border, backgroundColor: C.card },
+                    pressed && { opacity: 0.85 },
+                  ]}
+                >
+                  <Text style={[styles.selectText, { color: C.text }]}>
+                    {fechaVenc ?? "Seleccionar fecha..."}
+                  </Text>
+                </Pressable>
+              )}
 
               <Text style={[styles.help, { color: C.sub }]}>
                 Se asigna automáticamente a 30 días. Puedes tocar para cambiar.
@@ -783,24 +795,36 @@ export default function CompraNuevaScreen() {
 
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.label, { color: C.text }]}>Expiración</Text>
-                    <Pressable
-                      onPress={() =>
-                        openDatePicker({
-                          title: "Expiración",
-                          initial: l.fecha_exp ? new Date(`${l.fecha_exp}T12:00:00`) : addDays(new Date(), 365),
-                          onConfirm: (d) => updateLinea(l.key, { fecha_exp: toYMD(d) }),
-                        })
-                      }
-                      style={({ pressed }) => [
-                        styles.select,
-                        { borderColor: C.border, backgroundColor: C.card },
-                        pressed && { opacity: 0.85 },
-                      ]}
-                    >
-                      <Text style={[styles.selectText, { color: l.fecha_exp ? C.text : C.sub }]}>
-                        {l.fecha_exp ?? "Seleccionar fecha..."}
-                      </Text>
-                    </Pressable>
+                    {Platform.OS === "web" ? (
+                      <input
+                        type="date"
+                        value={l.fecha_exp ?? ""}
+                        onChange={(e) => {
+                          const val = (e.target as HTMLInputElement).value;
+                          updateLinea(l.key, { fecha_exp: val || null });
+                        }}
+                        style={{ borderWidth: 1, borderStyle: "solid", borderColor: C.border, borderRadius: 12, padding: 12, fontSize: 16, width: "100%", backgroundColor: "transparent", color: C.text, fontFamily: "inherit", cursor: "pointer" } as any}
+                      />
+                    ) : (
+                      <Pressable
+                        onPress={() =>
+                          openDatePicker({
+                            title: "Expiración",
+                            initial: l.fecha_exp ? new Date(`${l.fecha_exp}T12:00:00`) : addDays(new Date(), 365),
+                            onConfirm: (d) => updateLinea(l.key, { fecha_exp: toYMD(d) }),
+                          })
+                        }
+                        style={({ pressed }) => [
+                          styles.select,
+                          { borderColor: C.border, backgroundColor: C.card },
+                          pressed && { opacity: 0.85 },
+                        ]}
+                      >
+                        <Text style={[styles.selectText, { color: l.fecha_exp ? C.text : C.sub }]}>
+                          {l.fecha_exp ?? "Seleccionar fecha..."}
+                        </Text>
+                      </Pressable>
+                    )}
                   </View>
                 </View>
 
@@ -864,7 +888,7 @@ export default function CompraNuevaScreen() {
         </KeyboardAvoidingView>
 
         {/* iOS Date Picker Modal */}
-        {iosDateOpen ? (
+        {iosDateOpen && Platform.OS !== "web" ? (
           <Modal visible={iosDateOpen} transparent animationType="fade">
             <Pressable
               style={[styles.dpBackdrop, { backgroundColor: C.backdrop }]}

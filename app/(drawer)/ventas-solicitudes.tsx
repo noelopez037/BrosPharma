@@ -10,11 +10,13 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { RoleGate } from "../../components/auth/RoleGate";
 import { AppButton } from "../../components/ui/app-button";
+import { VentasSolicitudesDetallePanel } from "../../components/ventas/VentasSolicitudesDetallePanel";
 import { navigateToVentaFromNotif } from "../../lib/notifNavigation";
 import { emitSolicitudesChanged } from "../../lib/solicitudesEvents";
 import { supabase } from "../../lib/supabase";
@@ -55,13 +57,16 @@ type PagoReportadoRow = {
   estado: string | null;
 };
 
+type UnifiedItem =
+  | { kind: "solicitud"; data: SolicitudRow }
+  | { kind: "pago"; data: PagoReportadoRow };
+
 function normalizeUpper(v: any) {
   return String(v ?? "").trim().toUpperCase();
 }
 
 function fmtDateTime(iso: string | null | undefined) {
   if (!iso) return "—";
-  // yyyy-mm-dd hh:mm
   const s = String(iso).replace("T", " ");
   return s.slice(0, 16);
 }
@@ -82,13 +87,9 @@ function actionLabel(a: SolicitudRow["solicitud_accion"]) {
 
 function isPaymentEditRequest(row: SolicitudRow | null | undefined) {
   if (!row) return false;
-  const acc = normalizeUpper(row.solicitud_accion);
   const note = String(row.solicitud_nota ?? "").toUpperCase();
   const tag = String(row.solicitud_tag ?? "").toUpperCase();
-
-  // Prefer explicit tag/note containing PAGO
   if (tag.includes("PAGO") || note.includes("PAGO") || note.startsWith("PAGO:") || note.includes("EDITAR PAGO")) return true;
-  // fallback: accion EDICION might be general; prefer note/tag-based detection
   return false;
 }
 
@@ -103,7 +104,6 @@ export default function VentasSolicitudesScreen() {
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
 
-  // UX: swipe-back / back siempre regresa a Inicio.
   useGoHomeOnBack(true, "/(drawer)/(tabs)");
 
   const C = useMemo(
@@ -123,10 +123,25 @@ export default function VentasSolicitudesScreen() {
     [colors.background, colors.border, colors.card, colors.text, isDark]
   );
 
+  const { width } = useWindowDimensions();
+  const canSplit = Platform.OS === "web" && width >= 1100;
+  const [selectedVentaId, setSelectedVentaId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!canSplit) setSelectedVentaId(null);
+  }, [canSplit]);
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const style = document.createElement("style");
+    style.textContent = "input:focus { outline: none !important; }";
+    document.head.appendChild(style);
+    return () => { document.head.removeChild(style); };
+  }, []);
+
   const { role, isReady, refreshRole } = useRole();
 
   const roleUp = normalizeUpper(role) as Role;
-  const canView = isReady && roleUp === "ADMIN";
   const canResolve = isReady && roleUp === "ADMIN";
   const [q, setQ] = useState("");
 
@@ -136,7 +151,6 @@ export default function VentasSolicitudesScreen() {
   const [actingVentaId, setActingVentaId] = useState<number | null>(null);
   const [pagosPendientesRaw, setPagosPendientesRaw] = useState<PagoReportadoRow[]>([]);
   const [initialLoadingPagos, setInitialLoadingPagos] = useState(true);
-  const [actingPagoReportadoId, setActingPagoReportadoId] = useState<number | null>(null);
   const [ventasInfoById, setVentasInfoById] = useState<
     Record<string, { cliente_nombre: string | null; vendedor_id: string | null; vendedor_codigo: string | null }>
   >({});
@@ -162,7 +176,6 @@ export default function VentasSolicitudesScreen() {
       .eq("estado", "PENDIENTE")
       .order("created_at", { ascending: false })
       .limit(300);
-
     if (error) throw error;
     setPagosPendientesRaw((data ?? []) as any);
   }, []);
@@ -186,33 +199,11 @@ export default function VentasSolicitudesScreen() {
   useFocusEffect(
     useCallback(() => {
       void refreshRole("focus:ventas-solicitudes");
-      void reloadAll(); // Fix 1: single fetch path — useFocusEffect covers mount + focus
+      void reloadAll();
     }, [refreshRole, reloadAll])
   );
 
-  const rows = useMemo(() => {
-    const search = q.trim().toLowerCase();
-    if (!search) return rowsRaw;
-    return rowsRaw.filter((r) => {
-      const id = String(r.venta_id ?? "");
-      const cliente = String(r.cliente_nombre ?? "").toLowerCase();
-      const nota = String(r.solicitud_nota ?? "").toLowerCase();
-      return id.includes(search) || cliente.includes(search) || nota.includes(search);
-    });
-  }, [q, rowsRaw]);
-
-  const pagosPendientes = useMemo(() => {
-    const search = q.trim().toLowerCase();
-    if (!search) return pagosPendientesRaw;
-    return pagosPendientesRaw.filter((p) => {
-      const venta = String(p.venta_id ?? "");
-      const ref = String(p.referencia ?? "").toLowerCase();
-      const comentario = String(p.comentario ?? "").toLowerCase();
-      return venta.includes(search) || ref.includes(search) || comentario.includes(search);
-    });
-  }, [pagosPendientesRaw, q]);
-
-  // Fix 3: stable derived IDs — only changes when the actual set of venta_ids changes
+  // Stable derived IDs for pagos — only changes when the actual set of venta_ids changes
   const ventaIdsPagos = useMemo(
     () =>
       Array.from(
@@ -226,13 +217,11 @@ export default function VentasSolicitudesScreen() {
   );
 
   useEffect(() => {
-    const ventaIds = ventaIdsPagos; // Fix 3: use memoized IDs
-
+    const ventaIds = ventaIdsPagos;
     if (!ventaIds.length) {
       setVentasInfoById({});
       return;
     }
-
     let alive = true;
     (async () => {
       try {
@@ -241,7 +230,6 @@ export default function VentasSolicitudesScreen() {
           .select("venta_id,cliente_nombre,vendedor_id,vendedor_codigo")
           .in("venta_id", ventaIds);
         if (error) throw error;
-
         const map: Record<
           string,
           { cliente_nombre: string | null; vendedor_id: string | null; vendedor_codigo: string | null }
@@ -256,29 +244,21 @@ export default function VentasSolicitudesScreen() {
           };
         });
         if (alive) setVentasInfoById(map);
-      } catch (e) {
+      } catch {
         if (alive) setVentasInfoById({});
       }
     })();
-
-    return () => {
-      alive = false;
-    };
-  }, [ventaIdsPagos]); // Fix 3: depend on stable memoized array reference
+    return () => { alive = false; };
+  }, [ventaIdsPagos]);
 
   useEffect(() => {
     const ids = Array.from(
-      new Set(
-        rowsRaw
-          .map((r) => String(r.vendedor_id ?? "").trim())
-          .filter((x) => x)
-      )
+      new Set(rowsRaw.map((r) => String(r.vendedor_id ?? "").trim()).filter((x) => x))
     );
     if (!ids.length) {
       setVendedoresById({});
       return;
     }
-
     let alive = true;
     (async () => {
       try {
@@ -287,7 +267,6 @@ export default function VentasSolicitudesScreen() {
           .select("id,codigo,full_name")
           .in("id", ids);
         if (error) throw error;
-
         const map: Record<string, { codigo: string | null; nombre: string | null }> = {};
         (data ?? []).forEach((p: any) => {
           const id = String(p.id ?? "").trim();
@@ -302,10 +281,7 @@ export default function VentasSolicitudesScreen() {
         if (alive) setVendedoresById({});
       }
     })();
-
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, [rowsRaw]);
 
   const resolve = useCallback(
@@ -318,7 +294,6 @@ export default function VentasSolicitudesScreen() {
           p_decision: decision,
         });
         if (error) throw error;
-        // If approved and the request is for payment edit, grant edit permission to the vendedor
         if (decision === "APROBAR") {
           try {
             const sol = rowsRaw.find((r) => Number(r.venta_id) === Number(ventaId));
@@ -329,24 +304,23 @@ export default function VentasSolicitudesScreen() {
                 p_horas: 48,
               });
               if (grantErr) {
-                // non-blocking: warn admin
                 Alert.alert("Aviso", `Solicitud aprobada pero no se pudo otorgar permiso: ${grantErr.message || grantErr}`);
               }
             }
           } catch (e: any) {
-            // ignore grant errors
             console.warn("grant permiso error", e?.message ?? e);
           }
         }
         await fetchSolicitudes();
         emitSolicitudesChanged();
+        setSelectedVentaId(null);
       } catch (e: any) {
         Alert.alert("Error", e?.message ?? "No se pudo resolver la solicitud");
       } finally {
         setActingVentaId(null);
       }
     },
-    [canResolve, fetchSolicitudes, rowsRaw] // Fix 2: rowsRaw added to prevent stale closure
+    [canResolve, fetchSolicitudes, rowsRaw]
   );
 
   const confirmResolve = useCallback(
@@ -362,63 +336,260 @@ export default function VentasSolicitudesScreen() {
         {
           text: decision === "APROBAR" ? "Aprobar" : "Rechazar",
           style: decision === "RECHAZAR" ? "destructive" : "default",
-          onPress: () => {
-            resolve(ventaId, decision).catch(() => {});
-          },
+          onPress: () => { resolve(ventaId, decision).catch(() => {}); },
         },
       ]);
     },
     [canResolve, resolve]
   );
 
-  const handlePagoAccion = useCallback(
-    async (pago: PagoReportadoRow, decision: "APROBAR" | "RECHAZAR") => {
-      if (!canResolve) return;
-      setActingPagoReportadoId(pago.id);
-      try {
-        if (decision === "APROBAR") {
-          const { error } = await supabase.rpc("rpc_venta_aprobar_pago_reportado", {
-            p_pago_reportado_id: pago.id,
-          });
-          if (error) throw error;
-        } else {
-          const { error } = await supabase.rpc("rpc_venta_rechazar_pago_reportado", {
-            p_pago_reportado_id: pago.id,
-            p_nota_admin: "Rechazado por admin",
-          });
-          if (error) throw error;
-        }
-        await Promise.all([fetchSolicitudes(), fetchPagosPendientes()]);
-        emitSolicitudesChanged();
-      } catch (e: any) {
-        Alert.alert("Error", e?.message ?? "No se pudo actualizar el pago reportado");
-      } finally {
-        setActingPagoReportadoId(null);
+
+  // Unified + sorted list
+  const unifiedItems = useMemo<UnifiedItem[]>(() => {
+    const items: UnifiedItem[] = [
+      ...rowsRaw.map((d) => ({ kind: "solicitud" as const, data: d })),
+      ...pagosPendientesRaw.map((d) => ({ kind: "pago" as const, data: d })),
+    ];
+    return items.sort((a, b) => {
+      const dateA = a.kind === "solicitud" ? a.data.solicitud_at : a.data.created_at;
+      const dateB = b.kind === "solicitud" ? b.data.solicitud_at : b.data.created_at;
+      return (dateB ?? "").localeCompare(dateA ?? "");
+    });
+  }, [rowsRaw, pagosPendientesRaw]);
+
+  const filteredItems = useMemo<UnifiedItem[]>(() => {
+    const search = q.trim().toLowerCase();
+    if (!search) return unifiedItems;
+    return unifiedItems.filter((item) => {
+      if (item.kind === "solicitud") {
+        const r = item.data;
+        return (
+          String(r.venta_id ?? "").includes(search) ||
+          String(r.cliente_nombre ?? "").toLowerCase().includes(search) ||
+          String(r.solicitud_nota ?? "").toLowerCase().includes(search)
+        );
+      } else {
+        const p = item.data;
+        return (
+          String(p.venta_id ?? "").includes(search) ||
+          String(p.referencia ?? "").toLowerCase().includes(search) ||
+          String(p.comentario ?? "").toLowerCase().includes(search)
+        );
+      }
+    });
+  }, [unifiedItems, q]);
+
+  const renderItem = useCallback(
+    ({ item }: { item: UnifiedItem }) => {
+      if (item.kind === "solicitud") {
+        const sol = item.data;
+        const tone = actionTone(sol.solicitud_accion);
+        const pillBg = tone === "red" ? C.pillRedBg : C.pillAmberBg;
+        const pillText = tone === "red" ? C.danger : C.amber;
+        const isActing = actingVentaId === Number(sol.venta_id);
+        const vendor = vendedoresById[String(sol.vendedor_id ?? "")] ?? null;
+        const vendorCode = String(vendor?.codigo ?? "").trim();
+
+        return (
+          <View style={{ marginHorizontal: 16, marginTop: 12 }}>
+            <Pressable
+              onPress={() => {
+                if (canSplit) {
+                  setSelectedVentaId(Number(sol.venta_id));
+                } else {
+                  navigateToVentaFromNotif(router as any, Number(sol.venta_id), {
+                    ensureBaseRoute: false,
+                    notif: "VENTA_SOLICITUD_ADMIN",
+                    accion: sol.solicitud_accion,
+                    nota: sol.solicitud_nota,
+                    clienteNombre: sol.cliente_nombre,
+                    vendedorCodigo: vendorCode || null,
+                  });
+                }
+              }}
+              style={({ pressed }) => [
+                styles.cardItem,
+                { borderColor: C.border, backgroundColor: C.card },
+                canSplit && selectedVentaId === Number(sol.venta_id) && { borderColor: colors.primary, borderWidth: 2 },
+                pressed ? { opacity: 0.92 } : null,
+              ]}
+            >
+              <View style={styles.rowTop}>
+                <View style={[styles.pill, { backgroundColor: pillBg, borderColor: C.border }]}>
+                  <Text style={[styles.pillText, { color: pillText }]}>{actionLabel(sol.solicitud_accion)}</Text>
+                </View>
+                <Text style={[styles.meta, { color: C.sub }]}>{fmtDateTime(sol.solicitud_at)}</Text>
+              </View>
+
+              <Text style={[styles.title, { color: C.text }]} numberOfLines={1}>
+                {sol.cliente_nombre ?? "—"}
+              </Text>
+              <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
+                Venta #{sol.venta_id} • Estado: {sol.estado ?? "—"}
+              </Text>
+
+              {sol.solicitud_tag ? (
+                <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
+                  Tag: {String(sol.solicitud_tag)}
+                </Text>
+              ) : null}
+
+              {sol.vendedor_id ? (
+                <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
+                  Vendedor: {(() => {
+                    const name = String(vendor?.nombre ?? "").trim();
+                    if (vendorCode) return vendorCode;
+                    if (name) return name;
+                    return String(sol.vendedor_id).slice(0, 8);
+                  })()}
+                </Text>
+              ) : null}
+
+              {!!sol.solicitud_nota ? (
+                <Text style={[styles.note, { color: C.text }]}>{sol.solicitud_nota}</Text>
+              ) : null}
+
+              {!canResolve ? null : (
+                <View style={styles.btnRow}>
+                  <AppButton
+                    title={isActing ? "..." : "Aprobar"}
+                    size="sm"
+                    onPress={() => confirmResolve(Number(sol.venta_id), "APROBAR")}
+                    disabled={isActing}
+                  />
+                  <View style={{ width: 10 }} />
+                  <AppButton
+                    title={isActing ? "..." : "Rechazar"}
+                    size="sm"
+                    variant="outline"
+                    onPress={() => confirmResolve(Number(sol.venta_id), "RECHAZAR")}
+                    disabled={isActing}
+                  />
+                </View>
+              )}
+            </Pressable>
+          </View>
+        );
+      } else {
+        const p = item.data;
+        const displayDate = fmtDateTime(p.fecha_reportado ?? p.created_at);
+        const ventaKey = String(p.venta_id ?? "").trim();
+        const ventaInfo = ventaKey ? ventasInfoById[ventaKey] : undefined;
+        const clienteNombre = ventaInfo?.cliente_nombre ?? "Cliente";
+        const vendedorDisplay = (() => {
+          if (ventaInfo?.vendedor_codigo) return String(ventaInfo.vendedor_codigo).trim();
+          const vendedorId = ventaInfo?.vendedor_id ? String(ventaInfo.vendedor_id).trim() : "";
+          if (vendedorId) {
+            const vendedor = vendedoresById[vendedorId];
+            const code = String(vendedor?.codigo ?? "").trim();
+            if (code) return code;
+            const nombre = String(vendedor?.nombre ?? "").trim();
+            if (nombre) return nombre;
+            return vendedorId.slice(0, 8);
+          }
+          return "—";
+        })();
+
+        return (
+          <View style={{ marginHorizontal: 16, marginTop: 12 }}>
+            <Pressable
+              onPress={() => {
+                if (canSplit) {
+                  setSelectedVentaId(Number(p.venta_id));
+                } else {
+                  router.push({
+                    pathname: "/cxc-venta-detalle",
+                    params: { ventaId: String(p.venta_id) },
+                  } as any);
+                }
+              }}
+              style={({ pressed }) => [
+                styles.cardItem,
+                { borderColor: C.border, backgroundColor: C.card },
+                canSplit && selectedVentaId === Number(p.venta_id) && { borderColor: colors.primary, borderWidth: 2 },
+                pressed ? { opacity: 0.92 } : null,
+              ]}
+            >
+              <View style={styles.rowTop}>
+                <View style={[styles.pill, { backgroundColor: C.pillAmberBg, borderColor: C.border }]}>
+                  <Text style={[styles.pillText, { color: C.amber }]}>Pago</Text>
+                </View>
+                <Text style={[styles.meta, { color: C.sub }]}>{displayDate}</Text>
+              </View>
+
+              <View style={styles.rowTopPay}>
+                <Text style={[styles.title, { color: C.text, flex: 1 }]} numberOfLines={1}>
+                  {clienteNombre}
+                </Text>
+                <View style={[styles.vendorPill, { borderColor: C.border, backgroundColor: C.pillAmberBg }]}>
+                  <Text style={[styles.vendorPillText, { color: C.sub }]} numberOfLines={1}>
+                    {vendedorDisplay}
+                  </Text>
+                </View>
+              </View>
+
+              <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
+                Venta #{p.venta_id} • {fmtQ(p.monto)}
+              </Text>
+              <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
+                Método: {p.metodo ?? "—"}
+              </Text>
+              {p.referencia ? (
+                <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
+                  Ref: {p.referencia}
+                </Text>
+              ) : null}
+              {p.comentario ? (
+                <Text style={[styles.note, { color: C.text }]} numberOfLines={2}>
+                  {p.comentario}
+                </Text>
+              ) : null}
+            </Pressable>
+          </View>
+        );
       }
     },
-    [canResolve, fetchPagosPendientes, fetchSolicitudes]
+    [
+      C, colors.primary, canSplit, selectedVentaId,
+      actingVentaId, vendedoresById, ventasInfoById,
+      canResolve, confirmResolve,
+    ]
   );
 
-  const confirmPagoAccion = useCallback(
-    (pago: PagoReportadoRow, decision: "APROBAR" | "RECHAZAR") => {
-      if (!canResolve) return;
-      const title = decision === "APROBAR" ? "Aprobar pago" : "Rechazar pago";
-      const msg =
-        decision === "APROBAR"
-          ? "Esto marcara el pago como aprobado."
-          : "Esto rechazara el pago reportado y notificara al vendedor.";
-      Alert.alert(title, msg, [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: decision === "APROBAR" ? "Aprobar" : "Rechazar",
-          style: decision === "RECHAZAR" ? "destructive" : "default",
-          onPress: () => {
-            handlePagoAccion(pago, decision).catch(() => {});
-          },
-        },
-      ]);
-    },
-    [canResolve, handlePagoAccion]
+  const listContent = (
+    <>
+      <View style={[styles.content, { backgroundColor: C.bg }]}>
+        <TextInput
+          value={q}
+          onChangeText={setQ}
+          placeholder="Buscar (cliente, id, nota)..."
+          placeholderTextColor={C.sub}
+          style={[styles.search, { borderColor: C.border, backgroundColor: C.card, color: C.text }]}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+      </View>
+
+      <FlatList
+        style={{ flex: 1 }}
+        data={filteredItems}
+        keyExtractor={(item) =>
+          item.kind === "solicitud"
+            ? `sol_${item.data.venta_id}_${item.data.solicitud_at ?? ""}`
+            : `pago_${item.data.id}`
+        }
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        automaticallyAdjustKeyboardInsets
+        contentContainerStyle={{ paddingBottom: 24, paddingTop: 4 }}
+        renderItem={renderItem}
+        ListEmptyComponent={
+          <Text style={{ padding: 16, color: C.sub, fontWeight: "700" }}>
+            {initialLoading || initialLoadingPagos ? "Cargando..." : "Sin solicitudes pendientes"}
+          </Text>
+        }
+      />
+    </>
   );
 
   return (
@@ -434,189 +605,26 @@ export default function VentasSolicitudesScreen() {
 
       <RoleGate allow={["ADMIN"]} deniedText="Solo ADMIN puede ver solicitudes." backHref="/(drawer)/(tabs)">
         <SafeAreaView style={[styles.safe, { backgroundColor: C.bg }]} edges={["bottom"]}>
-          <View style={[styles.content, { backgroundColor: C.bg }]}>
-            <TextInput
-              value={q}
-              onChangeText={setQ}
-              placeholder="Buscar (cliente, id, nota)..."
-              placeholderTextColor={C.sub}
-              style={[styles.search, { borderColor: C.border, backgroundColor: C.card, color: C.text }]}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
-
-          <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
-            
-            {initialLoadingPagos ? (
-              <Text style={{ color: C.sub, fontWeight: "700" }}>Cargando pagos...</Text>
-            ) : pagosPendientes.length === 0 ? (
-              <Text style={{ color: C.sub, fontWeight: "700" }}>Sin pagos reportados pendientes</Text>
-            ) : (
-              pagosPendientes.map((p) => {
-                const isActing = actingPagoReportadoId === p.id;
-                const displayDate = fmtDateTime(p.fecha_reportado ?? p.created_at);
-                const ventaKey = String(p.venta_id ?? "").trim();
-                const ventaInfo = ventaKey ? ventasInfoById[ventaKey] : undefined;
-                const clienteNombre = ventaInfo?.cliente_nombre ?? "Cliente";
-                const vendedorDisplay = (() => {
-                  if (ventaInfo?.vendedor_codigo) return String(ventaInfo.vendedor_codigo).trim();
-                  const vendedorId = ventaInfo?.vendedor_id ? String(ventaInfo.vendedor_id).trim() : "";
-                  if (vendedorId) {
-                    const vendedor = vendedoresById[vendedorId];
-                    const code = String(vendedor?.codigo ?? "").trim();
-                    if (code) return code;
-                    const nombre = String(vendedor?.nombre ?? "").trim();
-                    if (nombre) return nombre;
-                    return vendedorId.slice(0, 8);
-                  }
-                  return "—";
-                })();
-                return (
-                  <View key={p.id} style={{ marginTop: 10 }}>
-                    <Pressable
-                      onPress={() =>
-                        router.push({
-                          pathname: "/cxc-venta-detalle",
-                          params: { ventaId: String(p.venta_id) },
-                        } as any)
-                      }
-                      style={({ pressed }) => [
-                        styles.pagoCard,
-                        { borderColor: C.border, backgroundColor: C.card },
-                        pressed ? { opacity: 0.92 } : null,
-                      ]}
-                    >
-                      <View style={styles.rowTopPay}>
-                        <Text style={[styles.pagoVenta, { color: C.text, flex: 1 }]} numberOfLines={1}>
-                          {clienteNombre}
-                        </Text>
-                        <View
-                          style={[styles.vendorPill, { borderColor: C.border, backgroundColor: C.pillAmberBg }]}
-                        >
-                          <Text style={[styles.vendorPillText, { color: C.sub }]} numberOfLines={1}>
-                            {vendedorDisplay}
-                          </Text>
-                        </View>
-                      </View>
-                      <Text style={[styles.pagoMonto, { color: C.text }]}>Monto: {fmtQ(p.monto)}</Text>
-                      <Text style={[styles.pagoMeta, { color: C.sub }]}>Método: {p.metodo ?? "—"}</Text>
-                      {p.referencia ? (
-                        <Text style={[styles.pagoMeta, { color: C.sub }]}>Ref: {p.referencia}</Text>
-                      ) : null}
-                      {p.comentario ? (
-                        <Text style={[styles.pagoMeta, { color: C.sub }]}>Comentario: {p.comentario}</Text>
-                      ) : null}
-                      <Text style={[styles.pagoMeta, { color: C.sub }]}>Reportado: {displayDate}</Text>
-
-                    </Pressable>
+          {canSplit ? (
+            <View style={[styles.splitWrap, { backgroundColor: C.bg }]}>
+              <View style={[styles.splitListPane, { borderRightColor: C.border, backgroundColor: C.bg }]}>
+                {listContent}
+              </View>
+              <View style={styles.splitDetailPane}>
+                {selectedVentaId ? (
+                  <VentasSolicitudesDetallePanel ventaId={selectedVentaId} embedded />
+                ) : (
+                  <View style={[styles.splitPlaceholder, { borderColor: C.border }]}>
+                    <Text style={[styles.splitPlaceholderText, { color: C.sub }]}>
+                      Selecciona una solicitud para ver detalles
+                    </Text>
                   </View>
-                );
-              })
-            )}
-          </View>
-
-          <FlatList
-            data={rows}
-            keyExtractor={(it) => `${it.venta_id}_${it.solicitud_at ?? ""}`} // Fix 4: composite key prevents duplicates
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-            automaticallyAdjustKeyboardInsets
-            contentContainerStyle={{ paddingBottom: 24, paddingTop: 4 }}
-            renderItem={({ item }) => {
-              const tone = actionTone(item.solicitud_accion);
-              const pillBg = tone === "red" ? C.pillRedBg : C.pillAmberBg;
-              const pillText = tone === "red" ? C.danger : C.amber;
-              const isActing = actingVentaId === Number(item.venta_id);
-
-              const vendor = vendedoresById[String(item.vendedor_id ?? "")] ?? null;
-              const vendorCode = String(vendor?.codigo ?? "").trim();
-
-              const openVenta = () => {
-                navigateToVentaFromNotif(router as any, Number(item.venta_id), {
-                  ensureBaseRoute: false,
-                  notif: "VENTA_SOLICITUD_ADMIN",
-                  accion: item.solicitud_accion,
-                  nota: item.solicitud_nota,
-                  clienteNombre: item.cliente_nombre,
-                  vendedorCodigo: vendorCode || null,
-                });
-              };
-
-              return (
-                <View style={{ marginHorizontal: 16, marginTop: 12 }}>
-                  <Pressable
-                    onPress={openVenta}
-                    style={({ pressed }) => [
-                      styles.cardItem,
-                      { borderColor: C.border, backgroundColor: C.card },
-                      pressed ? { opacity: 0.92 } : null,
-                    ]}
-                  >
-                    <View style={styles.rowTop}>
-                      <View style={[styles.pill, { backgroundColor: pillBg, borderColor: C.border }]}>
-                        <Text style={[styles.pillText, { color: pillText }]}>{actionLabel(item.solicitud_accion)}</Text>
-                      </View>
-                      <Text style={[styles.meta, { color: C.sub }]}>{fmtDateTime(item.solicitud_at)}</Text>
-                    </View>
-
-                    <Text style={[styles.title, { color: C.text }]} numberOfLines={1}>
-                      {item.cliente_nombre ?? "—"}
-                    </Text>
-                    <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
-                      Venta #{item.venta_id} • Estado: {item.estado ?? "—"}
-                    </Text>
-
-                    {item.solicitud_tag ? (
-                      <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
-                        Tag: {String(item.solicitud_tag)}
-                      </Text>
-                    ) : null}
-
-                    {item.vendedor_id ? (
-                      <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
-                        Vendedor: {(() => {
-                          const code = vendorCode;
-                          const name = String(vendor?.nombre ?? "").trim();
-                          if (code) return code;
-                          if (name) return name;
-                          return String(item.vendedor_id).slice(0, 8);
-                        })()}
-                      </Text>
-                    ) : null}
-
-                    {!!item.solicitud_nota ? (
-                      <Text style={[styles.note, { color: C.text }]}>{item.solicitud_nota}</Text>
-                    ) : null}
-
-                    {!canResolve ? null : (
-                      <View style={styles.btnRow}>
-                        <AppButton
-                          title={isActing ? "..." : "Aprobar"}
-                          size="sm"
-                          onPress={() => confirmResolve(Number(item.venta_id), "APROBAR")}
-                          disabled={isActing}
-                        />
-                        <View style={{ width: 10 }} />
-                        <AppButton
-                          title={isActing ? "..." : "Rechazar"}
-                          size="sm"
-                          variant="outline"
-                          onPress={() => confirmResolve(Number(item.venta_id), "RECHAZAR")}
-                          disabled={isActing}
-                        />
-                      </View>
-                    )}
-                  </Pressable>
-                </View>
-              );
-            }}
-            ListEmptyComponent={
-              <Text style={{ padding: 16, color: C.sub, fontWeight: "700" }}>
-                {initialLoading ? "Cargando..." : "Sin solicitudes pendientes"}
-              </Text>
-            }
-          />
+                )}
+              </View>
+            </View>
+          ) : (
+            listContent
+          )}
         </SafeAreaView>
       </RoleGate>
     </>
@@ -642,14 +650,12 @@ const styles = StyleSheet.create({
   sub: { marginTop: 4, fontSize: 13, fontWeight: "600" },
   note: { marginTop: 8, fontSize: 13, fontWeight: "600", lineHeight: 18 },
   btnRow: { marginTop: 10, flexDirection: "row", alignItems: "center" },
-  pagosHeaderRow: { paddingHorizontal: 4, paddingBottom: 6 },
-  pagosHeaderTitle: { fontSize: 18, fontWeight: "800" },
-  pagosHeaderSubtitle: { fontSize: 13, fontWeight: "600" },
-  pagoCard: { borderWidth: 1, borderRadius: 14, padding: 14 },
-  pagoVenta: { fontSize: 15, fontWeight: "800" },
-  pagoMonto: { marginTop: 4, fontSize: 14, fontWeight: "700" },
-  pagoMeta: { marginTop: 4, fontSize: 13, fontWeight: "600" },
   rowTopPay: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 },
   vendorPill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   vendorPillText: { fontSize: 12, fontWeight: "800" },
+  splitWrap: { flex: 1, flexDirection: "row" },
+  splitListPane: { width: 420, maxWidth: 420, borderRightWidth: StyleSheet.hairlineWidth },
+  splitDetailPane: { flex: 1 },
+  splitPlaceholder: { flex: 1, margin: 16, borderWidth: StyleSheet.hairlineWidth, borderRadius: 18, alignItems: "center", justifyContent: "center", padding: 24 },
+  splitPlaceholderText: { fontSize: 15, fontWeight: "800", textAlign: "center" },
 });

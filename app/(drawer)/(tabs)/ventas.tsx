@@ -18,6 +18,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppButton } from "../../../components/ui/app-button";
 import { VentaDetallePanel } from "../../../components/ventas/VentaDetallePanel";
+import { VentaNuevaModal } from "../../../components/ventas/VentaNuevaModal";
 import { supabase } from "../../../lib/supabase";
 import { useThemePref } from "../../../lib/themePreference";
 import { alphaColor } from "../../../lib/ui";
@@ -336,6 +337,7 @@ export default function Ventas() {
 
   // filtros (tipo CxC): cliente + rango de fechas
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [nuevaVentaOpen, setNuevaVentaOpen] = useState(false);
   const [clientes, setClientes] = useState<{ id: number; nombre: string }[]>([]);
   const [clienteOpen, setClienteOpen] = useState(false);
   const [fClienteId, setFClienteId] = useState<number | null>(null);
@@ -720,6 +722,8 @@ export default function Ventas() {
     );
   }, [clientes, fClienteQ]);
 
+  const hasActiveFilters = !!(fClienteId || fDesde || fHasta);
+
   const clienteLabel = useMemo(() => {
     if (!fClienteId) return "Todos";
     const c = clientes.find((x) => x.id === fClienteId);
@@ -940,7 +944,17 @@ export default function Ventas() {
             <Text style={[s.title, { color: C.text }]}>Mateo 7:7</Text>
           </Pressable>
           {canCreate ? (
-            <AppButton title="+ Nueva venta" size="sm" onPress={() => router.push("/venta-nueva" as any)} />
+            <AppButton
+              title="+ Nueva venta"
+              size="sm"
+              onPress={() => {
+                if (Platform.OS === "web") {
+                  setNuevaVentaOpen(true);
+                } else {
+                  router.push("/venta-nueva" as any);
+                }
+              }}
+            />
           ) : null}
         </View>
 
@@ -1007,11 +1021,16 @@ export default function Ventas() {
             }}
             style={({ pressed }) => [
               s.filterBtn,
-              { borderColor: C.border, backgroundColor: C.card },
+              { borderColor: hasActiveFilters ? FB_DARK_DANGER : C.border, backgroundColor: C.card },
               pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
             ]}
           >
-            <Text style={[s.filterTxt, { color: C.text }]}>Filtros</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Text style={[s.filterTxt, { color: hasActiveFilters ? FB_DARK_DANGER : C.text }]}>Filtros</Text>
+              {hasActiveFilters ? (
+                <View style={[s.filterDot, { backgroundColor: FB_DARK_DANGER }]} />
+              ) : null}
+            </View>
           </Pressable>
         </View>
       </View>
@@ -1055,8 +1074,33 @@ export default function Ventas() {
             }}
           />
 
-          <View pointerEvents="box-none" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "flex-start", paddingTop: Math.max(insets.top + 8, 48) }}>
-          <View style={[s.modalCard, { backgroundColor: C.card, borderColor: C.border }]}>
+          <View
+            pointerEvents="box-none"
+            style={
+              Platform.OS === "web"
+                ? {
+                    position: "absolute",
+                    top: 0, left: 0, right: 0, bottom: 0,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }
+                : {
+                    position: "absolute",
+                    top: 0, left: 0, right: 0, bottom: 0,
+                    justifyContent: "flex-start",
+                    paddingTop: Math.max(insets.top + 8, 48),
+                  }
+            }
+          >
+          <View
+            style={[
+              s.modalCard,
+              { backgroundColor: C.card, borderColor: C.border },
+              Platform.OS === "web"
+                ? { width: "100%", maxWidth: 480, marginHorizontal: 0 }
+                : null,
+            ]}
+          >
           <View style={s.modalHeader}>
             <Text style={[s.modalTitle, { color: C.text }]}>Filtros</Text>
             <Pressable
@@ -1149,20 +1193,76 @@ export default function Ventas() {
           <View style={s.twoCols}>
             <View style={{ flex: 1 }}>
               <Text style={[s.sectionLabel, { color: C.text }]}>Desde</Text>
-              <Pressable onPress={openDesdePicker} style={[s.dateBox, { borderColor: C.border, backgroundColor: C.card }]}
-              >
-                <Text style={[s.dateTxt, { color: C.text }]}>{fDesde ? fmtDate(fDesde.toISOString()) : "—"}</Text>
-              </Pressable>
+              {Platform.OS === "web" ? (
+                <input
+                  type="date"
+                  value={fDesde ? fDesde.toISOString().slice(0, 10) : ""}
+                  onChange={(e) => {
+                    const val = (e.target as HTMLInputElement).value;
+                    setFDesde(val ? new Date(`${val}T12:00:00`) : null);
+                  }}
+                  style={{
+                    marginTop: 8,
+                    borderWidth: 1,
+                    borderStyle: "solid",
+                    borderColor: C.border,
+                    borderRadius: 12,
+                    padding: 12,
+                    fontSize: 16,
+                    fontWeight: "700",
+                    width: "100%",
+                    boxSizing: "border-box",
+                    backgroundColor: C.card,
+                    color: C.text,
+                    fontFamily: "inherit",
+                    cursor: "pointer",
+                    outline: "none",
+                    colorScheme: isDark ? "dark" : "light",
+                  } as any}
+                />
+              ) : (
+                <Pressable onPress={openDesdePicker} style={[s.dateBox, { borderColor: C.border, backgroundColor: C.card }]}>
+                  <Text style={[s.dateTxt, { color: C.text }]}>{fDesde ? fmtDate(fDesde.toISOString()) : "—"}</Text>
+                </Pressable>
+              )}
             </View>
 
             <View style={{ width: 12 }} />
 
             <View style={{ flex: 1 }}>
               <Text style={[s.sectionLabel, { color: C.text }]}>Hasta</Text>
-              <Pressable onPress={openHastaPicker} style={[s.dateBox, { borderColor: C.border, backgroundColor: C.card }]}
-              >
-                <Text style={[s.dateTxt, { color: C.text }]}>{fHasta ? fmtDate(fHasta.toISOString()) : "—"}</Text>
-              </Pressable>
+              {Platform.OS === "web" ? (
+                <input
+                  type="date"
+                  value={fHasta ? fHasta.toISOString().slice(0, 10) : ""}
+                  onChange={(e) => {
+                    const val = (e.target as HTMLInputElement).value;
+                    setFHasta(val ? new Date(`${val}T12:00:00`) : null);
+                  }}
+                  style={{
+                    marginTop: 8,
+                    borderWidth: 1,
+                    borderStyle: "solid",
+                    borderColor: C.border,
+                    borderRadius: 12,
+                    padding: 12,
+                    fontSize: 16,
+                    fontWeight: "700",
+                    width: "100%",
+                    boxSizing: "border-box",
+                    backgroundColor: C.card,
+                    color: C.text,
+                    fontFamily: "inherit",
+                    cursor: "pointer",
+                    outline: "none",
+                    colorScheme: isDark ? "dark" : "light",
+                  } as any}
+                />
+              ) : (
+                <Pressable onPress={openHastaPicker} style={[s.dateBox, { borderColor: C.border, backgroundColor: C.card }]}>
+                  <Text style={[s.dateTxt, { color: C.text }]}>{fHasta ? fmtDate(fHasta.toISOString()) : "—"}</Text>
+                </Pressable>
+              )}
             </View>
           </View>
 
@@ -1231,6 +1331,13 @@ export default function Ventas() {
             }}
           />
 
+          <View
+            pointerEvents="box-none"
+            style={Platform.OS === "web"
+              ? { position: "fixed" as any, top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" }
+              : { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }
+            }
+          >
           <Animated.View
             style={[
               s.verseCard,
@@ -1240,6 +1347,7 @@ export default function Ventas() {
                 opacity: verseOpacity,
                 transform: [{ translateY: verseTranslateY }, { scale: verseScale }],
               },
+              Platform.OS === "web" ? { position: "relative", top: undefined, left: undefined, right: undefined, width: 420 } : null,
             ]}
           >
           <Text style={[s.verseKicker, { color: C.sub }]}>Versiculo del dia</Text>
@@ -1267,7 +1375,16 @@ export default function Ventas() {
             }}
           />
           </Animated.View>
+          </View>
         </Modal>
+
+      <VentaNuevaModal
+        visible={nuevaVentaOpen}
+        onClose={() => setNuevaVentaOpen(false)}
+        onDone={() => { setNuevaVentaOpen(false); loadEstado(estado).catch(() => {}); }}
+        isDark={isDark}
+        colors={{ card: C.card, text: C.text, border: C.border, sub: C.sub }}
+      />
     </SafeAreaView>
   );
 }
@@ -1322,7 +1439,7 @@ const s = StyleSheet.create({
   tabLabelRow: { flexDirection: "row", alignItems: "center", justifyContent: "center" },
   alertDot: { width: 8, height: 8, borderRadius: 99, marginLeft: 6 },
   tabText: {
-    fontSize: 12,
+    fontSize: Platform.OS === "web" ? 15 : 12,
     fontWeight: Platform.OS === "ios" ? "800" : "800",
     letterSpacing: Platform.OS === "ios" ? -0.2 : 0,
   },
@@ -1346,6 +1463,7 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   filterTxt: { fontWeight: "800" },
+  filterDot: { width: 8, height: 8, borderRadius: 99 },
 
   splitWrap: { flex: 1, flexDirection: "row", borderTopWidth: StyleSheet.hairlineWidth },
   splitListPane: { width: 520, maxWidth: 520, borderRightWidth: StyleSheet.hairlineWidth },

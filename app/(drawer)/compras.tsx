@@ -36,6 +36,8 @@ import { AppButton } from "../../components/ui/app-button";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useRole } from "../../lib/useRole";
 import { CompraDetallePanel } from "../../components/compras/CompraDetallePanel";
+import { CompraNuevaModal } from "../../components/compras/CompraNuevaModal";
+import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
 
 // Carga silenciosa: evitar spinners y evitar doble fetch en mount.
@@ -215,6 +217,7 @@ export default function ComprasScreen() {
   const canSplit = isWeb && width >= 1100;
 
   const [selectedCompraId, setSelectedCompraId] = useState<number | null>(null);
+  const [nuevaCompraOpen, setNuevaCompraOpen] = useState(false);
 
   React.useEffect(() => {
     if (!canSplit) {
@@ -459,6 +462,8 @@ export default function ComprasScreen() {
   const fabBg =
     Platform.OS === "ios" ? (PlatformColor("systemBlue") as any) : (colors.primary as any);
 
+  const hasActiveFilters = !!(fProveedorId || fDesde || fHasta || fPago !== "ALL");
+
   const proveedorLabel = useMemo(() => {
     if (!fProveedorId) return "Todos";
     const p = proveedores.find((x) => x.id === fProveedorId);
@@ -556,10 +561,16 @@ export default function ComprasScreen() {
               onPress={() => setFiltersOpen(true)}
               style={({ pressed }) => [
                 s.filterBtn,
+                { borderColor: hasActiveFilters ? FB_DARK_DANGER : colors.border },
                 pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
               ]}
             >
-              <Text style={s.filterTxt}>Filtros</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Text style={[s.filterTxt, { color: hasActiveFilters ? FB_DARK_DANGER : colors.text }]}>Filtros</Text>
+                {hasActiveFilters ? (
+                  <View style={[s.filterDot, { backgroundColor: FB_DARK_DANGER }]} />
+                ) : null}
+              </View>
             </Pressable>
           </View>
 
@@ -648,11 +659,25 @@ export default function ComprasScreen() {
         {canManage ? (
           <Pressable
             style={[s.fab, { backgroundColor: fabBg, bottom: 18 + bottomRail }]}
-            onPress={() => router.push("/compra-nueva")}
+            onPress={() => {
+              if (Platform.OS === "web") {
+                setNuevaCompraOpen(true);
+              } else {
+                router.push("/compra-nueva");
+              }
+            }}
           >
             <Text style={s.fabText}>＋</Text>
           </Pressable>
         ) : null}
+
+        <CompraNuevaModal
+          visible={nuevaCompraOpen}
+          onClose={() => setNuevaCompraOpen(false)}
+          onDone={() => { setNuevaCompraOpen(false); fetchCompras().catch(() => {}); }}
+          isDark={isDark}
+          colors={{ card: M.card, text: M.text, border: M.border, sub: M.sub }}
+        />
 
         {/* MODAL FILTROS */}
         {filtersOpen ? (
@@ -668,14 +693,34 @@ export default function ComprasScreen() {
             />
 
             <View
+              pointerEvents="box-none"
+              style={
+                Platform.OS === "web"
+                  ? {
+                      position: "absolute",
+                      top: 0, left: 0, right: 0, bottom: 0,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }
+                  : {
+                      position: "absolute",
+                      top: 0, left: 0, right: 0, bottom: 0,
+                      justifyContent: "flex-start",
+                      paddingTop: insets.top + 12,
+                    }
+              }
+            >
+            <View
               style={[
                 s.modalCard,
                 {
                   backgroundColor: M.card,
                   borderColor: M.border,
-                  top: insets.top + 12,
                   maxHeight: "80%",
                 },
+                Platform.OS === "web"
+                  ? { width: "100%", maxWidth: 480, marginHorizontal: 0 }
+                  : null,
               ]}
             >
               <ScrollView
@@ -742,28 +787,86 @@ export default function ComprasScreen() {
               <View style={s.twoCols}>
                 <View style={{ flex: 1 }}>
                   <Text style={[s.sectionLabel, { color: M.text }]}>Desde</Text>
-                  <Pressable
-                    onPress={openDesdePicker}
-                    style={[s.dateBox, { borderColor: M.border, backgroundColor: M.fieldBg }]}
-                  >
-                    <Text style={[s.dateTxt, { color: M.text }]}>
-                      {fDesde ? fmtDate(fDesde.toISOString()) : "—"}
-                    </Text>
-                  </Pressable>
+                  {Platform.OS === "web" ? (
+                    <input
+                      type="date"
+                      value={fDesde ? fDesde.toISOString().slice(0, 10) : ""}
+                      onChange={(e) => {
+                        const val = (e.target as HTMLInputElement).value;
+                        setFDesde(val ? new Date(`${val}T12:00:00`) : null);
+                      }}
+                      style={{
+                        marginTop: 8,
+                        borderWidth: 1,
+                        borderStyle: "solid",
+                        borderColor: M.border,
+                        borderRadius: 12,
+                        padding: 12,
+                        fontSize: 16,
+                        fontWeight: "700",
+                        width: "100%",
+                        boxSizing: "border-box",
+                        backgroundColor: M.card,
+                        color: M.text,
+                        fontFamily: "inherit",
+                        cursor: "pointer",
+                        outline: "none",
+                        colorScheme: isDark ? "dark" : "light",
+                      } as any}
+                    />
+                  ) : (
+                    <Pressable
+                      onPress={openDesdePicker}
+                      style={[s.dateBox, { borderColor: M.border, backgroundColor: M.fieldBg }]}
+                    >
+                      <Text style={[s.dateTxt, { color: M.text }]}>
+                        {fDesde ? fmtDate(fDesde.toISOString()) : "—"}
+                      </Text>
+                    </Pressable>
+                  )}
                 </View>
 
                 <View style={{ width: 12 }} />
 
                 <View style={{ flex: 1 }}>
                   <Text style={[s.sectionLabel, { color: M.text }]}>Hasta</Text>
-                  <Pressable
-                    onPress={openHastaPicker}
-                    style={[s.dateBox, { borderColor: M.border, backgroundColor: M.fieldBg }]}
-                  >
-                    <Text style={[s.dateTxt, { color: M.text }]}>
-                      {fHasta ? fmtDate(fHasta.toISOString()) : "—"}
-                    </Text>
-                  </Pressable>
+                  {Platform.OS === "web" ? (
+                    <input
+                      type="date"
+                      value={fHasta ? fHasta.toISOString().slice(0, 10) : ""}
+                      onChange={(e) => {
+                        const val = (e.target as HTMLInputElement).value;
+                        setFHasta(val ? new Date(`${val}T12:00:00`) : null);
+                      }}
+                      style={{
+                        marginTop: 8,
+                        borderWidth: 1,
+                        borderStyle: "solid",
+                        borderColor: M.border,
+                        borderRadius: 12,
+                        padding: 12,
+                        fontSize: 16,
+                        fontWeight: "700",
+                        width: "100%",
+                        boxSizing: "border-box",
+                        backgroundColor: M.card,
+                        color: M.text,
+                        fontFamily: "inherit",
+                        cursor: "pointer",
+                        outline: "none",
+                        colorScheme: isDark ? "dark" : "light",
+                      } as any}
+                    />
+                  ) : (
+                    <Pressable
+                      onPress={openHastaPicker}
+                      style={[s.dateBox, { borderColor: M.border, backgroundColor: M.fieldBg }]}
+                    >
+                      <Text style={[s.dateTxt, { color: M.text }]}>
+                        {fHasta ? fmtDate(fHasta.toISOString()) : "—"}
+                      </Text>
+                    </Pressable>
+                  )}
                 </View>
               </View>
 
@@ -819,6 +922,7 @@ export default function ComprasScreen() {
                 <AppButton title="Aplicar" variant="primary" size="sm" onPress={aplicarFiltros} />
               </View>
               </ScrollView>
+            </View>
             </View>
           </Modal>
         ) : null}
@@ -951,6 +1055,7 @@ const styles = (colors: any) =>
       justifyContent: "center",
     },
     filterTxt: { color: colors.text, fontWeight: "800" },
+    filterDot: { width: 8, height: 8, borderRadius: 99 },
 
     center: { flex: 1, alignItems: "center", justifyContent: "center" },
     empty: { color: colors.text },
@@ -1031,9 +1136,7 @@ const styles = (colors: any) =>
     modalBackdrop: { ...StyleSheet.absoluteFillObject },
 
     modalCard: {
-      position: "absolute",
-      left: 14,
-      right: 14,
+      marginHorizontal: 14,
       borderRadius: 18,
       padding: 16,
       borderWidth: 1,
