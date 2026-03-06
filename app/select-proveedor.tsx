@@ -17,6 +17,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Proveedor, useCompraDraft } from "../lib/compraDraft";
 import { supabase } from "../lib/supabase";
+import { useRole } from "../lib/useRole";
 import { AppButton } from "../components/ui/app-button";
 import { DoneAccessory } from "../components/ui/done-accessory";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
@@ -36,6 +37,7 @@ export default function SelectProveedor() {
   const { colors, dark } = useTheme();
   const header = useMemo(() => getHeaderColors(!!dark), [dark]);
   const { setProveedor } = useCompraDraft();
+  const { isAdmin } = useRole();
   const DONE_ID = "doneAccessory";
   const { scrollRef, handleFocus } = useKeyboardAutoScroll(110);
 
@@ -55,6 +57,7 @@ export default function SelectProveedor() {
   const [loading, setLoading] = useState(false);
 
   const [newNombre, setNewNombre] = useState("");
+  const [newNit, setNewNit] = useState("");
   const [newTel, setNewTel] = useState("");
 
   const load = async () => {
@@ -102,16 +105,35 @@ export default function SelectProveedor() {
   };
 
   const crear = async () => {
+    if (!isAdmin) {
+      Alert.alert("Sin permiso", "Solo un administrador puede crear proveedores.");
+      return;
+    }
     const nombre = newNombre.trim();
+    const nit = newNit.trim();
     const telefono = newTel.trim();
     if (!nombre) return Alert.alert("Falta dato", "Ingresa el nombre del proveedor");
+    if (!nit) return Alert.alert("Falta dato", "Ingresa el NIT del proveedor");
 
     setLoading(true);
     try {
+      const { data: existing } = await supabase
+        .from("proveedores")
+        .select("id, nombre, nit")
+        .eq("nit", nit)
+        .maybeSingle();
+      if (existing) {
+        Alert.alert(
+          "NIT duplicado",
+          `Ya existe un proveedor con NIT ${existing.nit}: "${existing.nombre}". Selecciónalo de la lista.`
+        );
+        return;
+      }
+
       const { data, error } = await supabase
         .from("proveedores")
-        .insert({ nombre, telefono: telefono ? telefono : null, activo: true })
-        .select("id,nombre,telefono,activo")
+        .insert({ nombre, nit, telefono: telefono ? telefono : null, activo: true })
+        .select("id,nombre,nit,telefono,activo")
         .single();
 
       if (error) throw error;
@@ -167,16 +189,19 @@ export default function SelectProveedor() {
                   ]}
                 />
 
-                <AppButton
-                  title={"+ Nuevo"}
-                  variant="outline"
-                  size="sm"
-                  onPress={() => {
-                    setMode("CREAR");
-                    setNewNombre(q.trim());
-                    setNewTel("");
-                  }}
-                />
+                {isAdmin ? (
+                  <AppButton
+                    title={"+ Nuevo"}
+                    variant="outline"
+                    size="sm"
+                    onPress={() => {
+                      setMode("CREAR");
+                      setNewNombre(q.trim());
+                      setNewNit("");
+                      setNewTel("");
+                    }}
+                  />
+                ) : null}
               </View>
 
               {loading ? <Text style={{ marginTop: 10, color: C.sub, fontWeight: "700" }}>Cargando...</Text> : null}
@@ -236,6 +261,25 @@ export default function SelectProveedor() {
                 ]}
               />
 
+              <Text style={[styles.label, { color: C.text }]}>NIT</Text>
+              <TextInput
+                value={newNit}
+                onChangeText={setNewNit}
+                onFocus={handleFocus}
+                placeholder="Ej: 1234567-8"
+                placeholderTextColor={C.sub}
+                selectionColor={C.tint as any}
+                cursorColor={C.tint as any}
+                style={[
+                  styles.input,
+                  {
+                    borderColor: C.border,
+                    backgroundColor: C.card,
+                    color: C.text,
+                  },
+                ]}
+              />
+
               <Text style={[styles.label, { color: C.text }]}>Teléfono (opcional)</Text>
               <TextInput
                 value={newTel}
@@ -257,8 +301,13 @@ export default function SelectProveedor() {
                 ]}
               />
 
-              <AppButton title="Guardar proveedor" onPress={crear} loading={loading} />
-              <AppButton title="Cancelar" variant="outline" size="sm" onPress={() => setMode("LISTA")} />
+              <AppButton
+                title="Guardar proveedor"
+                onPress={crear}
+                loading={loading}
+                disabled={!newNombre.trim() || !newNit.trim() || loading}
+              />
+              <AppButton title="Cancelar" variant="outline" size="sm" onPress={() => { setMode("LISTA"); setNewNit(""); }} />
             </ScrollView>
           </KeyboardAvoidingView>
         )}

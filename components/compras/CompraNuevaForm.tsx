@@ -17,6 +17,7 @@ import { AppButton } from "../ui/app-button";
 import { useCompraDraft } from "../../lib/compraDraft";
 import { dispatchNotifs } from "../../lib/notif-dispatch";
 import { supabase } from "../../lib/supabase";
+import { useRole } from "../../lib/useRole";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -39,6 +40,8 @@ function parseNumberSafe(s: string) {
 const BUCKET = "productos";
 
 // ─── types ────────────────────────────────────────────────────────────────────
+
+type Marca = { id: number; nombre: string };
 
 type Colors = {
   bg: string;
@@ -77,6 +80,7 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
     reset,
   } = useCompraDraft();
   const { proveedor, numeroFactura, tipoPago, comentarios, fechaVenc, lineas } = draft;
+  const { isAdmin } = useRole();
 
   const isEdit = !!(editId && Number.isFinite(Number(editId)) && Number(editId) > 0);
 
@@ -211,6 +215,66 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
   const [provResults, setProvResults] = useState<any[]>([]);
   const [provLoading, setProvLoading] = useState(false);
 
+  // New proveedor creation state
+  const [provCreateMode, setProvCreateMode] = useState(false);
+  const provCreateModeRef = useRef(false); // sync ref so search onBlur setTimeout skips close
+  const [newProvNombre, setNewProvNombre] = useState("");
+  const [newProvNit, setNewProvNit] = useState("");
+  const [newProvTel, setNewProvTel] = useState("");
+  const [savingProv, setSavingProv] = useState(false);
+
+  const resetProvCreateMode = useCallback(() => {
+    provCreateModeRef.current = false;
+    setProvCreateMode(false);
+    setNewProvNombre("");
+    setNewProvNit("");
+    setNewProvTel("");
+    setSavingProv(false);
+  }, []);
+
+  const guardarNuevoProveedor = useCallback(async () => {
+    if (!isAdmin) {
+      window.alert("Solo un administrador puede crear proveedores.");
+      return;
+    }
+    const nombre = newProvNombre.trim();
+    const nit = newProvNit.trim();
+    if (!nombre || !nit) return;
+    setSavingProv(true);
+    try {
+      const { data: existing } = await supabase
+        .from("proveedores")
+        .select("id, nombre, nit")
+        .eq("nit", nit)
+        .maybeSingle();
+      if (existing) {
+        window.alert(`Ya existe un proveedor con NIT ${existing.nit}: "${existing.nombre}". Selecciónalo de la lista.`);
+        return;
+      }
+      const { data, error } = await supabase
+        .from("proveedores")
+        .insert({ nombre, nit, telefono: newProvTel.trim() || null, activo: true })
+        .select("id,nombre,nit,telefono,activo")
+        .single();
+      if (error) throw error;
+      setProveedor({
+        id: Number((data as any).id),
+        nombre: String((data as any).nombre ?? ""),
+        nit: (data as any).nit ?? null,
+        telefono: (data as any).telefono ?? null,
+        activo: true,
+      });
+      setProvDropOpen(false);
+      setProvQ("");
+      setProvResults([]);
+      resetProvCreateMode();
+    } catch (e: any) {
+      window.alert(`Error al crear proveedor: ${e?.message ?? "No se pudo crear el proveedor"}`);
+    } finally {
+      setSavingProv(false);
+    }
+  }, [isAdmin, newProvNombre, newProvNit, newProvTel, setProveedor, resetProvCreateMode]);
+
   const searchProveedores = useCallback(async (term: string) => {
     if (term.trim().length < 2) {
       setProvResults([]);
@@ -261,6 +325,86 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
       setProdLoadingByKey((prev) => ({ ...prev, [lineKey]: false }));
     }
   }, []);
+
+  // ── Marcas list (for new product form) ───────────────────────────────────
+
+  const [marcas, setMarcas] = useState<Marca[]>([]);
+
+  useEffect(() => {
+    supabase
+      .from("marcas")
+      .select("id,nombre")
+      .order("nombre")
+      .then(({ data }) => setMarcas((data ?? []) as Marca[]));
+  }, []);
+
+  // ── New product creation state ────────────────────────────────────────────
+
+  const [prodCreateMode, setProdCreateMode] = useState(false);
+  // Sync ref so the product-search onBlur setTimeout sees the latest value
+  const prodCreateModeRef = useRef(false);
+
+  const [newProdNombre, setNewProdNombre] = useState("");
+  const [newProdReceta, setNewProdReceta] = useState(false);
+  const [newProdIva, setNewProdIva] = useState(false);
+  const [newProdMarcaId, setNewProdMarcaId] = useState<number | null>(null);
+  const [savingProd, setSavingProd] = useState(false);
+
+  // Brand sub-picker within the new product form
+  const [brandPickerOpen, setBrandPickerOpen] = useState(false);
+  const [brandQ, setBrandQ] = useState("");
+  const [newBrandName, setNewBrandName] = useState("");
+  // Sync ref so the brand-search onBlur setTimeout doesn't close mid-save
+  const brandSavingRef = useRef(false);
+  // Sync ref so the brand-search onBlur doesn't close the picker when focus moves to "Nueva marca" input
+  const brandNewNameFocusRef = useRef(false);
+
+  const resetCreateMode = useCallback(() => {
+    prodCreateModeRef.current = false;
+    setProdCreateMode(false);
+    setNewProdNombre("");
+    setNewProdReceta(false);
+    setNewProdIva(false);
+    setNewProdMarcaId(null);
+    setSavingProd(false);
+    setBrandPickerOpen(false);
+    setBrandQ("");
+    setNewBrandName("");
+    brandSavingRef.current = false;
+    brandNewNameFocusRef.current = false;
+  }, []);
+
+  const guardarNuevoProducto = useCallback(
+    async (lineKey: string) => {
+      const nombre = newProdNombre.trim();
+      if (!nombre || newProdMarcaId == null) return;
+      setSavingProd(true);
+      try {
+        const { data, error } = await supabase
+          .from("productos")
+          .insert({
+            nombre,
+            marca_id: newProdMarcaId,
+            requiere_receta: newProdReceta,
+            tiene_iva: newProdIva,
+            activo: true,
+          })
+          .select("id,nombre,marca_id")
+          .single();
+        if (error) throw error;
+        const marcaNombre = marcas.find((m) => m.id === newProdMarcaId)?.nombre ?? "";
+        const label = marcaNombre ? `${nombre} • ${marcaNombre}` : nombre;
+        setProductoEnLinea(lineKey, Number((data as any).id), label);
+        setOpenProdKey(null);
+        resetCreateMode();
+      } catch (e: any) {
+        window.alert(`Error al crear producto: ${e?.message ?? "No se pudo crear el producto"}`);
+      } finally {
+        setSavingProd(false);
+      }
+    },
+    [newProdNombre, newProdMarcaId, newProdReceta, newProdIva, marcas, setProductoEnLinea, resetCreateMode]
+  );
 
   // ── File input refs for photos (web only) ─────────────────────────────────
 
@@ -431,47 +575,139 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
           </Text>
         </Pressable>
         {provDropOpen ? (
-          <View style={[styles.dropdown, { borderColor: C.border, backgroundColor: C.card }]}>
-            <TextInput
-              autoFocus
-              value={provQ}
-              onChangeText={(t) => { setProvQ(t); searchProveedores(t); }}
-              placeholder="Buscar proveedor..."
-              placeholderTextColor={C.sub}
-              style={[styles.dropdownInput, { borderColor: C.border, color: C.text, backgroundColor: C.bg }]}
-              onBlur={() => setTimeout(() => setProvDropOpen(false), 150)}
-            />
-            <ScrollView style={styles.dropdownScroll} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-              {provQ.trim().length < 2 ? (
-                <Text style={[styles.dropdownMsg, { color: C.sub }]}>Escribe para buscar...</Text>
-              ) : provLoading ? (
-                <Text style={[styles.dropdownMsg, { color: C.sub }]}>Buscando...</Text>
-              ) : provResults.length === 0 ? (
-                <Text style={[styles.dropdownMsg, { color: C.sub }]}>Sin resultados</Text>
-              ) : (
-                provResults.map((p: any) => (
-                  <Pressable
-                    key={String(p.id)}
-                    onPressIn={() => {
-                      setProveedor({ id: Number(p.id), nombre: String(p.nombre ?? ""), telefono: p.telefono ?? null });
+          <View style={[styles.dropdown, { borderColor: provCreateMode ? C.blueText : C.border, backgroundColor: C.card }]}>
+
+            {!provCreateMode ? (
+              // ─── Branch A: search mode ─────────────────────────────────────
+              <>
+                <TextInput
+                  autoFocus
+                  value={provQ}
+                  onChangeText={(t) => { setProvQ(t); searchProveedores(t); }}
+                  placeholder="Buscar proveedor..."
+                  placeholderTextColor={C.sub}
+                  style={[styles.dropdownInput, { borderColor: C.border, color: C.text, backgroundColor: C.bg }]}
+                  onBlur={() =>
+                    setTimeout(() => {
+                      if (provCreateModeRef.current) return;
                       setProvDropOpen(false);
-                      setProvQ("");
-                      setProvResults([]);
-                    }}
-                    style={({ pressed }) => [
-                      styles.dropdownItem,
-                      { borderBottomColor: C.border },
-                      pressed ? { backgroundColor: C.blue } : null,
-                    ]}
-                  >
-                    <Text style={[styles.dropdownItemText, { color: C.text }]} numberOfLines={1}>{p.nombre}</Text>
-                    {p.telefono ? (
-                      <Text style={[styles.dropdownItemSub, { color: C.sub }]}>Tel: {p.telefono}</Text>
-                    ) : null}
+                    }, 150)
+                  }
+                />
+                <ScrollView style={styles.dropdownScroll} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                  {provQ.trim().length < 2 ? (
+                    <Text style={[styles.dropdownMsg, { color: C.sub }]}>Escribe para buscar...</Text>
+                  ) : provLoading ? (
+                    <Text style={[styles.dropdownMsg, { color: C.sub }]}>Buscando...</Text>
+                  ) : provResults.length === 0 ? (
+                    <Text style={[styles.dropdownMsg, { color: C.sub }]}>Sin resultados</Text>
+                  ) : (
+                    provResults.map((p: any) => (
+                      <Pressable
+                        key={String(p.id)}
+                        onPressIn={() => {
+                          setProveedor({ id: Number(p.id), nombre: String(p.nombre ?? ""), telefono: p.telefono ?? null });
+                          setProvDropOpen(false);
+                          setProvQ("");
+                          setProvResults([]);
+                        }}
+                        style={({ pressed }) => [
+                          styles.dropdownItem,
+                          { borderBottomColor: C.border },
+                          pressed ? { backgroundColor: C.blue } : null,
+                        ]}
+                      >
+                        <Text style={[styles.dropdownItemText, { color: C.text }]} numberOfLines={1}>{p.nombre}</Text>
+                        {p.telefono ? (
+                          <Text style={[styles.dropdownItemSub, { color: C.sub }]}>Tel: {p.telefono}</Text>
+                        ) : null}
+                      </Pressable>
+                    ))
+                  )}
+
+                  {/* Only ADMIN can create proveedores (matches RLS proveedores_insert_admin) */}
+                  {isAdmin ? (
+                    <Pressable
+                      onPressIn={() => {
+                        provCreateModeRef.current = true;
+                        setProvCreateMode(true);
+                        setNewProvNombre(provQ.trim());
+                        setProvQ("");
+                        setProvResults([]);
+                      }}
+                      style={({ pressed }) => [
+                        styles.dropdownItem,
+                        { borderBottomColor: "transparent" },
+                        pressed ? { backgroundColor: C.blue } : null,
+                      ]}
+                    >
+                      <Text style={[styles.dropdownItemText, { color: C.blueText }]}>
+                        + Agregar nuevo proveedor
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </ScrollView>
+              </>
+            ) : (
+              // ─── Branch B: new proveedor form ──────────────────────────────
+              <ScrollView
+                style={{ maxHeight: 320 }}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
+              >
+                {/* Header */}
+                <View style={[styles.rowBetween, { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 4 }]}>
+                  <Text style={[styles.createTitle, { color: C.text }]}>Nuevo proveedor</Text>
+                  <Pressable onPress={resetProvCreateMode} hitSlop={8}>
+                    <Text style={{ color: C.blueText, fontSize: 13, fontWeight: "700" }}>← Cancelar</Text>
                   </Pressable>
-                ))
-              )}
-            </ScrollView>
+                </View>
+
+                <View style={{ paddingHorizontal: 14, paddingBottom: 14 }}>
+                  {/* Nombre */}
+                  <Text style={[styles.label, { color: C.text }]}>Nombre</Text>
+                  <TextInput
+                    autoFocus
+                    value={newProvNombre}
+                    onChangeText={setNewProvNombre}
+                    placeholder="Ej: Distribuidora demo"
+                    placeholderTextColor={C.sub}
+                    style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.bg }]}
+                  />
+
+                  {/* NIT */}
+                  <Text style={[styles.label, { color: C.text }]}>NIT</Text>
+                  <TextInput
+                    value={newProvNit}
+                    onChangeText={setNewProvNit}
+                    placeholder="Ej: 1234567-8"
+                    placeholderTextColor={C.sub}
+                    style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.bg }]}
+                  />
+
+                  {/* Teléfono */}
+                  <Text style={[styles.label, { color: C.text }]}>Teléfono (opcional)</Text>
+                  <TextInput
+                    value={newProvTel}
+                    onChangeText={setNewProvTel}
+                    placeholder="Ej: 5555-5555"
+                    placeholderTextColor={C.sub}
+                    keyboardType="phone-pad"
+                    style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.bg }]}
+                  />
+
+                  <AppButton
+                    title={savingProv ? "Guardando..." : "Guardar proveedor"}
+                    onPress={guardarNuevoProveedor}
+                    loading={savingProv}
+                    disabled={!newProvNombre.trim() || !newProvNit.trim() || savingProv}
+                    variant="primary"
+                    style={[{ marginTop: 12 }] as any}
+                  />
+                </View>
+              </ScrollView>
+            )}
+
           </View>
         ) : null}
       </View>
@@ -570,7 +806,12 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
             <Text style={[styles.label, { color: C.text }]}>Producto</Text>
             <View>
               <Pressable
-                onPress={() => { if (openProdKey !== l.key) setOpenProdKey(l.key); }}
+                onPress={() => {
+                  if (openProdKey !== l.key) {
+                    resetCreateMode();
+                    setOpenProdKey(l.key);
+                  }
+                }}
                 style={[
                   styles.select,
                   { borderColor: openProdKey === l.key ? C.blueText : C.border, backgroundColor: C.card },
@@ -580,54 +821,289 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
                   {l.producto_id ? l.producto_label : "Seleccionar producto..."}
                 </Text>
               </Pressable>
+
               {openProdKey === l.key ? (
-                <View style={[styles.dropdown, { borderColor: C.border, backgroundColor: C.card }]}>
-                  <TextInput
-                    autoFocus
-                    value={prodQByKey[l.key] ?? ""}
-                    onChangeText={(t) => {
-                      setProdQByKey((prev) => ({ ...prev, [l.key]: t }));
-                      searchProductos(t, l.key);
-                    }}
-                    placeholder="Buscar producto..."
-                    placeholderTextColor={C.sub}
-                    style={[styles.dropdownInput, { borderColor: C.border, color: C.text, backgroundColor: C.bg }]}
-                    onBlur={() => setTimeout(() => setOpenProdKey((k) => k === l.key ? null : k), 150)}
-                  />
-                  <ScrollView style={styles.dropdownScroll} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-                    {(prodQByKey[l.key] ?? "").trim().length < 2 ? (
-                      <Text style={[styles.dropdownMsg, { color: C.sub }]}>Escribe para buscar...</Text>
-                    ) : prodLoadingByKey[l.key] ? (
-                      <Text style={[styles.dropdownMsg, { color: C.sub }]}>Buscando...</Text>
-                    ) : (prodResultsByKey[l.key] ?? []).length === 0 ? (
-                      <Text style={[styles.dropdownMsg, { color: C.sub }]}>Sin resultados</Text>
-                    ) : (
-                      (prodResultsByKey[l.key] ?? []).map((p: any) => {
-                        const marcaNombre = p.marcas?.nombre ?? "";
-                        const pLabel = `${p.nombre ?? ""}${marcaNombre ? ` • ${marcaNombre}` : ""}`.trim();
-                        return (
+                <View style={[styles.dropdown, { borderColor: prodCreateMode ? C.blueText : C.border, backgroundColor: C.card }]}>
+
+                  {!prodCreateMode ? (
+                    // ─── Branch A: search mode ───────────────────────────────
+                    <>
+                      <TextInput
+                        autoFocus
+                        value={prodQByKey[l.key] ?? ""}
+                        onChangeText={(t) => {
+                          setProdQByKey((prev) => ({ ...prev, [l.key]: t }));
+                          searchProductos(t, l.key);
+                        }}
+                        placeholder="Buscar producto..."
+                        placeholderTextColor={C.sub}
+                        style={[styles.dropdownInput, { borderColor: C.border, color: C.text, backgroundColor: C.bg }]}
+                        onBlur={() =>
+                          setTimeout(() => {
+                            // Do not close if user just tapped "+ Agregar nuevo producto"
+                            if (prodCreateModeRef.current) return;
+                            setOpenProdKey((k) => (k === l.key ? null : k));
+                          }, 150)
+                        }
+                      />
+                      <ScrollView style={styles.dropdownScroll} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                        {(prodQByKey[l.key] ?? "").trim().length < 2 ? (
+                          <Text style={[styles.dropdownMsg, { color: C.sub }]}>Escribe para buscar...</Text>
+                        ) : prodLoadingByKey[l.key] ? (
+                          <Text style={[styles.dropdownMsg, { color: C.sub }]}>Buscando...</Text>
+                        ) : (prodResultsByKey[l.key] ?? []).length === 0 ? (
+                          <Text style={[styles.dropdownMsg, { color: C.sub }]}>Sin resultados</Text>
+                        ) : (
+                          (prodResultsByKey[l.key] ?? []).map((p: any) => {
+                            const marcaNombre = p.marcas?.nombre ?? "";
+                            const pLabel = `${p.nombre ?? ""}${marcaNombre ? ` • ${marcaNombre}` : ""}`.trim();
+                            return (
+                              <Pressable
+                                key={String(p.id)}
+                                onPressIn={() => {
+                                  setProductoEnLinea(l.key, Number(p.id), pLabel);
+                                  setOpenProdKey(null);
+                                  setProdQByKey((prev) => ({ ...prev, [l.key]: "" }));
+                                  setProdResultsByKey((prev) => ({ ...prev, [l.key]: [] }));
+                                }}
+                                style={({ pressed }) => [
+                                  styles.dropdownItem,
+                                  { borderBottomColor: C.border },
+                                  pressed ? { backgroundColor: C.blue } : null,
+                                ]}
+                              >
+                                <Text style={[styles.dropdownItemText, { color: C.text }]} numberOfLines={1}>
+                                  {pLabel}
+                                </Text>
+                              </Pressable>
+                            );
+                          })
+                        )}
+
+                        {/* Always visible: "+ Agregar nuevo producto" */}
+                        <Pressable
+                          onPressIn={() => {
+                            // Set ref synchronously so the search onBlur setTimeout skips the close
+                            prodCreateModeRef.current = true;
+                            setProdCreateMode(true);
+                            setProdQByKey((prev) => ({ ...prev, [l.key]: "" }));
+                            setProdResultsByKey((prev) => ({ ...prev, [l.key]: [] }));
+                          }}
+                          style={({ pressed }) => [
+                            styles.dropdownItem,
+                            { borderBottomColor: "transparent" },
+                            pressed ? { backgroundColor: C.blue } : null,
+                          ]}
+                        >
+                          <Text style={[styles.dropdownItemText, { color: C.blueText }]}>
+                            + Agregar nuevo producto
+                          </Text>
+                        </Pressable>
+                      </ScrollView>
+                    </>
+                  ) : (
+                    // ─── Branch B: new product form ──────────────────────────
+                    <ScrollView
+                      style={{ maxHeight: 420 }}
+                      keyboardShouldPersistTaps="handled"
+                      nestedScrollEnabled
+                    >
+                      {/* Header */}
+                      <View style={[styles.rowBetween, { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 4 }]}>
+                        <Text style={[styles.createTitle, { color: C.text }]}>Nuevo producto</Text>
+                        <Pressable onPress={resetCreateMode} hitSlop={8}>
+                          <Text style={[{ color: C.blueText, fontSize: 13, fontWeight: "700" }]}>← Cancelar</Text>
+                        </Pressable>
+                      </View>
+
+                      <View style={{ paddingHorizontal: 14, paddingBottom: 14 }}>
+
+                        {/* Nombre */}
+                        <Text style={[styles.label, { color: C.text }]}>Nombre</Text>
+                        <TextInput
+                          autoFocus
+                          value={newProdNombre}
+                          onChangeText={setNewProdNombre}
+                          placeholder="Ej: Acetaminofén 500mg"
+                          placeholderTextColor={C.sub}
+                          style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.bg }]}
+                        />
+
+                        {/* Marca */}
+                        <Text style={[styles.label, { color: C.text }]}>Marca</Text>
+                        <Pressable
+                          onPress={() => setBrandPickerOpen((v) => !v)}
+                          style={[
+                            styles.select,
+                            {
+                              borderColor: brandPickerOpen ? C.blueText : C.border,
+                              backgroundColor: C.bg,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[styles.selectText, { color: newProdMarcaId != null ? C.text : C.sub }]}
+                            numberOfLines={1}
+                          >
+                            {newProdMarcaId != null
+                              ? (marcas.find((m) => m.id === newProdMarcaId)?.nombre ?? "Seleccionar marca...")
+                              : "Seleccionar marca..."}
+                          </Text>
+                        </Pressable>
+
+                        {/* Brand sub-picker (inline, pushes content down) */}
+                        {brandPickerOpen ? (
+                          <View style={[styles.dropdown, { borderColor: C.border, backgroundColor: C.bg, marginTop: 4 }]}>
+                            <TextInput
+                              autoFocus
+                              value={brandQ}
+                              onChangeText={setBrandQ}
+                              placeholder="Buscar marca..."
+                              placeholderTextColor={C.sub}
+                              style={[styles.dropdownInput, { borderColor: C.border, color: C.text, backgroundColor: C.card }]}
+                              onBlur={() =>
+                                setTimeout(() => {
+                                  // Do not close if user is tapping "Crear" button or focusing "Nueva marca" input
+                                  if (brandSavingRef.current || brandNewNameFocusRef.current) return;
+                                  setBrandPickerOpen(false);
+                                  setBrandQ("");
+                                }, 150)
+                              }
+                            />
+                            <ScrollView style={{ maxHeight: 150 }} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+                              {brandQ.trim().length < 2 ? (
+                                <Text style={[styles.dropdownMsg, { color: C.sub }]}>Escribe para buscar...</Text>
+                              ) : marcas.filter((m) => m.nombre.toLowerCase().includes(brandQ.trim().toLowerCase())).length === 0 ? (
+                                <Text style={[styles.dropdownMsg, { color: C.sub }]}>Sin resultados</Text>
+                              ) : (
+                                marcas
+                                  .filter((m) => m.nombre.toLowerCase().includes(brandQ.trim().toLowerCase()))
+                                  .map((m) => (
+                                    <Pressable
+                                      key={String(m.id)}
+                                      onPressIn={() => {
+                                        setNewProdMarcaId(m.id);
+                                        setBrandPickerOpen(false);
+                                        setBrandQ("");
+                                      }}
+                                      style={({ pressed }) => [
+                                        styles.dropdownItem,
+                                        { borderBottomColor: C.border },
+                                        pressed ? { backgroundColor: C.blue } : null,
+                                      ]}
+                                    >
+                                      <Text style={[styles.dropdownItemText, { color: C.text }]}>{m.nombre}</Text>
+                                    </Pressable>
+                                  ))
+                              )}
+                            </ScrollView>
+
+                            {/* Nueva marca row */}
+                            <View style={[styles.newBrandRow, { borderTopColor: C.border }]}>
+                              <TextInput
+                                value={newBrandName}
+                                onChangeText={setNewBrandName}
+                                placeholder="Nueva marca..."
+                                placeholderTextColor={C.sub}
+                                style={[styles.newBrandInput, { borderColor: C.border, color: C.text, backgroundColor: C.card }]}
+                                onFocus={() => { brandNewNameFocusRef.current = true; }}
+                                onBlur={() => { brandNewNameFocusRef.current = false; }}
+                              />
+                              <Pressable
+                                {...(Platform.OS === "web" ? { onMouseDown: (e: any) => e.preventDefault() } : {})}
+                                onPressIn={async () => {
+                                  const nm = newBrandName.trim();
+                                  if (!nm) return;
+                                  // Set sync ref before any await so onBlur timeout skips close
+                                  brandSavingRef.current = true;
+                                  try {
+                                    const { data: existing } = await supabase
+                                      .from("marcas")
+                                      .select("id, nombre")
+                                      .ilike("nombre", nm)
+                                      .maybeSingle();
+                                    if (existing) {
+                                      setNewProdMarcaId(Number(existing.id));
+                                      setNewBrandName("");
+                                      setBrandPickerOpen(false);
+                                      setBrandQ("");
+                                      window.alert(`La marca "${existing.nombre}" ya existe y fue seleccionada automáticamente.`);
+                                      return;
+                                    }
+                                    const { data, error } = await supabase
+                                      .from("marcas")
+                                      .insert({ nombre: nm, activo: true })
+                                      .select("id,nombre")
+                                      .single();
+                                    if (error) throw error;
+                                    const newM: Marca = { id: Number((data as any).id), nombre: nm };
+                                    setMarcas((prev) =>
+                                      [...prev, newM].sort((a, b) => a.nombre.localeCompare(b.nombre))
+                                    );
+                                    setNewProdMarcaId(newM.id);
+                                    setNewBrandName("");
+                                    setBrandPickerOpen(false);
+                                    setBrandQ("");
+                                  } catch (e: any) {
+                                    window.alert(`Error al crear marca: ${e?.message ?? ""}`);
+                                  } finally {
+                                    brandSavingRef.current = false;
+                                  }
+                                }}
+                                disabled={!newBrandName.trim()}
+                                style={[
+                                  styles.newBrandBtn,
+                                  { backgroundColor: newBrandName.trim() ? C.blueText : C.border },
+                                ]}
+                              >
+                                <Text style={styles.newBrandBtnText}>Crear</Text>
+                              </Pressable>
+                            </View>
+                          </View>
+                        ) : null}
+
+                        {/* Opciones: Requiere receta / Tiene IVA — chip toggles */}
+                        <Text style={[styles.label, { color: C.text }]}>Opciones</Text>
+                        <View style={styles.row2}>
                           <Pressable
-                            key={String(p.id)}
-                            onPressIn={() => {
-                              setProductoEnLinea(l.key, Number(p.id), pLabel);
-                              setOpenProdKey(null);
-                              setProdQByKey((prev) => ({ ...prev, [l.key]: "" }));
-                              setProdResultsByKey((prev) => ({ ...prev, [l.key]: [] }));
-                            }}
-                            style={({ pressed }) => [
-                              styles.dropdownItem,
-                              { borderBottomColor: C.border },
-                              pressed ? { backgroundColor: C.blue } : null,
+                            onPress={() => setNewProdReceta((v) => !v)}
+                            style={[
+                              styles.chip,
+                              { borderColor: C.border, backgroundColor: C.card },
+                              newProdReceta && { borderColor: C.blueText, backgroundColor: "rgba(64,156,255,0.12)" },
                             ]}
                           >
-                            <Text style={[styles.dropdownItemText, { color: C.text }]} numberOfLines={1}>
-                              {pLabel}
+                            <Text style={[styles.chipText, { color: newProdReceta ? C.blueText : C.text }]}>
+                              Receta
                             </Text>
                           </Pressable>
-                        );
-                      })
-                    )}
-                  </ScrollView>
+                          <Pressable
+                            onPress={() => setNewProdIva((v) => !v)}
+                            style={[
+                              styles.chip,
+                              { borderColor: C.border, backgroundColor: C.card },
+                              newProdIva && { borderColor: C.blueText, backgroundColor: "rgba(64,156,255,0.12)" },
+                            ]}
+                          >
+                            <Text style={[styles.chipText, { color: newProdIva ? C.blueText : C.text }]}>
+                              IVA
+                            </Text>
+                          </Pressable>
+                        </View>
+
+                        <AppButton
+                          title={savingProd ? "Guardando..." : "Guardar producto"}
+                          onPress={() => guardarNuevoProducto(l.key)}
+                          loading={savingProd}
+                          disabled={!newProdNombre.trim() || newProdMarcaId == null || savingProd}
+                          variant="primary"
+                          style={[{ marginTop: 12 }] as any}
+                        />
+
+                      </View>
+                    </ScrollView>
+                  )}
+
                 </View>
               ) : null}
             </View>
@@ -860,4 +1336,31 @@ const styles = StyleSheet.create({
   },
   dropdownItemText: { fontSize: 15, fontWeight: "600" },
   dropdownItemSub: { fontSize: 12, marginTop: 2 },
+
+  // New product form
+  createTitle: { fontSize: 15, fontWeight: "700" },
+
+  // Nueva marca row inside brand picker
+  newBrandRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  newBrandInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    fontSize: 14,
+  },
+  newBrandBtn: {
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  newBrandBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
 });

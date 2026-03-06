@@ -405,6 +405,18 @@ function SelectProductoCompra({ lineKey }: { lineKey: string }) {
             onPress={async () => {
               const nm = newBrandName.trim();
               if (!nm) return;
+              const { data: existing } = await supabase
+                .from("marcas")
+                .select("id, nombre")
+                .ilike("nombre", nm)
+                .maybeSingle();
+              if (existing) {
+                setSelectedMarcaId(Number(existing.id));
+                setNewBrandName("");
+                setBrandSheet(false);
+                Alert.alert("Marca existente", `La marca "${existing.nombre}" ya existe y fue seleccionada automáticamente.`);
+                return;
+              }
               const { data, error } = await supabase
                 .from("marcas")
                 .insert({ nombre: nm, activo: true })
