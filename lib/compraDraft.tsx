@@ -7,6 +7,7 @@ import React, { createContext, useContext, useMemo, useState } from "react";
 export type Proveedor = {
   id: number;
   nombre: string;
+  nit?: string | null;
   telefono?: string | null;
   activo?: boolean;
 };
