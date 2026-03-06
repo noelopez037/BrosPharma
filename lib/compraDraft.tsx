@@ -77,20 +77,21 @@ const CompraDraftContext = createContext<Ctx | null>(null);
 export function CompraDraftProvider({ children }: { children: React.ReactNode }) {
   const [draft, setDraft] = useState<CompraDraft>(initialDraft);
 
-  const api = useMemo<Ctx>(() => {
-    return {
-      draft,
-
-      setProveedor: (p) => setDraft((d) => ({ ...d, proveedor: p })),
-      setNumeroFactura: (s) => setDraft((d) => ({ ...d, numeroFactura: s })),
-      setTipoPago: (t) =>
+  // Stable: all functions use setDraft(updater) and never close over draft,
+  // so they can live in a useMemo([]) and keep the same reference forever.
+  // This prevents useFocusEffect in compra-nueva from re-firing on every keystroke.
+  const stableFns = useMemo(
+    () => ({
+      setProveedor: (p: Proveedor | null) => setDraft((d) => ({ ...d, proveedor: p })),
+      setNumeroFactura: (s: string) => setDraft((d) => ({ ...d, numeroFactura: s })),
+      setTipoPago: (t: "CONTADO" | "CREDITO") =>
         setDraft((d) => ({
           ...d,
           tipoPago: t,
           fechaVenc: t === "CREDITO" ? d.fechaVenc : null,
         })),
-      setComentarios: (s) => setDraft((d) => ({ ...d, comentarios: s })),
-      setFechaVenc: (s) => setDraft((d) => ({ ...d, fechaVenc: s })),
+      setComentarios: (s: string) => setDraft((d) => ({ ...d, comentarios: s })),
+      setFechaVenc: (s: string | null) => setDraft((d) => ({ ...d, fechaVenc: s })),
 
       addLinea: () =>
         setDraft((d) => ({
@@ -111,7 +112,7 @@ export function CompraDraftProvider({ children }: { children: React.ReactNode })
           ],
         })),
 
-      removeLinea: (key) =>
+      removeLinea: (key: string) =>
         setDraft((d) => {
           const exists = d.lineas.some((l) => l.key === key);
           if (!exists) return d;
@@ -142,13 +143,13 @@ export function CompraDraftProvider({ children }: { children: React.ReactNode })
           return { ...d, lineas: d.lineas.filter((l) => l.key !== key) };
         }),
 
-      updateLinea: (key, patch) =>
+      updateLinea: (key: string, patch: Partial<Linea>) =>
         setDraft((d) => ({
           ...d,
           lineas: d.lineas.map((l) => (l.key === key ? { ...l, ...patch } : l)),
         })),
 
-      setProductoEnLinea: (lineKey, producto_id, producto_label) =>
+      setProductoEnLinea: (lineKey: string, producto_id: number, producto_label: string) =>
         setDraft((d) => ({
           ...d,
           lineas: d.lineas.map((l) =>
@@ -166,8 +167,11 @@ export function CompraDraftProvider({ children }: { children: React.ReactNode })
         })),
 
       reset: () => setDraft(initialDraft),
-    };
-  }, [draft]);
+    }),
+    [] // setDraft is stable from useState; initialDraft is a module-level constant
+  );
+
+  const api = useMemo<Ctx>(() => ({ draft, ...stableFns }), [draft, stableFns]);
 
   return <CompraDraftContext.Provider value={api}>{children}</CompraDraftContext.Provider>;
 }

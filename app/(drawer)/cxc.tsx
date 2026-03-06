@@ -13,14 +13,17 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { RoleGate } from "../../components/auth/RoleGate";
+import { CxcDetallePanel } from "../../components/cxc/CxcDetallePanel";
+import { AppButton } from "../../components/ui/app-button";
 import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
-import { AppButton } from "../../components/ui/app-button";
-import { RoleGate } from "../../components/auth/RoleGate";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useRole } from "../../lib/useRole";
+import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
 type CxCRow = {
   venta_id: number;
@@ -122,6 +125,22 @@ export default function CuentasPorCobrarScreen() {
 
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
+
+  const { width } = useWindowDimensions();
+  const canSplit = Platform.OS === "web" && width >= 1100;
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!canSplit) setSelectedId(null);
+  }, [canSplit]);
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const style = document.createElement("style");
+    style.textContent = "input:focus { outline: none !important; }";
+    document.head.appendChild(style);
+    return () => { document.head.removeChild(style); };
+  }, []);
 
   useGoHomeOnBack(true, "/(drawer)/(tabs)");
 
@@ -458,10 +477,17 @@ export default function CuentasPorCobrarScreen() {
       (vid ? shortId(vid) : "—");
     return (
       <Pressable
-        style={s.card}
-      onPress={() =>
-          router.push({ pathname: "/cxc-venta-detalle", params: { ventaId: String(item.venta_id) } } as any)
-        }
+        style={[
+          s.card,
+          canSplit && selectedId === item.venta_id ? { borderColor: colors.primary, borderWidth: 2 } : null,
+        ]}
+        onPress={() => {
+          if (canSplit) {
+            setSelectedId(item.venta_id);
+          } else {
+            router.push({ pathname: "/cxc-venta-detalle", params: { ventaId: String(item.venta_id) } } as any);
+          }
+        }}
       >
         <View style={s.row}>
           <View style={{ flex: 1 }}>
@@ -481,7 +507,7 @@ export default function CuentasPorCobrarScreen() {
         </View>
       </Pressable>
     );
-  }, [s, M, vendedorLabelById]);
+  }, [s, M, vendedorLabelById, canSplit, selectedId, colors.primary]);
 
   const vendedorLabel = useMemo(() => {
     if (!fVendedorId) return "Todos";
@@ -536,6 +562,8 @@ export default function CuentasPorCobrarScreen() {
     // fetchRows se dispara por deps
   };
 
+  const hasActiveFilters = !!(fVendedorId || fClienteId || fDesde || fHasta || fPago !== "ALL");
+
   const stickyTopContent = (
     <>
       <View style={s.topRow}>
@@ -557,8 +585,20 @@ export default function CuentasPorCobrarScreen() {
           ) : null}
         </View>
 
-        <Pressable onPress={() => setFiltersOpen(true)} style={({ pressed }) => [s.filterBtn, pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null]}>
-          <Text style={s.filterTxt}>Filtros</Text>
+        <Pressable
+          onPress={() => setFiltersOpen(true)}
+          style={({ pressed }) => [
+            s.filterBtn,
+            { borderColor: hasActiveFilters ? FB_DARK_DANGER : colors.border },
+            pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
+          ]}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <Text style={[s.filterTxt, { color: hasActiveFilters ? FB_DARK_DANGER : colors.text }]}>Filtros</Text>
+            {hasActiveFilters ? (
+              <View style={[s.filterDot, { backgroundColor: FB_DARK_DANGER }]} />
+            ) : null}
+          </View>
         </Pressable>
       </View>
 
@@ -590,38 +630,107 @@ export default function CuentasPorCobrarScreen() {
         backHref="/(drawer)/(tabs)"
       >
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
-        <View style={[s.stickyTop, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
-          {stickyTopContent}
-        </View>
-
-        <SectionList<CxCRow, CxcSection>
-          style={[s.list, { backgroundColor: colors.background }]}
-          sections={sections}
-          keyExtractor={(it) => String(it.venta_id)}
-          renderItem={renderItem}
-          stickySectionHeadersEnabled
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          automaticallyAdjustKeyboardInsets
-          contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 16 + insets.bottom }}
-          renderSectionHeader={({ section }) => (
-            <View style={[s.sectionHeader, { backgroundColor: colors.background, alignItems: "flex-end" }]}>    
-              <Text style={[s.sectionHeaderText, { color: M.sub, textAlign: "right" }]}>
-                {section.title === "SIN_FECHA" ? "Sin fecha" : fmtDateLongEs(section.title)}
-              </Text>
+        {canSplit ? (
+          <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.background }}>
+            <View style={{ width: 420, maxWidth: 420, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: colors.border, backgroundColor: colors.background }}>
+              <View style={[s.stickyTop, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+                {stickyTopContent}
+              </View>
+              <SectionList<CxCRow, CxcSection>
+                style={[s.list, { backgroundColor: colors.background }]}
+                sections={sections}
+                keyExtractor={(it) => String(it.venta_id)}
+                renderItem={renderItem}
+                stickySectionHeadersEnabled
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+                automaticallyAdjustKeyboardInsets
+                contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 16 + insets.bottom }}
+                renderSectionHeader={({ section }) => (
+                  <View style={[s.sectionHeader, { backgroundColor: colors.background, alignItems: "flex-end" }]}>
+                    <Text style={[s.sectionHeaderText, { color: M.sub, textAlign: "right" }]}>
+                      {section.title === "SIN_FECHA" ? "Sin fecha" : fmtDateLongEs(section.title)}
+                    </Text>
+                  </View>
+                )}
+                ListEmptyComponent={!initialLoading && !loadError ? (
+                  <View style={s.center}><Text style={s.empty}>Sin cuentas por cobrar</Text></View>
+                ) : null}
+              />
             </View>
-          )}
-          ListEmptyComponent={!initialLoading && !loadError ? (
-            <View style={s.center}><Text style={s.empty}>Sin cuentas por cobrar</Text></View>
-          ) : null}
-        />
+            <View style={{ flex: 1 }}>
+              {selectedId ? (
+                <CxcDetallePanel ventaId={selectedId} embedded />
+              ) : (
+                <View style={{ flex: 1, margin: 16, borderWidth: StyleSheet.hairlineWidth, borderRadius: 18, borderColor: colors.border, alignItems: "center", justifyContent: "center", padding: 24 }}>
+                  <Text style={{ fontSize: 15, fontWeight: "800", textAlign: "center", color: colors.text + "99" }}>
+                    Selecciona una cuenta para ver detalles
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+        ) : (
+          <>
+            <View style={[s.stickyTop, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+              {stickyTopContent}
+            </View>
+            <SectionList<CxCRow, CxcSection>
+              style={[s.list, { backgroundColor: colors.background }]}
+              sections={sections}
+              keyExtractor={(it) => String(it.venta_id)}
+              renderItem={renderItem}
+              stickySectionHeadersEnabled
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              automaticallyAdjustKeyboardInsets
+              contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 16 + insets.bottom }}
+              renderSectionHeader={({ section }) => (
+                <View style={[s.sectionHeader, { backgroundColor: colors.background, alignItems: "flex-end" }]}>
+                  <Text style={[s.sectionHeaderText, { color: M.sub, textAlign: "right" }]}>
+                    {section.title === "SIN_FECHA" ? "Sin fecha" : fmtDateLongEs(section.title)}
+                  </Text>
+                </View>
+              )}
+              ListEmptyComponent={!initialLoading && !loadError ? (
+                <View style={s.center}><Text style={s.empty}>Sin cuentas por cobrar</Text></View>
+              ) : null}
+            />
+          </>
+        )}
 
         {/* Modal filtros */}
         {filtersOpen ? (
           <Modal visible={filtersOpen} transparent animationType="fade" onRequestClose={() => setFiltersOpen(false)}>
             <Pressable style={[s.modalBackdrop, { backgroundColor: M.back }]} onPress={() => setFiltersOpen(false)} />
 
-            <View style={[s.modalCard, { backgroundColor: M.card, borderColor: M.border }]}>
+            <View
+              pointerEvents="box-none"
+              style={
+                Platform.OS === "web"
+                  ? {
+                      position: "absolute",
+                      top: 0, left: 0, right: 0, bottom: 0,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }
+                  : {
+                      position: "absolute",
+                      top: 0, left: 0, right: 0, bottom: 0,
+                      justifyContent: "flex-start",
+                      paddingTop: 90,
+                    }
+              }
+            >
+            <View
+              style={[
+                s.modalCard,
+                { backgroundColor: M.card, borderColor: M.border },
+                Platform.OS === "web"
+                  ? { width: "100%", maxWidth: 480, marginHorizontal: 0 }
+                  : null,
+              ]}
+            >
               <View style={s.modalHeader}>
                 <Text style={[s.modalTitle, { color: M.text }]}>Filtros</Text>
                 <Pressable onPress={() => setFiltersOpen(false)} hitSlop={10}><Text style={[s.modalClose, { color: M.sub }]}>Cerrar</Text></Pressable>
@@ -656,25 +765,81 @@ export default function CuentasPorCobrarScreen() {
                   </ScrollView>
               </View>
             ) : null}
-            <Text style={{ marginTop: 6, color: M.sub }}>Busca por nombre o número de factura.</Text>
-
             <View style={{ height: 10 }} />
 
             <View style={s.twoCols}>
               <View style={{ flex: 1 }}>
                 <Text style={[s.sectionLabel, { color: M.text }]}>Desde</Text>
-                <Pressable onPress={openDesdePicker} style={[s.dateBox, { borderColor: M.border, backgroundColor: M.fieldBg }]}>
-                  <Text style={[s.dateTxt, { color: M.text }]}>{fDesde ? fmtDateLongEs(fDesde.toISOString()) : "—"}</Text>
-                </Pressable>
+                {Platform.OS === "web" ? (
+                  <input
+                    type="date"
+                    value={fDesde ? fDesde.toISOString().slice(0, 10) : ""}
+                    onChange={(e) => {
+                      const val = (e.target as HTMLInputElement).value;
+                      setFDesde(val ? new Date(`${val}T12:00:00`) : null);
+                    }}
+                    style={{
+                      marginTop: 8,
+                      borderWidth: 1,
+                      borderStyle: "solid",
+                      borderColor: M.border,
+                      borderRadius: 12,
+                      padding: 12,
+                      fontSize: 16,
+                      fontWeight: "700",
+                      width: "100%",
+                      boxSizing: "border-box",
+                      backgroundColor: M.card,
+                      color: M.text,
+                      fontFamily: "inherit",
+                      cursor: "pointer",
+                      outline: "none",
+                      colorScheme: isDark ? "dark" : "light",
+                    } as any}
+                  />
+                ) : (
+                  <Pressable onPress={openDesdePicker} style={[s.dateBox, { borderColor: M.border, backgroundColor: M.fieldBg }]}>
+                    <Text style={[s.dateTxt, { color: M.text }]}>{fDesde ? fmtDateLongEs(fDesde.toISOString()) : "—"}</Text>
+                  </Pressable>
+                )}
               </View>
 
               <View style={{ width: 12 }} />
 
               <View style={{ flex: 1 }}>
                 <Text style={[s.sectionLabel, { color: M.text }]}>Hasta</Text>
-                <Pressable onPress={openHastaPicker} style={[s.dateBox, { borderColor: M.border, backgroundColor: M.fieldBg }]}>
-                  <Text style={[s.dateTxt, { color: M.text }]}>{fHasta ? fmtDateLongEs(fHasta.toISOString()) : "—"}</Text>
-                </Pressable>
+                {Platform.OS === "web" ? (
+                  <input
+                    type="date"
+                    value={fHasta ? fHasta.toISOString().slice(0, 10) : ""}
+                    onChange={(e) => {
+                      const val = (e.target as HTMLInputElement).value;
+                      setFHasta(val ? new Date(`${val}T12:00:00`) : null);
+                    }}
+                    style={{
+                      marginTop: 8,
+                      borderWidth: 1,
+                      borderStyle: "solid",
+                      borderColor: M.border,
+                      borderRadius: 12,
+                      padding: 12,
+                      fontSize: 16,
+                      fontWeight: "700",
+                      width: "100%",
+                      boxSizing: "border-box",
+                      backgroundColor: M.card,
+                      color: M.text,
+                      fontFamily: "inherit",
+                      cursor: "pointer",
+                      outline: "none",
+                      colorScheme: isDark ? "dark" : "light",
+                    } as any}
+                  />
+                ) : (
+                  <Pressable onPress={openHastaPicker} style={[s.dateBox, { borderColor: M.border, backgroundColor: M.fieldBg }]}>
+                    <Text style={[s.dateTxt, { color: M.text }]}>{fHasta ? fmtDateLongEs(fHasta.toISOString()) : "—"}</Text>
+                  </Pressable>
+                )}
               </View>
             </View>
 
@@ -724,6 +889,7 @@ export default function CuentasPorCobrarScreen() {
               <AppButton title="Aplicar" variant="primary" size="sm" onPress={aplicarFiltros} />
             </View>
             </View>
+            </View>
           </Modal>
         ) : null}
       </SafeAreaView>
@@ -760,6 +926,7 @@ const styles = (colors: any) =>
     clearTxt: { color: colors.text + "88", fontSize: 22, fontWeight: "900", lineHeight: 22, marginTop: -1 },
     filterBtn: { borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, paddingHorizontal: 12, paddingVertical: 12, borderRadius: 12, alignItems: "center", justifyContent: "center" },
     filterTxt: { color: colors.text, fontWeight: "800" },
+    filterDot: { width: 8, height: 8, borderRadius: 99 },
     center: { flex: 1, alignItems: "center", justifyContent: "center" },
     empty: { color: colors.text },
     stickyTop: {
@@ -790,7 +957,7 @@ const styles = (colors: any) =>
     badgeMuted: { color: colors.text + "AA", backgroundColor: "transparent" },
     total: { color: colors.text, fontWeight: "900", marginTop: 10, fontSize: 14 },
     modalBackdrop: { ...StyleSheet.absoluteFillObject },
-    modalCard: { position: "absolute", left: 14, right: 14, top: 90, borderRadius: 18, padding: 16, borderWidth: 1 },
+    modalCard: { marginHorizontal: 14, borderRadius: 18, padding: 16, borderWidth: 1 },
     modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
     modalTitle: { fontSize: 22, fontWeight: "800" },
     modalClose: { fontSize: 15, fontWeight: "700" },

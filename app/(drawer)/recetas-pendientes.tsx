@@ -476,18 +476,42 @@ export default function RecetasPendientesScreen() {
           <View style={s.twoCols}>
             <View style={{ flex: 1 }}>
               <Text style={[s.sectionLabel, { color: C.text }]}>Desde</Text>
-              <Pressable onPress={openDesdePicker} style={[s.dateBox, { borderColor: C.border, backgroundColor: C.bg }] }>
-                <Text style={[s.dateTxt, { color: C.text }]}>{tmpDesde ? fmtDate(tmpDesde.toISOString()) : "—"}</Text>
-              </Pressable>
+              {Platform.OS === "web" ? (
+                <input
+                  type="date"
+                  value={tmpDesde ? tmpDesde.toISOString().slice(0, 10) : ""}
+                  onChange={(e) => {
+                    const val = (e.target as HTMLInputElement).value;
+                    setTmpDesde(val ? new Date(`${val}T12:00:00`) : null);
+                  }}
+                  style={{ marginTop: 8, borderWidth: 1, borderStyle: "solid", borderColor: C.border, borderRadius: 12, padding: 12, fontSize: 16, width: "100%", backgroundColor: "transparent", color: C.text, fontFamily: "inherit", cursor: "pointer" } as any}
+                />
+              ) : (
+                <Pressable onPress={openDesdePicker} style={[s.dateBox, { borderColor: C.border, backgroundColor: C.bg }]}>
+                  <Text style={[s.dateTxt, { color: C.text }]}>{tmpDesde ? fmtDate(tmpDesde.toISOString()) : "—"}</Text>
+                </Pressable>
+              )}
             </View>
 
             <View style={{ width: 12 }} />
 
             <View style={{ flex: 1 }}>
               <Text style={[s.sectionLabel, { color: C.text }]}>Hasta</Text>
-              <Pressable onPress={openHastaPicker} style={[s.dateBox, { borderColor: C.border, backgroundColor: C.bg }] }>
-                <Text style={[s.dateTxt, { color: C.text }]}>{tmpHasta ? fmtDate(tmpHasta.toISOString()) : "—"}</Text>
-              </Pressable>
+              {Platform.OS === "web" ? (
+                <input
+                  type="date"
+                  value={tmpHasta ? tmpHasta.toISOString().slice(0, 10) : ""}
+                  onChange={(e) => {
+                    const val = (e.target as HTMLInputElement).value;
+                    setTmpHasta(val ? new Date(`${val}T12:00:00`) : null);
+                  }}
+                  style={{ marginTop: 8, borderWidth: 1, borderStyle: "solid", borderColor: C.border, borderRadius: 12, padding: 12, fontSize: 16, width: "100%", backgroundColor: "transparent", color: C.text, fontFamily: "inherit", cursor: "pointer" } as any}
+                />
+              ) : (
+                <Pressable onPress={openHastaPicker} style={[s.dateBox, { borderColor: C.border, backgroundColor: C.bg }]}>
+                  <Text style={[s.dateTxt, { color: C.text }]}>{tmpHasta ? fmtDate(tmpHasta.toISOString()) : "—"}</Text>
+                </Pressable>
+              )}
             </View>
           </View>
 

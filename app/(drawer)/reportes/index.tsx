@@ -519,16 +519,78 @@ export default function ReportesScreen() {
     <View style={styles.rangeRow}>
       <View style={styles.field}>
         <Text style={styles.label}>Desde</Text>
-        <Pressable style={styles.dateInput} onPress={() => openPicker("desde")} accessibilityRole="button">
-          <Text style={styles.dateText}>{fmtDateLabel(desde)}</Text>
-        </Pressable>
+        {Platform.OS === "web" ? (
+          <input
+            type="date"
+            value={desde.toISOString().slice(0, 10)}
+            onChange={(e) => {
+              const val = (e.target as HTMLInputElement).value;
+              if (val) {
+                const next = startOfDay(new Date(`${val}T12:00:00`));
+                setDesde(next);
+                if (next.getTime() > hasta.getTime()) setHasta(endOfDay(new Date(`${val}T12:00:00`)));
+              }
+            }}
+            style={{
+              borderWidth: 1,
+              borderStyle: "solid",
+              borderColor: colors.border,
+              borderRadius: 12,
+              padding: 8,
+              fontSize: 15,
+              fontWeight: "700",
+              width: "100%",
+              boxSizing: "border-box",
+              backgroundColor: colors.card,
+              color: colors.text,
+              fontFamily: "inherit",
+              cursor: "pointer",
+              outline: "none",
+            } as any}
+          />
+        ) : (
+          <Pressable style={styles.dateInput} onPress={() => openPicker("desde")} accessibilityRole="button">
+            <Text style={styles.dateText}>{fmtDateLabel(desde)}</Text>
+          </Pressable>
+        )}
       </View>
 
       <View style={styles.field}>
         <Text style={styles.label}>Hasta</Text>
-        <Pressable style={styles.dateInput} onPress={() => openPicker("hasta")} accessibilityRole="button">
-          <Text style={styles.dateText}>{fmtDateLabel(hasta)}</Text>
-        </Pressable>
+        {Platform.OS === "web" ? (
+          <input
+            type="date"
+            value={hasta.toISOString().slice(0, 10)}
+            onChange={(e) => {
+              const val = (e.target as HTMLInputElement).value;
+              if (val) {
+                const next = endOfDay(new Date(`${val}T12:00:00`));
+                setHasta(next);
+                if (next.getTime() < desde.getTime()) setDesde(startOfDay(new Date(`${val}T12:00:00`)));
+              }
+            }}
+            style={{
+              borderWidth: 1,
+              borderStyle: "solid",
+              borderColor: colors.border,
+              borderRadius: 12,
+              padding: 8,
+              fontSize: 15,
+              fontWeight: "700",
+              width: "100%",
+              boxSizing: "border-box",
+              backgroundColor: colors.card,
+              color: colors.text,
+              fontFamily: "inherit",
+              cursor: "pointer",
+              outline: "none",
+            } as any}
+          />
+        ) : (
+          <Pressable style={styles.dateInput} onPress={() => openPicker("hasta")} accessibilityRole="button">
+            <Text style={styles.dateText}>{fmtDateLabel(hasta)}</Text>
+          </Pressable>
+        )}
       </View>
     </View>
   );

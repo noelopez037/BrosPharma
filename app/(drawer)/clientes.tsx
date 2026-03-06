@@ -10,11 +10,13 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useRole } from "../../lib/useRole";
+import { ClienteDetallePanel } from "../../components/clientes/ClienteDetallePanel";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 
@@ -76,6 +78,26 @@ export default function ClientesScreen() {
   const bottomRail = insets.bottom;
 
   const s = useMemo(() => styles(colors), [colors]);
+
+  const { width } = useWindowDimensions();
+  const isWeb = Platform.OS === "web";
+  const canSplit = isWeb && width >= 1100;
+
+  const [selectedClienteId, setSelectedClienteId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!canSplit) setSelectedClienteId(null);
+  }, [canSplit]);
+
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+    const styleTag = document.createElement("style");
+    styleTag.textContent = `input:focus { outline: none !important; }`;
+    document.head.appendChild(styleTag);
+    return () => {
+      document.head.removeChild(styleTag);
+    };
+  }, []);
 
   const { role, uid, isReady, refreshRole } = useRole();
   const roleUp = normalizeUpper(role) as Role;
@@ -207,16 +229,25 @@ export default function ClientesScreen() {
   const renderItem = ({ item }: { item: ClienteRow }) => {
     const vendedorNombre = (item.vendedor?.full_name ?? "").trim();
     const vendedorChipLabel = vendedorNombre || (item.vendedor_id ? item.vendedor_id : "Sin asignar");
+    const selected = canSplit && selectedClienteId === item.id;
 
     return (
       <Pressable
-        style={({ pressed }) => [s.card, pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null]}
-        onPress={() =>
+        style={({ pressed }) => [
+          s.card,
+          selected ? { borderColor: colors.primary, borderWidth: 2 } : null,
+          pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
+        ]}
+        onPress={() => {
+          if (canSplit) {
+            setSelectedClienteId(item.id);
+            return;
+          }
           router.push({
             pathname: "/cliente-detalle" as any,
             params: { id: String(item.id), readOnly: readOnly ? "1" : "0" },
-          })
-        }
+          });
+        }}
       >
         <View style={s.row}>
           <View style={{ flex: 1 }}>
@@ -320,20 +351,52 @@ export default function ClientesScreen() {
           ) : null}
         </View>
 
-        <FlatList
-          style={{ backgroundColor: colors.background }}
-          data={rows}
-          keyExtractor={(it) => String(it.id)}
-          renderItem={renderItem}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          automaticallyAdjustKeyboardInsets
-          contentContainerStyle={{
-            paddingHorizontal: 12,
-            paddingTop: 12,
-            paddingBottom: 16 + bottomRail,
-          }}
-        />
+        {canSplit ? (
+          <View style={s.splitWrap}>
+            <View style={[s.splitListPane, { borderRightColor: colors.border }]}>
+              <FlatList
+                style={{ flex: 1, backgroundColor: colors.background }}
+                data={rows}
+                keyExtractor={(it) => String(it.id)}
+                renderItem={renderItem}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+                automaticallyAdjustKeyboardInsets
+                contentContainerStyle={{
+                  paddingHorizontal: 12,
+                  paddingTop: 12,
+                  paddingBottom: 16 + bottomRail,
+                }}
+              />
+            </View>
+            <View style={s.splitDetailPane}>
+              {selectedClienteId ? (
+                <ClienteDetallePanel clienteId={selectedClienteId} embedded />
+              ) : (
+                <View style={[s.splitPlaceholder, { borderColor: colors.border }]}>
+                  <Text style={[s.splitPlaceholderText, { color: colors.text + "88" }]}>
+                    Selecciona un cliente para ver detalles
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+        ) : (
+          <FlatList
+            style={{ backgroundColor: colors.background }}
+            data={rows}
+            keyExtractor={(it) => String(it.id)}
+            renderItem={renderItem}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets
+            contentContainerStyle={{
+              paddingHorizontal: 12,
+              paddingTop: 12,
+              paddingBottom: 16 + bottomRail,
+            }}
+          />
+        )}
 
         {canCreate ? (
           <Pressable
@@ -375,6 +438,7 @@ const styles = (colors: any) =>
       color: colors.text,
       paddingVertical: 10,
       fontSize: 16,
+      ...(Platform.OS === "web" ? { outlineWidth: 0 } : null),
     },
     clearBtn: {
       width: 28,
@@ -461,4 +525,18 @@ const styles = (colors: any) =>
       elevation: 6,
     },
     fabText: { color: "#fff", fontSize: 30, fontWeight: "900", marginTop: -2 },
+
+    splitWrap: { flex: 1, flexDirection: "row" as const },
+    splitListPane: { width: 420, maxWidth: 420, borderRightWidth: StyleSheet.hairlineWidth },
+    splitDetailPane: { flex: 1 },
+    splitPlaceholder: {
+      flex: 1,
+      margin: 16,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderRadius: 18,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      padding: 24,
+    },
+    splitPlaceholderText: { fontSize: 15, fontWeight: "800" as const, textAlign: "center" as const },
   });

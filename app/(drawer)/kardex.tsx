@@ -620,7 +620,7 @@ export default function KardexScreen() {
               paddingBottom: 16 + insets.bottom,
             }}
             ListHeaderComponent={
-              <>
+              <View style={Platform.OS === "web" ? { maxWidth: 680, alignSelf: "center", width: "100%" } : undefined}>
                 <View style={s.filtersCard}>
                   <Text style={s.label}>Producto</Text>
                   <Pressable
@@ -643,24 +643,82 @@ export default function KardexScreen() {
                   <View style={s.twoCols}>
                     <View style={{ flex: 1 }}>
                       <Text style={s.label}>Desde</Text>
-                      <Pressable
-                        onPress={openDesdePicker}
-                        style={({ pressed }) => [s.dateBox, pressed && Platform.OS === "ios" ? { opacity: 0.9 } : null]}
-                      >
-                        <Text style={s.dateTxt}>{fmtYmd(desde)}</Text>
-                      </Pressable>
+                      {Platform.OS === "web" ? (
+                        <input
+                          type="date"
+                          value={fmtYmd(desde)}
+                          onChange={(e) => {
+                            const val = (e.target as HTMLInputElement).value;
+                            if (val) setDesde(startOfDay(new Date(`${val}T12:00:00`)));
+                          }}
+                          style={{
+                            marginTop: 6,
+                            borderWidth: 1,
+                            borderStyle: "solid",
+                            borderColor: colors.border,
+                            borderRadius: 12,
+                            padding: 10,
+                            fontSize: 15,
+                            fontWeight: "700",
+                            width: "100%",
+                            boxSizing: "border-box",
+                            backgroundColor: colors.card,
+                            color: colors.text,
+                            fontFamily: "inherit",
+                            cursor: "pointer",
+                            outline: "none",
+                            colorScheme: isDark ? "dark" : "light",
+                          } as any}
+                        />
+                      ) : (
+                        <Pressable
+                          onPress={openDesdePicker}
+                          style={({ pressed }) => [s.dateBox, pressed && Platform.OS === "ios" ? { opacity: 0.9 } : null]}
+                        >
+                          <Text style={s.dateTxt}>{fmtYmd(desde)}</Text>
+                        </Pressable>
+                      )}
                     </View>
 
                     <View style={{ width: 12 }} />
 
                     <View style={{ flex: 1 }}>
                       <Text style={s.label}>Hasta</Text>
-                      <Pressable
-                        onPress={openHastaPicker}
-                        style={({ pressed }) => [s.dateBox, pressed && Platform.OS === "ios" ? { opacity: 0.9 } : null]}
-                      >
-                        <Text style={s.dateTxt}>{fmtYmd(hasta)}</Text>
-                      </Pressable>
+                      {Platform.OS === "web" ? (
+                        <input
+                          type="date"
+                          value={fmtYmd(hasta)}
+                          onChange={(e) => {
+                            const val = (e.target as HTMLInputElement).value;
+                            if (val) setHasta(endOfDay(new Date(`${val}T12:00:00`)));
+                          }}
+                          style={{
+                            marginTop: 6,
+                            borderWidth: 1,
+                            borderStyle: "solid",
+                            borderColor: colors.border,
+                            borderRadius: 12,
+                            padding: 10,
+                            fontSize: 15,
+                            fontWeight: "700",
+                            width: "100%",
+                            boxSizing: "border-box",
+                            backgroundColor: colors.card,
+                            color: colors.text,
+                            fontFamily: "inherit",
+                            cursor: "pointer",
+                            outline: "none",
+                            colorScheme: isDark ? "dark" : "light",
+                          } as any}
+                        />
+                      ) : (
+                        <Pressable
+                          onPress={openHastaPicker}
+                          style={({ pressed }) => [s.dateBox, pressed && Platform.OS === "ios" ? { opacity: 0.9 } : null]}
+                        >
+                          <Text style={s.dateTxt}>{fmtYmd(hasta)}</Text>
+                        </Pressable>
+                      )}
                     </View>
                   </View>
 
@@ -700,20 +758,24 @@ export default function KardexScreen() {
 
                   <View style={{ height: 10 }} />
 
-                  <AppButton
-                    title={loading ? "Buscando..." : "Buscar"}
-                    variant="primary"
-                    size="sm"
-                    onPress={onBuscar}
-                    disabled={!canSearch}
-                    loading={loading}
-                  />
-
-                  {busquedaEjecutada && viewRows?.length > 0 ? (
-                    <View style={{ marginTop: 10 }}>
-                      <AppButton title="Exportar CSV" variant="outline" onPress={exportarCSV} />
+                  <View style={Platform.OS === "web" ? { flexDirection: "row", gap: 10, flexWrap: "wrap", justifyContent: "center" } : undefined}>
+                    <View style={Platform.OS === "web" ? { minWidth: 140 } : undefined}>
+                      <AppButton
+                        title={loading ? "Buscando..." : "Buscar"}
+                        variant="primary"
+                        size="sm"
+                        onPress={onBuscar}
+                        disabled={!canSearch}
+                        loading={loading}
+                      />
                     </View>
-                  ) : null}
+
+                    {busquedaEjecutada && viewRows?.length > 0 ? (
+                      <View style={Platform.OS === "web" ? { minWidth: 140 } : { marginTop: 10 }}>
+                        <AppButton title="Exportar CSV" variant="outline" onPress={exportarCSV} />
+                      </View>
+                    ) : null}
+                  </View>
 
                   {errorMsg ? <Text style={[s.sub, { marginTop: 10 }]}>{errorMsg}</Text> : null}
                 </View>
@@ -744,7 +806,7 @@ export default function KardexScreen() {
                     <Text style={s.empty}>Cargando...</Text>
                   </View>
                 ) : null}
-              </>
+              </View>
             }
             ListEmptyComponent={!loading ? <Text style={s.empty}>Sin movimientos en ese rango</Text> : null}
           />
@@ -761,7 +823,18 @@ export default function KardexScreen() {
                 onPress={() => setProdModalOpen(false)}
               />
 
-              <View style={s.modalCard}>
+              <View
+                pointerEvents="box-none"
+                style={Platform.OS === "web"
+                  ? { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" }
+                  : { position: "absolute", top: 90, left: 14, right: 14, bottom: 80 }
+                }
+              >
+              <View style={[
+                s.modalCard,
+                { backgroundColor: colors.card, borderColor: colors.border },
+                Platform.OS === "web" ? { width: "100%", maxWidth: 480, flex: undefined, height: 500 } : null,
+              ]}>
                 <View style={s.modalHeader}>
                   <Text style={s.modalTitle}>Seleccionar producto</Text>
                   <Pressable onPress={() => setProdModalOpen(false)} hitSlop={10}>
@@ -841,6 +914,7 @@ export default function KardexScreen() {
                   }
                   style={{ marginTop: 10 }}
                 />
+              </View>
               </View>
             </Modal>
           ) : null}
@@ -931,11 +1005,7 @@ const styles = (colors: any, isDark: boolean) =>
     // modal
     modalBackdrop: { ...StyleSheet.absoluteFillObject },
     modalCard: {
-      position: "absolute",
-      left: 14,
-      right: 14,
-      top: 90,
-      bottom: 80,
+      flex: 1,
       borderRadius: 18,
       padding: 16,
       borderWidth: 1,

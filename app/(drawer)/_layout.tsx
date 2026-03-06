@@ -6,7 +6,7 @@ import {
 import { Drawer } from "expo-router/drawer";
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { Image, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 
 import { DrawerActions, getFocusedRouteNameFromRoute } from "@react-navigation/native";
 import { Slot, router, useNavigation, usePathname } from "expo-router";
@@ -272,18 +272,9 @@ export default function DrawerLayout() {
         active: isReportesRoute,
         visible: showReportes,
       },
-      {
-        key: "recetas",
-        label: "Recetas pendientes",
-        icon: "document-text-outline",
-        href: "/(drawer)/recetas-pendientes",
-        active: isRecetasRoute,
-        visible: canSeeRecetas,
-      },
     ];
     return items.filter((item) => item.visible);
   }, [
-    canSeeRecetas,
     isAdmin,
     isAnuladasRoute,
     isClientesRoute,
@@ -293,7 +284,6 @@ export default function DrawerLayout() {
     isFactMainRoute,
     isFacturacion,
     isKardexRoute,
-    isRecetasRoute,
     isReportesRoute,
     isSolicitudesRoute,
     isTabsRoute,
@@ -424,23 +414,11 @@ export default function DrawerLayout() {
                 },
               ]}
             >
-              <View
-                style={[
-                  styles.brandMark,
-                  {
-                    backgroundColor: isDark ? drawerActiveBg : (alphaColor(header.bg, 0.10) as any),
-                    borderColor: isDark ? drawerBorder : (alphaColor(header.bg, 0.22) as any),
-                  },
-                ]}
-              >
-                <MaterialCommunityIcons name="needle" size={26} color={drawerActiveTint} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.drawerHeaderText, { color: drawerText }]}>Bros Pharma</Text>
-                <Text style={[styles.drawerHeaderSub, { color: drawerMuted }]} numberOfLines={1}>
-                  {headerSub}
-                </Text>
-              </View>
+              <Image
+                source={require("../../assets/images/logo-dark.png")}
+                style={{ width: "100%", height: 140, tintColor: isDark ? "#FFFFFF" : undefined }}
+                resizeMode="contain"
+              />
             </View>
 
             <ScrollView
@@ -877,23 +855,6 @@ export default function DrawerLayout() {
                   </Pressable>
                 )}
 
-                {(role === "ADMIN" || role === "VENTAS") ? (
-                  <Pressable
-                   onPress={() => {
-                     closeDrawer();
-                     router.push("/(drawer)/recetas-pendientes" as any);
-                   }}
-                    style={({ pressed }) => [
-                      styles.menuItem,
-                      { backgroundColor: isRecetasRoute ? drawerActiveBg : "transparent" },
-                      pressed && { opacity: 0.85 },
-                    ]}
-                   accessibilityRole="button"
-                  >
-                    <Ionicons name="document-text-outline" size={22} color={isRecetasRoute ? drawerActiveTint : drawerMuted} />
-                    <Text style={[styles.menuLabel, { color: isRecetasRoute ? drawerActiveTint : drawerMuted }]}>Recetas pendientes</Text>
-                  </Pressable>
-               ) : null}
                  
            </View>
 
