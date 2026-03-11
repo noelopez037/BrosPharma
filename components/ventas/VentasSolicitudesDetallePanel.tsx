@@ -17,6 +17,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppButton } from "../ui/app-button";
+import { ConfirmModal } from "../ui/confirm-modal";
 import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { alphaColor } from "../../lib/ui";
@@ -109,6 +110,13 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
   const [pagos, setPagos] = useState<any[]>([]);
   const [pagosReportadosPendientes, setPagosReportadosPendientes] = useState<any[]>([]);
   const [actingPagoReportadoId, setActingPagoReportadoId] = useState<number | null>(null);
+  const [webConfirm, setWebConfirm] = useState<{
+    title: string;
+    message: string;
+    confirmText: string;
+    confirmVariant: "primary" | "danger";
+    onConfirm: () => void;
+  } | null>(null);
   const [facturas, setFacturas] = useState<any[]>([]);
   const [vendedorDisplay, setVendedorDisplay] = useState<string>("");
 
@@ -120,12 +128,101 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
     if (!Number.isFinite(id) || id <= 0) return;
     setLoading(true);
     try {
-      const { data: v } = await supabase
+      let ventaRow: any = null;
+
+      const { data: vCxc, error: errCxc } = await supabase
         .from("vw_cxc_ventas")
         .select("*")
         .eq("venta_id", id)
         .maybeSingle();
-      setRow(v as any);
+
+      console.log("[VentasSolicitudesDetallePanel] vw_cxc_ventas", {
+        id,
+        found: !!vCxc,
+        error: errCxc?.message ?? null,
+      });
+
+      if (errCxc) throw errCxc;
+      ventaRow = vCxc ?? null;
+
+      if (!ventaRow) {
+        const { data: vBaseById, error: errBaseById } = await supabase
+          .from("ventas")
+          .select("*")
+          .eq("id", id)
+          .maybeSingle();
+
+        console.log("[VentasSolicitudesDetallePanel] ventas by id", {
+          id,
+          found: !!vBaseById,
+          error: errBaseById?.message ?? null,
+        });
+
+        if (errBaseById) throw errBaseById;
+
+        let vb = vBaseById ?? null;
+
+        if (!vb) {
+          const { data: vBaseByVentaId, error: errBaseByVentaId } = await supabase
+            .from("ventas")
+            .select("*")
+            .eq("venta_id", id)
+            .maybeSingle();
+
+          console.log("[VentasSolicitudesDetallePanel] ventas by venta_id", {
+            id,
+            found: !!vBaseByVentaId,
+            error: errBaseByVentaId?.message ?? null,
+          });
+
+          if (
+            errBaseByVentaId &&
+            !String(errBaseByVentaId.message ?? "").toLowerCase().includes("column")
+          ) {
+            throw errBaseByVentaId;
+          }
+
+          vb = vBaseByVentaId ?? null;
+        }
+
+        if (vb) {
+          ventaRow = {
+            venta_id: vb.venta_id ?? vb.id ?? id,
+            fecha: vb.fecha ?? null,
+            estado: vb.estado ?? null,
+            cliente_id: vb.cliente_id ?? null,
+            vendedor_id: vb.vendedor_id ?? null,
+            cliente_nombre: vb.cliente_nombre ?? null,
+            vendedor_codigo: vb.vendedor_codigo ?? null,
+            total: Number(vb.total ?? 0),
+            pagado: Number(vb.pagado ?? 0),
+            saldo: Number(vb.saldo ?? vb.total ?? 0),
+            fecha_vencimiento: vb.fecha_vencimiento ?? null,
+          };
+        }
+      }
+
+      console.log("[VentasSolicitudesDetallePanel] final ventaRow", {
+        id,
+        found: !!ventaRow,
+        venta_id: ventaRow?.venta_id ?? null,
+        estado: ventaRow?.estado ?? null,
+      });
+
+      setRow(ventaRow);
+
+      if (ventaRow && !ventaRow.cliente_nombre && ventaRow.cliente_id) {
+        const { data: c } = await supabase
+          .from("clientes")
+          .select("nombre")
+          .eq("id", ventaRow.cliente_id)
+          .maybeSingle();
+
+        if (c?.nombre) {
+          ventaRow = { ...ventaRow, cliente_nombre: c.nombre };
+          setRow(ventaRow);
+        }
+      }
 
       const { data: d } = await supabase
         .from("ventas_detalle")
@@ -352,18 +449,17 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
 
   const handleRechazarPagoReportado = useCallback(
     (p: any) => {
-      Alert.alert(
-        "Rechazar pago",
-        `¿Deseas rechazar el pago reportado del ${fmtDate(p?.fecha_reportado ?? p?.created_at)} por ${fmtQ(p?.monto)}?`,
-        [
-          { text: "Cancelar", style: "cancel" },
-          {
-            text: "Rechazar",
-            style: "destructive",
-            onPress: () => void runPagoReportadoAction(p, "rechazar"),
-          },
-        ]
-      );
+      const msg = `¿Deseas rechazar el pago reportado del ${fmtDate(p?.fecha_reportado ?? p?.created_at)} por ${fmtQ(p?.monto)}?`;
+      const doReject = () => void runPagoReportadoAction(p, "rechazar");
+      // Alert.alert is a no-op on web (react-native-web ships `static alert() {}`).
+      if (Platform.OS === "web") {
+        setWebConfirm({ title: "Rechazar pago", message: msg, confirmText: "Rechazar", confirmVariant: "danger", onConfirm: doReject });
+        return;
+      }
+      Alert.alert("Rechazar pago", msg, [
+        { text: "Cancelar", style: "cancel" },
+        { text: "Rechazar", style: "destructive", onPress: doReject },
+      ]);
     },
     [runPagoReportadoAction]
   );
@@ -371,29 +467,25 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
   const confirmDeletePago = useCallback(
     (p: any) => {
       const refInfo = p.referencia ? `\nRef: ${p.referencia}` : "";
-      Alert.alert(
-        "Eliminar pago",
-        `Se eliminará el pago del ${fmtDate(p.fecha)} por ${fmtQ(p.monto)}.${refInfo}`,
-        [
-          { text: "Cancelar", style: "cancel" },
-          {
-            text: "Eliminar",
-            style: "destructive",
-            onPress: async () => {
-              try {
-                const { error } = await supabase
-                  .from("ventas_pagos")
-                  .delete()
-                  .eq("id", p.id);
-                if (error) throw error;
-                await fetchAll();
-              } catch (e: any) {
-                Alert.alert("Error", e?.message ?? "No se pudo eliminar");
-              }
-            },
-          },
-        ]
-      );
+      const msg = `Se eliminará el pago del ${fmtDate(p.fecha)} por ${fmtQ(p.monto)}.${refInfo}`;
+      const doDelete = async () => {
+        try {
+          const { error } = await supabase.from("ventas_pagos").delete().eq("id", p.id);
+          if (error) throw error;
+          await fetchAll();
+        } catch (e: any) {
+          Alert.alert("Error", e?.message ?? "No se pudo eliminar");
+        }
+      };
+      // Alert.alert is a no-op on web (react-native-web ships `static alert() {}`).
+      if (Platform.OS === "web") {
+        setWebConfirm({ title: "Eliminar pago", message: msg, confirmText: "Eliminar", confirmVariant: "danger", onConfirm: () => void doDelete() });
+        return;
+      }
+      Alert.alert("Eliminar pago", msg, [
+        { text: "Cancelar", style: "cancel" },
+        { text: "Eliminar", style: "destructive", onPress: () => void doDelete() },
+      ]);
     },
     [fetchAll]
   );
@@ -677,9 +769,8 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
                         <AppButton
                           title="Rechazar"
                           size="sm"
-                          variant="outline"
-                          style={{ flex: 1, borderColor: "#E53935" } as any}
-                          textStyle={{ color: "#E53935" } as any}
+                          variant="danger"
+                          style={{ flex: 1, backgroundColor: "#F02849", borderColor: "#F02849" } as any}
                           onPress={() => handleRechazarPagoReportado(p)}
                           disabled={disabled}
                         />
@@ -781,6 +872,22 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
     </ScrollView>
   );
 
+  const confirmModalEl = (
+    <ConfirmModal
+      visible={webConfirm !== null}
+      title={webConfirm?.title ?? ""}
+      message={webConfirm?.message}
+      confirmText={webConfirm?.confirmText ?? "Confirmar"}
+      confirmVariant={webConfirm?.confirmVariant ?? "danger"}
+      onConfirm={() => {
+        const pending = webConfirm;
+        setWebConfirm(null);
+        pending?.onConfirm();
+      }}
+      onCancel={() => setWebConfirm(null)}
+    />
+  );
+
   if (embedded) {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: C.bg }]} edges={["bottom"]}>
@@ -795,6 +902,7 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
         ) : (
           content
         )}
+        {confirmModalEl}
       </SafeAreaView>
     );
   }
@@ -812,6 +920,7 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
       ) : (
         content
       )}
+      {confirmModalEl}
     </SafeAreaView>
   );
 }

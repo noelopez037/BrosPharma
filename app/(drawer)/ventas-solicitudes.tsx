@@ -16,6 +16,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { RoleGate } from "../../components/auth/RoleGate";
 import { AppButton } from "../../components/ui/app-button";
+import { ConfirmModal } from "../../components/ui/confirm-modal";
 import { VentasSolicitudesDetallePanel } from "../../components/ventas/VentasSolicitudesDetallePanel";
 import { navigateToVentaFromNotif } from "../../lib/notifNavigation";
 import { emitSolicitudesChanged } from "../../lib/solicitudesEvents";
@@ -150,6 +151,10 @@ export default function VentasSolicitudesScreen() {
   const [vendedoresById, setVendedoresById] = useState<Record<string, { codigo: string | null; nombre: string | null }>>({});
   const [initialLoading, setInitialLoading] = useState(true);
   const [actingVentaId, setActingVentaId] = useState<number | null>(null);
+  const [webConfirm, setWebConfirm] = useState<{
+    ventaId: number;
+    decision: "APROBAR" | "RECHAZAR";
+  } | null>(null);
   const [pagosPendientesRaw, setPagosPendientesRaw] = useState<PagoReportadoRow[]>([]);
   const [initialLoadingPagos, setInitialLoadingPagos] = useState(true);
   const [ventasInfoById, setVentasInfoById] = useState<
@@ -329,6 +334,12 @@ export default function VentasSolicitudesScreen() {
   const confirmResolve = useCallback(
     (ventaId: number, decision: "APROBAR" | "RECHAZAR") => {
       if (!canResolve) return;
+      // On web, Alert.alert is a no-op (react-native-web ships `static alert() {}`),
+      // so the confirmation callback would never fire. Use a Modal-based dialog instead.
+      if (Platform.OS === "web") {
+        setWebConfirm({ ventaId, decision });
+        return;
+      }
       const title = decision === "APROBAR" ? "Aprobar solicitud" : "Rechazar solicitud";
       const msg =
         decision === "APROBAR"
@@ -453,7 +464,13 @@ export default function VentasSolicitudesScreen() {
               ) : null}
 
               {!canResolve ? null : (
-                <View style={styles.btnRow}>
+                <View
+                  style={styles.btnRow}
+                  onStartShouldSetResponder={() => true}
+                  {...(Platform.OS === "web"
+                    ? { onClick: (e: any) => e?.stopPropagation?.() }
+                    : {})}
+                >
                   <AppButton
                     title={isActing ? "..." : "Aprobar"}
                     size="sm"
@@ -464,7 +481,8 @@ export default function VentasSolicitudesScreen() {
                   <AppButton
                     title={isActing ? "..." : "Rechazar"}
                     size="sm"
-                    variant="outline"
+                    variant="danger"
+                    style={{ backgroundColor: "#F02849", borderColor: "#F02849" } as any}
                     onPress={() => confirmResolve(Number(sol.venta_id), "RECHAZAR")}
                     disabled={isActing}
                   />
@@ -628,6 +646,24 @@ export default function VentasSolicitudesScreen() {
           ) : (
             listContent
           )}
+
+          <ConfirmModal
+            visible={webConfirm !== null}
+            title={webConfirm?.decision === "APROBAR" ? "Aprobar solicitud" : "Rechazar solicitud"}
+            message={
+              webConfirm?.decision === "APROBAR"
+                ? "Esto enviara la accion a la cola correspondiente."
+                : "Esto cerrara la solicitud sin ejecutar cambios."
+            }
+            confirmText={webConfirm?.decision === "APROBAR" ? "Aprobar" : "Rechazar"}
+            confirmVariant={webConfirm?.decision === "RECHAZAR" ? "danger" : "primary"}
+            onConfirm={() => {
+              const pending = webConfirm;
+              setWebConfirm(null);
+              if (pending) resolve(pending.ventaId, pending.decision).catch(() => {});
+            }}
+            onCancel={() => setWebConfirm(null)}
+          />
         </SafeAreaView>
       </RoleGate>
     </>

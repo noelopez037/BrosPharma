@@ -134,19 +134,21 @@ type VentaDetalleRouteParams = {
 type VentaDetallePanelProps = {
   ventaId: number;
   embedded?: boolean;
+  onEditWeb?: (ventaId: number) => void;
 };
 
 type VentaDetallePanelContentProps = {
   embedded: boolean;
   ventaIdProp: number;
   params: VentaDetalleRouteParams | null;
+  onEditWeb?: (ventaId: number) => void;
 };
 
 const BUCKET = "Ventas-Docs";
 
-export function VentaDetallePanel({ ventaId, embedded = false }: VentaDetallePanelProps) {
+export function VentaDetallePanel({ ventaId, embedded = false, onEditWeb }: VentaDetallePanelProps) {
   if (embedded) {
-    return <VentaDetallePanelContent embedded ventaIdProp={ventaId} params={null} />;
+    return <VentaDetallePanelContent embedded ventaIdProp={ventaId} params={null} onEditWeb={onEditWeb} />;
   }
   return <VentaDetallePanelWithParams fallbackVentaId={ventaId} />;
 }
@@ -336,7 +338,7 @@ async function downloadAndShareFile(url: string, filename: string) {
   await Share.share({ url: dl.uri });
 }
 
-function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams }: VentaDetallePanelContentProps) {
+function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, onEditWeb }: VentaDetallePanelContentProps) {
   const insets = useSafeAreaInsets();
   const { scrollRef, handleFocus } = useKeyboardAutoScroll(110);
   const { colors } = useTheme();
@@ -1670,13 +1672,17 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams }
 
                       {lineas.map((l) => {
                         const unit = Number(l.precio_venta_unit ?? 0);
-                        const title = `${String(l.producto_nombre ?? "—")}${l.producto_marca ? ` • ${l.producto_marca}` : ""}`;
                         return (
                           <View key={l.id} style={[styles.tableRow, { borderTopColor: C.border }]}>
                             <View style={{ flex: 1, paddingRight: 10, minWidth: 0 }}>
-                              <Text style={[styles.td, { color: C.text }]} numberOfLines={1}>
-                                {title}
+                              <Text style={[styles.td, { color: C.text }]} numberOfLines={2}>
+                                {l.producto_nombre ?? "—"}
                               </Text>
+                              {l.producto_marca ? (
+                                <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
+                                  {l.producto_marca}
+                                </Text>
+                              ) : null}
                               <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
                                 Lote: {l.lote ?? "—"}
                               </Text>
@@ -1733,13 +1739,17 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams }
 
                       {ivaLineas.map((l) => {
                         const unit = Number(l.precio_venta_unit ?? 0);
-                        const title = `${String(l.producto_nombre ?? "—")}${l.producto_marca ? ` • ${l.producto_marca}` : ""}`;
                         return (
                           <View key={l.id} style={[styles.tableRow, { borderTopColor: C.border }]}>
                             <View style={{ flex: 1, paddingRight: 10, minWidth: 0 }}>
-                              <Text style={[styles.td, { color: C.text }]} numberOfLines={1}>
-                                {title}
+                              <Text style={[styles.td, { color: C.text }]} numberOfLines={2}>
+                                {l.producto_nombre ?? "—"}
                               </Text>
+                              {l.producto_marca ? (
+                                <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
+                                  {l.producto_marca}
+                                </Text>
+                              ) : null}
                               <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
                                 Lote: {l.lote ?? "—"}
                               </Text>
@@ -1797,13 +1807,17 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams }
 
                       {exentoLineas.map((l) => {
                         const unit = Number(l.precio_venta_unit ?? 0);
-                        const title = `${String(l.producto_nombre ?? "—")}${l.producto_marca ? ` • ${l.producto_marca}` : ""}`;
                         return (
                           <View key={l.id} style={[styles.tableRow, { borderTopColor: C.border }]}>
                             <View style={{ flex: 1, paddingRight: 10, minWidth: 0 }}>
-                              <Text style={[styles.td, { color: C.text }]} numberOfLines={1}>
-                                {title}
+                              <Text style={[styles.td, { color: C.text }]} numberOfLines={2}>
+                                {l.producto_nombre ?? "—"}
                               </Text>
+                              {l.producto_marca ? (
+                                <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
+                                  {l.producto_marca}
+                                </Text>
+                              ) : null}
                               <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
                                 Lote: {l.lote ?? "—"}
                               </Text>
@@ -2242,7 +2256,13 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams }
                   <View style={{ height: 10 }} />
                   <AppButton
                     title="Editar venta"
-                    onPress={() => router.push({ pathname: "/venta-nueva", params: { editId: String(venta.id) } } as any)}
+                    onPress={() => {
+                      if (Platform.OS === "web" && onEditWeb) {
+                        onEditWeb(venta.id);
+                      } else {
+                        router.push({ pathname: "/venta-nueva", params: { editId: String(venta.id) } } as any);
+                      }
+                    }}
                   />
                 </>
               ) : normalizeUpper(venta.estado) === "NUEVO" ? (

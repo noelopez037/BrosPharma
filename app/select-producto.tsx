@@ -342,7 +342,7 @@ function SelectProductoCompra({ lineKey }: { lineKey: string }) {
         }}
         backdropOpacity={0.5}
       >
-        <Text style={styles.modalTitle}>Seleccionar marca</Text>
+        <Text style={[styles.modalTitle, { color: colors?.text ?? "#000" }]}>Seleccionar marca</Text>
         <TextInput
           value={brandQuery}
           onChangeText={setBrandQuery}
@@ -371,12 +371,12 @@ function SelectProductoCompra({ lineKey }: { lineKey: string }) {
                 setBrandSheet(false);
               }}
             >
-              <Text style={styles.modalItemText}>{item.nombre}</Text>
+              <Text style={[styles.modalItemText, { color: colors?.text ?? "#000" }]}>{item.nombre}</Text>
             </Pressable>
           )}
         />
 
-        <Text style={styles.label}>Nueva marca</Text>
+        <Text style={[styles.label, { color: colors?.text ?? "#000" }]}>Nueva marca</Text>
         <TextInput
           value={newBrandName}
           onChangeText={setNewBrandName}
