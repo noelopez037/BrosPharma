@@ -426,6 +426,43 @@ export default function CompraNuevaScreen() {
     updateLinea(lineKey, { image_uri: null, image_path: null });
   };
 
+  // ================== OVERRIDE WARNINGS
+  const getOverrideWarnings = async () => {
+    const ids = lineas
+      .map((l) => l.producto_id)
+      .filter((id): id is number => id != null);
+
+    if (!ids.length) return [];
+
+    const { data } = await supabase
+      .from("producto_precio_override")
+      .select("producto_id, precio_compra_override")
+      .in("producto_id", ids);
+
+    const overrideMap = new Map<number, number | null>();
+    (data ?? []).forEach((row: any) => {
+      overrideMap.set(Number(row.producto_id), row.precio_compra_override ?? null);
+    });
+
+    const warnings: { producto: string; actual: number | null; nuevo: number; minimoSugerido: number }[] = [];
+
+    for (const l of lineas) {
+      if (!l.producto_id) continue;
+      const nuevo = Math.max(0, parseNumberSafe(l.precio));
+      const actual = overrideMap.get(l.producto_id) ?? null;
+      if (actual === null || nuevo > actual) {
+        warnings.push({
+          producto: l.producto_label || `Producto #${l.producto_id}`,
+          actual,
+          nuevo,
+          minimoSugerido: Math.round((nuevo / 0.7) * 100) / 100,
+        });
+      }
+    }
+
+    return warnings;
+  };
+
   // ================== GUARDAR (RPC)
   const guardar = async () => {
     if (saving || loadingEdit) return;
@@ -464,6 +501,17 @@ export default function CompraNuevaScreen() {
       );
     }
 
+    const overrideWarnings = await getOverrideWarnings().catch(() => []);
+    const overrideWarningText = overrideWarnings.length
+      ? overrideWarnings
+          .slice(0, 5)
+          .map(
+            (w) =>
+              `• ${w.producto}: Q${w.nuevo.toFixed(2)} (mín sugerido: Q${w.minimoSugerido.toFixed(2)})`
+          )
+          .join("\n")
+      : null;
+
     setSaving(true);
     try {
       const p_compra = {
@@ -488,12 +536,18 @@ export default function CompraNuevaScreen() {
           __DEV__ ? console.warn("[notif] dispatch failed", e?.message ?? e) : undefined
         );
 
-        Alert.alert("Listo", "Compra actualizada", [
-          {
-            text: "OK",
-            onPress: () => goBackSafe({ pathname: "/compra-detalle" as any, params: { id: String(editId) } } as any),
-          },
-        ]);
+        Alert.alert(
+          "Listo",
+          overrideWarningText
+            ? `Compra actualizada.\n\nSe actualizó automáticamente el regulador de estos productos:\n${overrideWarningText}`
+            : "Compra actualizada",
+          [
+            {
+              text: "OK",
+              onPress: () => goBackSafe({ pathname: "/compra-detalle" as any, params: { id: String(editId) } } as any),
+            },
+          ]
+        );
       } else {
         const { error } = await supabase.rpc("rpc_crear_compra", {
           p_compra,
@@ -505,15 +559,21 @@ export default function CompraNuevaScreen() {
           __DEV__ ? console.warn("[notif] dispatch failed", e?.message ?? e) : undefined
         );
 
-        Alert.alert("Listo", "Compra guardada!", [
-          {
-            text: "OK",
-            onPress: () => {
-              reset();
-              goBackSafe("/compras");
+        Alert.alert(
+          "Listo",
+          overrideWarningText
+            ? `Compra guardada.\n\nSe actualizó automáticamente el regulador de estos productos:\n${overrideWarningText}`
+            : "Compra guardada!",
+          [
+            {
+              text: "OK",
+              onPress: () => {
+                reset();
+                goBackSafe("/compras");
+              },
             },
-          },
-        ]);
+          ]
+        );
       }
     } catch (e: any) {
       Alert.alert("Error al guardar", e?.message ?? "No se pudo guardar la compra");

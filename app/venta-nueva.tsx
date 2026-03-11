@@ -510,6 +510,19 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
       return Alert.alert("Revisa la venta", v.msg || "Hay datos invalidos");
     }
 
+    const productIds = lineas
+      .map((l) => Number(l.producto_id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+
+    const hasDuplicates = new Set(productIds).size !== productIds.length;
+
+    if (hasDuplicates) {
+      return Alert.alert(
+        "Producto repetido",
+        "No puedes agregar el mismo producto más de una vez. Edita la cantidad en una sola línea."
+      );
+    }
+
     if (saving) return;
 
     const p_venta = {
@@ -594,7 +607,21 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
           ]
         );
       } catch (e: any) {
-        const msg = String(e?.message ?? "No se pudo guardar la venta");
+        const raw = String(e?.message ?? "").toLowerCase();
+
+        let msg = "No se pudo guardar la venta.";
+
+        if (
+          raw.includes(
+            "there is no unique or exclusion constraint matching the on conflict specification"
+          )
+        ) {
+          msg =
+            "No se puede agregar el mismo producto más de una vez en la venta. Edita la cantidad en una sola línea.";
+        } else if (e?.message) {
+          msg = String(e.message);
+        }
+
         Alert.alert("Error al guardar", msg);
       } finally {
         setSaving(false);

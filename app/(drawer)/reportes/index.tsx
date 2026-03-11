@@ -1,7 +1,7 @@
 import { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack } from "expo-router";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Calendar, DateData } from "react-native-calendars";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -47,6 +47,13 @@ type UtilidadExportRow = {
   utilidad_bruta: number | null;
   margen_pct: number | null;
   participacion_utilidad_pct: number | null;
+};
+
+type UtilidadGlobalRow = {
+  total_ventas: number | null;
+  costo_total: number | null;
+  utilidad_bruta: number | null;
+  margen_pct: number | null;
 };
 
 type BajoMovimientoRow = {
@@ -195,6 +202,13 @@ export default function ReportesScreen() {
   const [auditStatus, setAuditStatus] = useState<FooterState>(() => makeEmptyStatus());
   const [utilidadStatus, setUtilidadStatus] = useState<FooterState>(() => makeEmptyStatus());
   const [bajoMovimientoStatus, setBajoMovimientoStatus] = useState<FooterState>(() => makeEmptyStatus());
+  const [utilidadGlobal, setUtilidadGlobal] = useState<UtilidadGlobalRow | null>(null);
+  const [utilidadGlobalAttempted, setUtilidadGlobalAttempted] = useState(false);
+
+  useEffect(() => {
+    setUtilidadGlobal(null);
+    setUtilidadGlobalAttempted(false);
+  }, [desde, hasta]);
 
   const openPicker = (target: "desde" | "hasta") => {
     if (Platform.OS === "android") {
@@ -332,14 +346,31 @@ export default function ReportesScreen() {
     const toIso = endOfDay(hasta).toISOString();
 
     try {
-      const { data, error } = await supabase.rpc("rpc_reporte_utilidad_productos_v3", {
-        p_desde: fromIso,
-        p_hasta: toIso,
-      });
+      const [productosResult, globalResult] = await Promise.all([
+        supabase.rpc("rpc_reporte_utilidad_productos_v3", { p_desde: fromIso, p_hasta: toIso }),
+        supabase.rpc("rpc_reporte_utilidad_global_v1", { p_desde: fromIso, p_hasta: toIso }),
+      ]);
 
-      if (error) throw error;
+      if (productosResult.error) throw productosResult.error;
 
-      const rows = (data ?? []) as UtilidadRow[];
+      // Parse global summary — never blocks product export if it fails
+      let globalSummary: UtilidadGlobalRow | null = null;
+      if (!globalResult.error && globalResult.data) {
+        const raw = Array.isArray(globalResult.data) ? globalResult.data[0] : globalResult.data;
+        if (raw) {
+          const r = raw as Record<string, unknown>;
+          globalSummary = {
+            total_ventas: safeNumber(r.total_ventas),
+            costo_total: safeNumber(r.costo_total),
+            utilidad_bruta: safeNumber(r.utilidad_bruta),
+            margen_pct: safeNumber(r.margen_pct),
+          };
+        }
+      }
+      setUtilidadGlobal(globalSummary);
+      setUtilidadGlobalAttempted(true);
+
+      const rows = (productosResult.data ?? []) as UtilidadRow[];
       if (rows.length === 0) {
         setUtilidadStatus({ error: "No hay datos en ese rango.", warning: null, info: null });
         return;
@@ -358,6 +389,20 @@ export default function ReportesScreen() {
         margen_pct: roundToTwoDecimals(row.margen_pct),
         participacion_utilidad_pct: roundToTwoDecimals(row.participacion_utilidad_pct),
       }));
+
+      const exportRows: UtilidadExportRow[] = [...formatted];
+      if (globalSummary) {
+        exportRows.push({
+          producto_nombre: "TOTAL",
+          marca_nombre: "",
+          unidades_vendidas: null,
+          total_ventas: globalSummary.total_ventas,
+          costo_total: globalSummary.costo_total,
+          utilidad_bruta: globalSummary.utilidad_bruta,
+          margen_pct: roundToTwoDecimals(globalSummary.margen_pct),
+          participacion_utilidad_pct: null,
+        });
+      }
 
       const fileStem = `reporte_utilidad_productos_${fmtDateYmd(desde)}_${fmtDateYmd(hasta)}`;
 
@@ -379,7 +424,7 @@ export default function ReportesScreen() {
             value: (r) => r.participacion_utilidad_pct ?? "",
           },
         ],
-        rows: formatted,
+        rows: exportRows,
       });
 
       setUtilidadStatus({
@@ -671,6 +716,30 @@ export default function ReportesScreen() {
                 exportButtonVariant="excel"
               >
                 <DateRangeFields />
+                {utilidadGlobalAttempted ? (
+                  utilidadGlobal ? (
+                    <View style={styles.globalSummary}>
+                      <View style={styles.globalSummaryRow}>
+                        <Text style={styles.globalSummaryKey}>Ventas totales</Text>
+                        <Text style={styles.globalSummaryVal}>Q {(utilidadGlobal.total_ventas ?? 0).toFixed(2)}</Text>
+                      </View>
+                      <View style={styles.globalSummaryRow}>
+                        <Text style={styles.globalSummaryKey}>Costo total</Text>
+                        <Text style={styles.globalSummaryVal}>Q {(utilidadGlobal.costo_total ?? 0).toFixed(2)}</Text>
+                      </View>
+                      <View style={styles.globalSummaryRow}>
+                        <Text style={styles.globalSummaryKey}>Utilidad bruta</Text>
+                        <Text style={styles.globalSummaryVal}>Q {(utilidadGlobal.utilidad_bruta ?? 0).toFixed(2)}</Text>
+                      </View>
+                      <View style={styles.globalSummaryRow}>
+                        <Text style={styles.globalSummaryKey}>Margen</Text>
+                        <Text style={styles.globalSummaryVal}>{(utilidadGlobal.margen_pct ?? 0).toFixed(2)}%</Text>
+                      </View>
+                    </View>
+                  ) : (
+                    <Text style={styles.globalSummaryFallback}>Sin resumen disponible</Text>
+                  )
+                ) : null}
               </ReportCard>
               <ReportCard
                 title="Productos con bajo movimiento"
@@ -828,5 +897,31 @@ const makeStyles = (colors: any) =>
       borderRadius: 12,
       overflow: "hidden",
       backgroundColor: colors.card,
+    },
+    globalSummary: {
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+      paddingTop: 10,
+      gap: 6,
+    },
+    globalSummaryRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+    },
+    globalSummaryKey: {
+      fontSize: 13,
+      fontWeight: "600",
+      color: colors.text + "AA",
+    },
+    globalSummaryVal: {
+      fontSize: 13,
+      fontWeight: "700",
+      color: colors.text,
+    },
+    globalSummaryFallback: {
+      fontSize: 13,
+      color: colors.text + "88",
+      fontStyle: "italic",
     },
   });

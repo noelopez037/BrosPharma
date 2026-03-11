@@ -339,6 +339,7 @@ export default function Ventas() {
   // filtros (tipo CxC): cliente + rango de fechas
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [nuevaVentaOpen, setNuevaVentaOpen] = useState(false);
+  const [editingVentaId, setEditingVentaId] = useState<number | null>(null);
   const [clientes, setClientes] = useState<{ id: number; nombre: string }[]>([]);
   const [clienteOpen, setClienteOpen] = useState(false);
   const [fClienteId, setFClienteId] = useState<number | null>(null);
@@ -952,6 +953,7 @@ export default function Ventas() {
               size="sm"
               onPress={() => {
                 if (Platform.OS === "web") {
+                  setEditingVentaId(null);
                   setNuevaVentaOpen(true);
                 } else {
                   router.push("/venta-nueva" as any);
@@ -1043,7 +1045,11 @@ export default function Ventas() {
           <View style={[s.splitListPane, { borderRightColor: C.border }]}>{listComponent}</View>
           <View style={s.splitDetailPane}>
             {selectedVentaId ? (
-              <VentaDetallePanel ventaId={selectedVentaId} embedded />
+              <VentaDetallePanel
+                ventaId={selectedVentaId}
+                embedded
+                onEditWeb={(id) => { setEditingVentaId(id); setNuevaVentaOpen(true); }}
+              />
             ) : (
               <View style={[s.splitPlaceholder, { borderColor: C.border }]}>
                 <Text style={[s.splitPlaceholderText, { color: C.sub }]}>Selecciona una venta para ver detalles</Text>
@@ -1383,10 +1389,12 @@ export default function Ventas() {
 
       <VentaNuevaModal
         visible={nuevaVentaOpen}
-        onClose={() => setNuevaVentaOpen(false)}
-        onDone={() => { setNuevaVentaOpen(false); loadEstado(estado).catch(() => {}); }}
+        onClose={() => { setNuevaVentaOpen(false); setEditingVentaId(null); }}
+        onDone={() => { setNuevaVentaOpen(false); setEditingVentaId(null); loadEstado(estado).catch(() => {}); }}
         isDark={isDark}
         colors={{ card: C.card, text: C.text, border: C.border, sub: C.sub }}
+        mode={editingVentaId ? "edit" : "create"}
+        ventaId={editingVentaId}
       />
     </SafeAreaView>
   );

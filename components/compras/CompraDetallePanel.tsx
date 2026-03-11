@@ -909,7 +909,6 @@ function CompraDetallePanelContent({ embedded, compraIdProp }: CompraDetallePane
 
                 {lineas.map((d: any, idx: number) => {
                   const nombre = d.producto_nombre ?? `Producto #${d.producto_id}`;
-                  const title = `${String(nombre ?? "—")}${d.producto_marca ? ` • ${d.producto_marca}` : ""}`;
                   const lote = String(d.lote ?? "—");
                   const venc = fmtDate(d.fecha_exp);
                   const cant = safeNumber(d.cantidad);
@@ -918,9 +917,14 @@ function CompraDetallePanelContent({ embedded, compraIdProp }: CompraDetallePane
                   return (
                     <View key={String(d.detalle_id ?? idx)} style={[styles.tableRow, { borderTopColor: C.divider }]}>
                       <View style={{ flex: 1, paddingRight: 10, minWidth: 0 }}>
-                        <Text style={[styles.td, { color: C.text }]} numberOfLines={1}>
-                          {idx + 1}. {title}
+                        <Text style={[styles.td, { color: C.text }]} numberOfLines={2}>
+                          {idx + 1}. {nombre}
                         </Text>
+                        {d.producto_marca ? (
+                          <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
+                            {d.producto_marca}
+                          </Text>
+                        ) : null}
                         <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
                           Lote: {lote}
                         </Text>

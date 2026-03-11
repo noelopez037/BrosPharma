@@ -2,7 +2,7 @@
 // Pure form component — no navigation imports.
 // Used inside VentaNuevaModal on web (create-only, no edit mode).
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as ImagePicker from "expo-image-picker";
 import {
   Alert,
@@ -82,11 +82,13 @@ type Props = {
   isDark: boolean;
   colors: Colors;
   canCreate: boolean;
+  mode?: "create" | "edit";
+  ventaId?: number | null;
 };
 
 // ─── component ───────────────────────────────────────────────────────────────
 
-export function VentaNuevaForm({ onDone, isDark, colors: C, canCreate }: Props) {
+export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate, mode = "create", ventaId = null }: Props) {
   const {
     draft,
     setCliente,
@@ -100,13 +102,161 @@ export function VentaNuevaForm({ onDone, isDark, colors: C, canCreate }: Props) 
   } = useVentaDraft();
   const { cliente, comentarios, lineas, receta_uri } = draft;
 
-  // Reset the draft each time this form mounts (fresh new-sale state)
-  useEffect(() => {
-    reset();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
+  const isEdit = mode === "edit" && !!ventaId;
   const [saving, setSaving] = useState(false);
+  const [loadingEdit, setLoadingEdit] = useState(false);
+  const [originalQtyByProd, setOriginalQtyByProd] = useState<Record<string, number>>({});
+  const [stockBaseByProd, setStockBaseByProd] = useState<Record<string, number>>({});
+  const loadedEditIdRef = useRef<number | null>(null);
+  const draftRef = useRef(draft);
+  useEffect(() => { draftRef.current = draft; }, [draft]);
+
+  // Reset or load edit data on mount / when ventaId changes
+  useEffect(() => {
+    if (!isEdit || !ventaId) {
+      reset();
+      return;
+    }
+    if (loadedEditIdRef.current === ventaId) return;
+    let alive = true;
+    (async () => {
+      try {
+        setLoadingEdit(true);
+        reset();
+        setOriginalQtyByProd({});
+        setStockBaseByProd({});
+
+        const { data: trows, error: te } = await supabase
+          .from("ventas_tags")
+          .select("tag")
+          .eq("venta_id", ventaId)
+          .is("removed_at", null)
+          .in("tag", ["EDICION_REQUERIDA"])
+          .limit(1);
+        if (te) throw te;
+        if (!trows?.length) throw new Error("No hay autorizacion de edicion para esta venta");
+
+        const { data: v, error: ve } = await supabase
+          .from("ventas")
+          .select("id,cliente_id,comentarios,estado")
+          .eq("id", ventaId)
+          .maybeSingle();
+        if (ve) throw ve;
+        if (!v) throw new Error("Venta no encontrada");
+        if (String((v as any).estado ?? "").toUpperCase() !== "NUEVO") {
+          throw new Error("Solo se puede editar cuando la venta esta en NUEVO");
+        }
+
+        const { data: c, error: ce } = await supabase
+          .from("clientes")
+          .select("id,nombre,nit,telefono,direccion")
+          .eq("id", Number((v as any).cliente_id))
+          .maybeSingle();
+        if (ce) throw ce;
+        if (!c) throw new Error("Cliente no encontrado");
+
+        const { data: d, error: de } = await supabase
+          .from("ventas_detalle")
+          .select("id,cantidad,precio_venta_unit,producto_id,productos(nombre,marca_id,marcas(nombre))")
+          .eq("venta_id", ventaId)
+          .order("id", { ascending: true });
+        if (de) throw de;
+        const detalles = (d ?? []) as any[];
+        if (!detalles.length) throw new Error("La venta no tiene lineas");
+
+        const origMap: Record<string, number> = {};
+        detalles.forEach((row: any) => {
+          const pid = Number(row.producto_id);
+          if (!Number.isFinite(pid) || pid <= 0) return;
+          const qty = Number(row.cantidad ?? 0);
+          if (!Number.isFinite(qty) || qty <= 0) return;
+          origMap[String(pid)] = (origMap[String(pid)] ?? 0) + qty;
+        });
+        if (alive) setOriginalQtyByProd(origMap);
+
+        const prodIds = Array.from(
+          new Set(detalles.map((x) => Number(x.producto_id)).filter((x) => Number.isFinite(x) && x > 0))
+        );
+        const invByProd = new Map<number, any>();
+        if (prodIds.length) {
+          const { data: inv, error: ie } = await supabase
+            .from("vw_inventario_productos_v2")
+            .select("id,stock_disponible,precio_min_venta,tiene_iva,requiere_receta")
+            .in("id", prodIds);
+          if (ie) throw ie;
+          const baseMap: Record<string, number> = {};
+          (inv ?? []).forEach((r: any) => {
+            const k = String(r?.id ?? "");
+            if (!k) return;
+            const s = Number(r?.stock_disponible ?? 0);
+            baseMap[k] = Number.isFinite(s) ? s : 0;
+            invByProd.set(Number(r.id), r);
+          });
+          if (alive) setStockBaseByProd(baseMap);
+        }
+
+        if (!alive) return;
+        reset();
+        setRecetaUri(null);
+        setComentarios(String((v as any).comentarios ?? ""));
+        setCliente({
+          id: Number((c as any).id),
+          nombre: String((c as any).nombre ?? ""),
+          nit: (c as any).nit == null ? null : String((c as any).nit),
+          telefono: (c as any).telefono == null ? null : String((c as any).telefono),
+          direccion: (c as any).direccion == null ? null : String((c as any).direccion),
+        });
+
+        const targetN = detalles.length;
+        const hydrate = () => {
+          if (!alive) return;
+          const cur = draftRef.current;
+          if (!cur) return;
+          if (cur.lineas.length < targetN) {
+            const missing = targetN - cur.lineas.length;
+            for (let i = 0; i < missing; i++) addLinea();
+            setTimeout(hydrate, 0);
+            return;
+          }
+          const keys = cur.lineas.slice(0, targetN).map((l) => l.key);
+          detalles.forEach((row: any, idx: number) => {
+            const key = keys[idx];
+            if (!key) return;
+            const nombre = (row.productos as any)?.nombre ?? "";
+            const marca =
+              (row.productos as any)?.marcas?.nombre ??
+              (row.productos as any)?.marcas?.[0]?.nombre ??
+              "";
+            const label = `${nombre}${marca ? ` • ${marca}` : ""}`;
+            const pid = Number(row.producto_id);
+            const inv = invByProd.get(pid);
+            updateLinea(key, {
+              producto_id: pid,
+              producto_label: label,
+              stock_disponible: inv ? Number(inv.stock_disponible ?? 0) : null,
+              precio_min_venta: inv?.precio_min_venta == null ? null : Number(inv.precio_min_venta),
+              tiene_iva: inv ? !!inv.tiene_iva : null,
+              requiere_receta: inv ? !!inv.requiere_receta : null,
+              cantidad: String(row.cantidad ?? "1"),
+              precio_unit: String(row.precio_venta_unit ?? "0"),
+            });
+          });
+          loadedEditIdRef.current = ventaId;
+          if (alive) setLoadingEdit(false);
+        };
+        setTimeout(hydrate, 0);
+      } catch (e: any) {
+        if (!alive) return;
+        setLoadingEdit(false);
+        window.alert(`No se puede editar: ${e?.message ?? "No se pudo cargar la venta"}`);
+        onCancel?.();
+      }
+    })().catch(() => {
+      if (alive) setLoadingEdit(false);
+    });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ventaId, isEdit]);
 
   // Inline dropdown — client
   const [clienteDropOpen, setClienteDropOpen] = useState(false);
@@ -128,7 +278,34 @@ export function VentaNuevaForm({ onDone, isDark, colors: C, canCreate }: Props) 
   const [newClienteDireccion, setNewClienteDireccion] = useState("");
   const [savingNewCliente, setSavingNewCliente] = useState(false);
 
-  const canEditNow = !saving;
+  const canEditNow = !saving && !loadingEdit;
+
+  const effectiveStockByProd = useMemo(() => {
+    const base = stockBaseByProd ?? {};
+    if (!isEdit) return base;
+    const out: Record<string, number> = { ...base };
+    for (const pid of Object.keys(originalQtyByProd)) {
+      const add = Number(originalQtyByProd[pid] ?? 0);
+      const cur = Number((out as any)[pid] ?? 0);
+      out[pid] = (Number.isFinite(cur) ? cur : 0) + (Number.isFinite(add) ? add : 0);
+    }
+    return out;
+  }, [isEdit, originalQtyByProd, stockBaseByProd]);
+
+  const effectiveStockForLine = useCallback(
+    (l: any) => {
+      const pid = String(l?.producto_id ?? "");
+      const fromMap = (effectiveStockByProd as any)?.[pid];
+      if (Number.isFinite(fromMap)) return fromMap;
+      const base = Number(l?.stock_disponible ?? 0);
+      if (!Number.isFinite(base)) return 0;
+      if (!isEdit) return base;
+      if (!pid) return base;
+      const add = Number(originalQtyByProd[pid] ?? 0);
+      return base + (Number.isFinite(add) ? add : 0);
+    },
+    [effectiveStockByProd, isEdit, originalQtyByProd]
+  );
 
   // ── search helpers ────────────────────────────────────────────────────────
 
@@ -216,7 +393,7 @@ export function VentaNuevaForm({ onDone, isDark, colors: C, canCreate }: Props) 
 
   const lineValidation = useCallback((l: any) => {
     if (!l.producto_id) return { ok: false, msg: "Selecciona un producto" };
-    const stock = Number(l.stock_disponible ?? 0);
+    const stock = effectiveStockForLine(l);
     const min = l.precio_min_venta == null ? 0 : Number(l.precio_min_venta);
     const qty = parseIntSafe(l.cantidad);
     const price = parseDecimalSafe(l.precio_unit);
@@ -224,14 +401,15 @@ export function VentaNuevaForm({ onDone, isDark, colors: C, canCreate }: Props) 
     if (qty > stock) return { ok: false, msg: `Cantidad supera disponibles (${stock})` };
     if (price < min) return { ok: false, msg: `Precio menor al minimo (${fmtQ(min)})` };
     return { ok: true, msg: "" };
-  }, []);
+  }, [effectiveStockForLine]);
 
   const allValid = useMemo(() => {
+    if (loadingEdit) return false;
     if (!canCreate) return false;
     if (!cliente?.id) return false;
     if (lineas.length <= 0) return false;
     return lineas.every((l) => lineValidation(l).ok);
-  }, [canCreate, cliente?.id, lineValidation, lineas]);
+  }, [loadingEdit, canCreate, cliente?.id, lineValidation, lineas]);
 
   const total = useMemo(() => {
     return lineas.reduce((acc, l: any) => {
@@ -279,6 +457,12 @@ export function VentaNuevaForm({ onDone, isDark, colors: C, canCreate }: Props) 
       const v = lineValidation(bad);
       return Alert.alert("Revisa la venta", v.msg || "Hay datos invalidos");
     }
+    const productIds = lineas
+      .map((l) => Number(l.producto_id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    if (new Set(productIds).size !== productIds.length) {
+      return window.alert("No puedes agregar el mismo producto más de una vez. Edita la cantidad en una sola línea.");
+    }
     if (saving) return;
 
     const p_venta = {
@@ -294,22 +478,32 @@ export function VentaNuevaForm({ onDone, isDark, colors: C, canCreate }: Props) 
     setSaving(true);
     (async () => {
       try {
-        const { data, error } = await supabase.rpc("rpc_crear_venta" as any, { p_venta, p_items } as any);
-        if (error) throw error;
-
-        const ventaId = (data as any)?.venta_id ?? null;
-        if (ventaId) {
-          dispatchNotifs(20).catch((e: any) => console.warn("[notif] dispatch failed", e?.message ?? e));
+        let savedVentaId: number | null = null;
+        if (isEdit && ventaId) {
+          const { error } = await supabase.rpc("rpc_venta_editar" as any, {
+            p_venta_id: ventaId,
+            p_venta,
+            p_items,
+          } as any);
+          if (error) throw error;
+          savedVentaId = ventaId;
+        } else {
+          const { data, error } = await supabase.rpc("rpc_crear_venta" as any, { p_venta, p_items } as any);
+          if (error) throw error;
+          savedVentaId = (data as any)?.venta_id ?? null;
+          if (savedVentaId) {
+            dispatchNotifs(20).catch((e: any) => console.warn("[notif] dispatch failed", e?.message ?? e));
+          }
         }
 
         let recetaOk = true;
-        if (ventaId && receta_uri) {
+        if (savedVentaId && receta_uri) {
           try {
             const stamp = Date.now();
             const rnd = Math.random().toString(16).slice(2);
             const ext = extFromUri(receta_uri);
             const contentType = mimeFromExt(ext);
-            const path = `ventas/${ventaId}/recetas/${stamp}-${rnd}.${ext}`;
+            const path = `ventas/${savedVentaId}/recetas/${stamp}-${rnd}.${ext}`;
             const ab = await uriToArrayBuffer(receta_uri);
             const bytes = new Uint8Array(ab);
             const { error: upErr } = await supabase.storage
@@ -317,7 +511,7 @@ export function VentaNuevaForm({ onDone, isDark, colors: C, canCreate }: Props) 
               .upload(path, bytes, { contentType, upsert: false });
             if (upErr) throw upErr;
             const { error: rpcErr } = await supabase.rpc("rpc_venta_registrar_receta", {
-              p_venta_id: Number(ventaId),
+              p_venta_id: Number(savedVentaId),
               p_path: path,
             });
             if (rpcErr) throw rpcErr;
@@ -326,17 +520,21 @@ export function VentaNuevaForm({ onDone, isDark, colors: C, canCreate }: Props) 
           }
         }
 
-        // Web: Alert callbacks don't fire (window.alert has no callback support).
-        // Call reset + onDone directly, then show a non-blocking message if needed.
         reset();
         setRecetaUri(null);
-        if (!recetaOk) {
-          // window.alert is fine here — no callback needed
+        if (!isEdit && !recetaOk) {
           window.alert("Venta creada. No se pudo subir la receta; puedes subirla desde el detalle en Ventas.");
         }
         onDone();
       } catch (e: any) {
-        window.alert(`Error al guardar: ${String(e?.message ?? "No se pudo guardar la venta")}`);
+        const raw = String(e?.message ?? "").toLowerCase();
+        let msg = "No se pudo guardar la venta.";
+        if (raw.includes("there is no unique or exclusion constraint matching the on conflict specification")) {
+          msg = "No se puede agregar el mismo producto más de una vez en la venta. Edita la cantidad en una sola línea.";
+        } else if (e?.message) {
+          msg = String(e.message);
+        }
+        window.alert(`Error al guardar: ${msg}`);
       } finally {
         setSaving(false);
       }
@@ -469,7 +667,7 @@ export function VentaNuevaForm({ onDone, isDark, colors: C, canCreate }: Props) 
         <Text style={[styles.h2, { color: C.text }]}>Productos</Text>
 
         {lineas.map((l: any, idx) => {
-          const stock = l.producto_id ? Number(l.stock_disponible ?? 0) : null;
+          const stock = l.producto_id ? effectiveStockForLine(l) : null;
           const min = l.producto_id ? (l.precio_min_venta == null ? null : Number(l.precio_min_venta)) : null;
           const v = lineValidation(l);
           const qty = parseIntSafe(l.cantidad);
@@ -662,10 +860,15 @@ export function VentaNuevaForm({ onDone, isDark, colors: C, canCreate }: Props) 
           </>
         ) : null}
 
+        {loadingEdit ? (
+          <View style={{ alignItems: "center", paddingVertical: 16 }}>
+            <Text style={[styles.help, { color: C.sub }]}>Cargando venta...</Text>
+          </View>
+        ) : null}
         <AppButton
-          title={!allValid ? "Revisa datos" : saving ? "Guardando..." : "Guardar venta"}
+          title={loadingEdit ? "Cargando..." : !allValid ? "Revisa datos" : saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Guardar venta"}
           onPress={onGuardar}
-          disabled={!allValid || saving}
+          disabled={loadingEdit || !allValid || saving}
           style={[styles.saveBtn, { backgroundColor: C.blueText, marginBottom: 10 }] as any}
         />
       </ScrollView>

@@ -17,9 +17,11 @@ type Props = {
   onDone: () => void;
   isDark: boolean;
   colors: { card: string; text: string; border: string; sub: string };
+  mode?: "create" | "edit";
+  ventaId?: number | null;
 };
 
-export function VentaNuevaModal({ visible, onClose, onDone, isDark, colors }: Props) {
+export function VentaNuevaModal({ visible, onClose, onDone, isDark, colors, mode = "create", ventaId = null }: Props) {
   const { colors: navColors } = useTheme();
 
   if (Platform.OS !== "web" || !createPortal) return null;
@@ -44,7 +46,7 @@ export function VentaNuevaModal({ visible, onClose, onDone, isDark, colors }: Pr
       <View style={[styles.panel, { backgroundColor: C.card }]}>
         <View style={[styles.header, { borderBottomColor: C.border }]}>
           <View style={styles.closeBtnPlaceholder} />
-          <Text style={[styles.headerTitle, { color: C.text }]}>Nueva venta</Text>
+          <Text style={[styles.headerTitle, { color: C.text }]}>{mode === "edit" ? "Editar venta" : "Nueva venta"}</Text>
           <Pressable onPress={onClose} style={styles.closeBtn} hitSlop={8}>
             <Text style={[styles.closeText, { color: C.sub }]}>✕</Text>
           </Pressable>
@@ -55,6 +57,8 @@ export function VentaNuevaModal({ visible, onClose, onDone, isDark, colors }: Pr
           isDark={isDark}
           colors={C}
           canCreate={true}
+          mode={mode}
+          ventaId={ventaId}
         />
       </View>
     </View>
