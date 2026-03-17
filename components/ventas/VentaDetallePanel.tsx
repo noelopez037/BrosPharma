@@ -1497,7 +1497,10 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       supabase.rpc("rpc_venta_anular_nuevo" as any, { p_venta_id: Number(venta.id), p_nota: null })
         .then(({ error }) => {
           if (error) Alert.alert("Error", error.message);
-          else { fetchVenta(); fetchTags(); }
+          else {
+            emitVentaEstadoChanged();
+            goBackSafe("/(drawer)/(tabs)/ventas");
+          }
         });
       return;
     }
@@ -1510,7 +1513,10 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
           supabase.rpc("rpc_venta_anular_nuevo" as any, { p_venta_id: Number(venta.id), p_nota: null })
             .then(({ error }) => {
               if (error) Alert.alert("Error", error.message);
-              else { fetchVenta(); fetchTags(); }
+              else {
+                emitVentaEstadoChanged();
+                Alert.alert("Listo", "Venta anulada.", [{ text: "OK", onPress: () => goBackSafe("/(drawer)/(tabs)/ventas") }]);
+              }
             });
         },
       },
