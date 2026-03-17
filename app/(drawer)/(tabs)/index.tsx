@@ -97,7 +97,6 @@ type BodegaAlerta = {
 };
 
 type BodegaData = {
-  alertasCount: number;
   criticos: BodegaAlerta[];
   porVencer: BodegaAlerta[];
   productosCero: number;
@@ -872,7 +871,7 @@ export default function Inicio() {
     const in30Str = `${in30.getUTCFullYear()}-${pad2(in30.getUTCMonth() + 1)}-${pad2(in30.getUTCDate())}`;
 
     // vw_inventario_productos agrega stock real por producto (no por lote)
-    const [ceroResult, alertResult, expResult] = await Promise.all([
+    const [ceroResult, expResult] = await Promise.all([
       supabase
         .from("vw_inventario_productos")
         .select("id, nombre, marca, stock_disponible")
@@ -881,7 +880,6 @@ export default function Inicio() {
         .eq("stock_disponible", 0)
         .order("nombre", { ascending: true })
         .limit(20),
-      supabase.rpc("rpc_report_inventario_alertas", { p_empresa_id: empresaId }),
       supabase.rpc("rpc_report_inventario_alertas", {
         p_empresa_id: empresaId,
         p_exp_dias: 30,
@@ -900,8 +898,6 @@ export default function Inicio() {
       lote: null,
     }));
 
-    const alertasCount = (alertResult.data ?? []).length;
-
     const expAlertas: BodegaAlerta[] = ((expResult.data ?? []) as any[])
       .map((r) => ({
         tipo: String(r.tipo ?? ""),
@@ -917,7 +913,6 @@ export default function Inicio() {
       .slice(0, 20);
 
     return {
-      alertasCount,
       criticos,
       porVencer: expAlertas,
       productosCero: criticos.length,
@@ -1534,19 +1529,11 @@ export default function Inicio() {
             label: "Stock en 0",
             value: d ? String(d.productosCero) : "—",
             danger: !!(d && d.productosCero > 0),
-            style: { flexBasis: "31%" },
-          })}
-          {renderKpi({
-            label: "Total alertas",
-            value: d ? String(d.alertasCount) : "—",
-            danger: !!(d && d.alertasCount > 0),
-            style: { flexBasis: "31%" },
           })}
           {renderKpi({
             label: "Vencen en 30d",
             value: d ? String(d.porVencerCount) : "—",
             danger: !!(d && d.porVencerCount > 0),
-            style: { flexBasis: "31%" },
           })}
         </View>
 
