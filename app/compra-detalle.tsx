@@ -32,6 +32,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import ImageViewer from "react-native-image-zoom-viewer";
 import { useEmpresaActiva } from "../lib/useEmpresaActiva";
+import { useRole } from "../lib/useRole";
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
@@ -271,6 +272,8 @@ export default function CompraDetalleScreen() {
 
   const { colors } = useTheme();
   const { empresaActivaId, isReady: empresaReady } = useEmpresaActiva();
+  const { role } = useRole();
+  const canEditDelete = role !== "BODEGA";
 
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
@@ -1070,7 +1073,7 @@ export default function CompraDetalleScreen() {
                     <Text style={[styles.v, { color: C.text }]}>{fmtQ(compra.saldo_pendiente)}</Text>
                   </View>
 
-                  <AppButton
+                  {canEditDelete && <AppButton
                     title={saldoNum <= 0 ? "Compra pagada" : "Aplicar pago"}
                     onPress={abrirPagoModal}
                     disabled={saldoNum <= 0}
@@ -1082,7 +1085,7 @@ export default function CompraDetalleScreen() {
                       marginTop: 12,
                       opacity: saldoNum <= 0 ? 0.5 : 1,
                     } as any}
-                  />
+                  />}
                 </View>
               </>
             ) : null}

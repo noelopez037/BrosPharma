@@ -1127,19 +1127,21 @@ function CompraDetallePanelContent({ embedded, compraIdProp, onRefresh, onDelete
                     <Text style={[styles.v, { color: C.text }]}>{fmtQ(compra.saldo_pendiente)}</Text>
                   </View>
 
-                  <AppButton
-                    title={saldoNum <= 0 ? "Compra pagada" : "Aplicar pago"}
-                    onPress={abrirPagoModal}
-                    disabled={saldoNum <= 0}
-                    variant="primary"
-                    androidRipple={Platform.OS === "android" ? { color: "rgba(255,255,255,0.18)" } : undefined}
-                    style={{
-                      backgroundColor: C.primary,
-                      borderColor: C.primary,
-                      marginTop: 12,
-                      opacity: saldoNum <= 0 ? 0.5 : 1,
-                    } as any}
-                  />
+                  {canEditDelete && (
+                    <AppButton
+                      title={saldoNum <= 0 ? "Compra pagada" : "Aplicar pago"}
+                      onPress={abrirPagoModal}
+                      disabled={saldoNum <= 0}
+                      variant="primary"
+                      androidRipple={Platform.OS === "android" ? { color: "rgba(255,255,255,0.18)" } : undefined}
+                      style={{
+                        backgroundColor: C.primary,
+                        borderColor: C.primary,
+                        marginTop: 12,
+                        opacity: saldoNum <= 0 ? 0.5 : 1,
+                      } as any}
+                    />
+                  )}
                 </View>
               </>
             ) : null}
