@@ -1494,7 +1494,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     const msg = `¿Anular la venta #${venta.id} de ${venta.cliente_nombre ?? "cliente"}? Esta acción no se puede deshacer.`;
     if (Platform.OS === "web") {
       if (!window.confirm(msg)) return;
-      supabase.rpc("rpc_venta_anular", { p_venta_id: Number(venta.id), p_nota: null, p_empresa_id: empresaActivaId })
+      supabase.rpc("rpc_venta_anular_nuevo" as any, { p_venta_id: Number(venta.id), p_nota: null })
         .then(({ error }) => {
           if (error) Alert.alert("Error", error.message);
           else { fetchVenta(); fetchTags(); }
@@ -1507,7 +1507,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
         text: "Sí, anular",
         style: "destructive",
         onPress: () => {
-          supabase.rpc("rpc_venta_anular", { p_venta_id: Number(venta.id), p_nota: null, p_empresa_id: empresaActivaId })
+          supabase.rpc("rpc_venta_anular_nuevo" as any, { p_venta_id: Number(venta.id), p_nota: null })
             .then(({ error }) => {
               if (error) Alert.alert("Error", error.message);
               else { fetchVenta(); fetchTags(); }
@@ -1515,7 +1515,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
         },
       },
     ]);
-  }, [canAnularDirecto, empresaActivaId, fetchTags, fetchVenta, venta]);
+  }, [canAnularDirecto, fetchTags, fetchVenta, venta]);
 
   const edicionAutorizada = useMemo(() => {
     return hasTag("EDICION_REQUERIDA") && normalizeUpper(venta?.estado) === "NUEVO";
