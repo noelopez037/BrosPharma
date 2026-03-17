@@ -1488,87 +1488,8 @@ export default function Inicio() {
   };
 
   const renderBodega = () => {
-    const d = bodegaData;
-
-    const stockColor = (stock: number) => {
-      if (stock === 0) return C.danger;
-      if (stock <= 3) return "#f97316";
-      return "#eab308";
-    };
-    const stockLabel = (stock: number) => {
-      if (stock === 0) return "CRÍTICO";
-      if (stock <= 3) return "BAJO";
-      return "PRECAUCIÓN";
-    };
-
     return (
-      <View style={{ padding: 16, paddingBottom: 16 + insets.bottom }}>
-        <HeroCard
-          bg="#1a1a2e"
-          accent="#7c3aed"
-          kicker="ALERTAS ACTIVAS"
-          bigNum={d ? String(d.alertasCount) : "—"}
-          sub={
-            d
-              ? `${d.productosCero} producto${d.productosCero !== 1 ? "s" : ""} en 0 unidades`
-              : "Cargando..."
-          }
-        />
-
-        <View style={[s.kpiGrid, { marginTop: 12 }]}>
-          {renderKpi({
-            label: "Total alertas",
-            value: d ? String(d.alertasCount) : "—",
-            danger: !!(d && d.alertasCount > 0),
-          })}
-          {renderKpi({
-            label: "Productos en 0",
-            value: d ? String(d.productosCero) : "—",
-            danger: !!(d && d.productosCero > 0),
-          })}
-          {renderKpi({
-            label: "Total productos",
-            value: d ? String(d.totalProductos) : "—",
-          })}
-          {renderKpi({
-            label: "Bajo / Precaución",
-            value: d ? String(d.alertasCount - d.productosCero) : "—",
-          })}
-        </View>
-
-        <ListCard title="Alertas de stock" colors={C}>
-          {(d?.alertas ?? []).length ? (
-            (d?.alertas ?? []).map((a, idx) => (
-              <View key={`alerta-${a.producto_id}-${idx}`} style={[s.rowLink, { borderTopColor: C.border }]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[s.rowTitle, { color: C.text }]} numberOfLines={1}>
-                    {a.producto}
-                  </Text>
-                  <Text style={[s.rowSub, { color: C.sub }]} numberOfLines={1}>
-                    {a.marca}
-                  </Text>
-                </View>
-                <View
-                  style={[
-                    s.stockPill,
-                    {
-                      backgroundColor:
-                        alphaColor(stockColor(a.stock_disponible), 0.15) || "rgba(0,0,0,0.08)",
-                      borderColor: stockColor(a.stock_disponible),
-                    },
-                  ]}
-                >
-                  <Text style={[s.stockPillText, { color: stockColor(a.stock_disponible) }]}>
-                    {a.stock_disponible} · {stockLabel(a.stock_disponible)}
-                  </Text>
-                </View>
-              </View>
-            ))
-          ) : (
-            <Text style={[s.empty, { color: C.sub }]}>Sin alertas de stock ✓</Text>
-          )}
-        </ListCard>
-      </View>
+      <View style={{ padding: 16, paddingBottom: 16 + insets.bottom }} />
     );
   };
 
@@ -1657,7 +1578,7 @@ export default function Inicio() {
 
   const headerSub = useMemo(() => {
     if (roleUp === "FACTURACION") return "Facturas pendientes";
-    if (roleUp === "BODEGA") return "Control de inventario";
+    if (roleUp === "BODEGA") return fmtDateLong();
     if (roleUp === "ADMIN") return fmtDateLong();
     return null;
   }, [roleUp]);
