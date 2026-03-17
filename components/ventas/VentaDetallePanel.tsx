@@ -1800,7 +1800,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                 <Text style={[styles.note, { color: C.text }]}>Notas: {venta.comentarios}</Text>
               ) : null}
 
-              {!!solicitudAnulacion?.solicitud_nota ? (
+              {!!solicitudAnulacion?.solicitud_nota && anulacionRequerida ? (
                 <View
                   style={[
                     styles.warn,
