@@ -24,6 +24,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import ImageViewer from "react-native-image-zoom-viewer";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
+import { useRole } from "../../lib/useRole";
 import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { alphaColor } from "../../lib/ui";
@@ -281,6 +282,8 @@ function CompraDetallePanelContent({ embedded, compraIdProp, onRefresh, onDelete
 
   const { colors } = useTheme();
   const { empresaActivaId, isReady: empresaReady } = useEmpresaActiva();
+  const { role } = useRole();
+  const canEditDelete = role !== "BODEGA";
 
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
@@ -1146,7 +1149,7 @@ function CompraDetallePanelContent({ embedded, compraIdProp, onRefresh, onDelete
         )}
 
         {/* Bottom actions */}
-        {!loading && compra ? (
+        {!loading && compra && canEditDelete ? (
           <View
             style={[
               styles.bottomBar,

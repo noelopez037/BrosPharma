@@ -1064,17 +1064,17 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
           }
 
           const extractedNumero = String(payload?.numero ?? "").trim();
-          if (!extractedNumero) {
-            // If the call succeeded but extraction returned nothing, inform the user.
+          const extractedTotal: number | null =
+            typeof payload?.total === "number" && Number.isFinite(payload.total) && payload.total > 0
+              ? payload.total
+              : null;
+
+          if (!extractedNumero && extractedTotal === null) {
             Alert.alert("Aviso", "No se encontro el No: en el PDF. Puedes escribirlo manualmente.");
             return;
           }
 
           setFacturaDraft((prev) => {
-            const dbNumero = String(facturaCurrentByTipo[tipo]?.numero ?? "").trim();
-            const prevNumero = String(prev?.[tipo]?.numero ?? "").trim();
-            if (dbNumero || prevNumero) return prev;
-
             const cur = prev[tipo] ?? {
               tipo,
               numero: "",
@@ -1084,7 +1084,20 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
               sizeBytes: null,
             };
 
-            return { ...prev, [tipo]: { ...cur, numero: extractedNumero } };
+            const dbNumero = String(facturaCurrentByTipo[tipo]?.numero ?? "").trim();
+            const prevNumero = String(cur?.numero ?? "").trim();
+            const nextNumero = dbNumero || prevNumero ? cur.numero : extractedNumero || cur.numero;
+
+            const dbMonto = String(facturaCurrentByTipo[tipo]?.monto ?? "").trim();
+            // El total del PDF tiene prioridad sobre el auto-calculado de la venta,
+            // siempre que el usuario no haya tocado el campo manualmente y no esté en DB.
+            const canAutoMonto = !dbMonto && !montoTouched[tipo];
+            const nextMonto =
+              canAutoMonto && extractedTotal !== null
+                ? sanitizeMontoDraftInput(extractedTotal.toFixed(2))
+                : cur.monto;
+
+            return { ...prev, [tipo]: { ...cur, numero: nextNumero, monto: nextMonto } };
           });
         } catch (e: any) {
           console.log("[invoice_extract] error", { tipo, path, message: e?.message, error: e });

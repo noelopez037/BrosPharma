@@ -83,15 +83,19 @@ async function extractTextFromPdf(bytes: Uint8Array): Promise<string> {
   }
 }
 
-async function extractNumeroFromPdfBytes(bytes: Uint8Array): Promise<string | null> {
-  try {
-    const rawText = await extractTextFromPdf(bytes);
-    console.log("[invoice_extract] rawText_length", rawText.length);
+function extractTotalFromText(t: string): number | null {
+  // Matches: "TOTAL: Q 500.00", "TOTAL:Q500.00", "TOTAL : Q 1,500.00"
+  const m = t.match(/\bTOTAL\s*:\s*Q\s*([\d,]+\.?\d*)/i);
+  if (!m?.[1]) return null;
+  const raw = m[1].replace(/,/g, ""); // remove thousands separators
+  const n = parseFloat(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
 
-    // Normalizar y luego eliminar timestamps largos tipo 20XXXXXXXXXXXX (14 digitos)
-    // antes de cualquier regex de extraccion.
-    let t = normalizePdfText(rawText);
-    t = t.replace(/\b20\d{12}\b/g, " ");
+function extractNumeroFromText(normalizedText: string): string | null {
+  try {
+    // Eliminar timestamps largos tipo 20XXXXXXXXXXXX (14 digitos) antes de extraer.
+    let t = normalizedText.replace(/\b20\d{12}\b/g, " ");
 
     // Prioridad 1
     // - Forma fuerte original: "No: 12345678"
@@ -111,7 +115,7 @@ async function extractNumeroFromPdfBytes(bytes: Uint8Array): Promise<string | nu
     const m3 = t.match(/\b([0-9]{10})\b/);
     return m3?.[1] ?? null;
   } catch (e) {
-    console.error("[invoice_extract] pdf_text_extract_failed", (e as Error)?.stack ?? e);
+    console.error("[invoice_extract] numero_extract_failed", (e as Error)?.stack ?? e);
     return null;
   }
 }
@@ -174,10 +178,15 @@ Deno.serve(async (req: Request) => {
     const bytes = await downloadPdfBytesAsUser(storagePath, jwt);
     console.log("[invoice_extract] bytes", bytes.length);
 
-    const numero = await extractNumeroFromPdfBytes(bytes);
-    console.log("[invoice_extract] numero_final", numero);
+    const rawText = await extractTextFromPdf(bytes);
+    console.log("[invoice_extract] rawText_length", rawText.length);
+    const normalizedText = normalizePdfText(rawText);
 
-    return json({ ok: true, numero });
+    const numero = extractNumeroFromText(normalizedText);
+    const total = extractTotalFromText(normalizedText);
+    console.log("[invoice_extract] numero_final", numero, "total_final", total);
+
+    return json({ ok: true, numero, total });
   } catch (e) {
     const msg = String((e as Error)?.message ?? e);
     if (msg === "DOWNLOAD_FAILED") return json({ ok: true, numero: null });

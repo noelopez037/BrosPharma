@@ -287,10 +287,11 @@ export default function Layout() {
         void (async () => {
           // iOS puede tardar 1-2s en reconectar WiFi/celular tras background prolongado.
           await new Promise((r) => setTimeout(r, 1200));
-          void supabase.auth.startAutoRefresh();
 
           // Intentar obtener sesion valida antes de emitir resume a las pantallas.
           // 5 reintentos × 2 s = hasta 11 s adicionales para que la red se estabilice.
+          // NOTA: startAutoRefresh se llama solo DESPUÉS de confirmar sesión para evitar
+          // que el SDK intente un refresh fallido y limpie la sesión cuando no hay red.
           let hasSession = false;
           for (let attempt = 0; attempt < 5; attempt++) {
             try {
@@ -305,6 +306,10 @@ export default function Layout() {
             if (attempt < 4) await new Promise((r) => setTimeout(r, 2000));
           }
 
+          // Activar auto-refresh tras intentar recuperar sesión manualmente.
+          // Se llama siempre (no solo si hasSession) porque scheduleDeferredResume
+          // depende de los eventos TOKEN_REFRESHED/SIGNED_IN que emite el auto-refresh.
+          void supabase.auth.startAutoRefresh();
           invalidateAll();
 
           if (hasSession) {

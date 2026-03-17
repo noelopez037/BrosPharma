@@ -268,7 +268,7 @@ export default function DrawerLayout() {
         icon: "cart-outline",
         href: "/(drawer)/compras",
         active: isComprasRoute,
-        visible: isAdmin,
+        visible: isAdmin || role === "BODEGA",
       },
       {
         key: "clientes",
