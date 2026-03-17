@@ -17,7 +17,8 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { supabase } from "../../../lib/supabase";
 import { ProductoModalContent } from "../../../components/producto/ProductoModalContent";
 import { useRole } from "../../../lib/useRole";
-import { onAppResumed } from "../../../lib/resumeEvents";
+import { useEmpresaActiva } from "../../../lib/useEmpresaActiva";
+import { useResumeLoad } from "../../../lib/useResumeLoad";
 
 type Row = {
   id: number;
@@ -93,6 +94,7 @@ export default function InventarioScreen() {
   const debouncedQ = useDebouncedValue(normalizeQuery(q), 300);
 
   const { isAdmin, refreshRole } = useRole();
+  const { empresaActivaId } = useEmpresaActiva();
   const [showInactive, setShowInactive] = useState(false);
 
   const [rows, setRows] = useState<Row[]>([]);
@@ -118,6 +120,7 @@ export default function InventarioScreen() {
   const fetchPage = useCallback(
     async (pageIndex: number, replace: boolean) => {
       const seq = ++requestSeq.current;
+      if (!empresaActivaId) return;
 
       const isSearching = Boolean(debouncedQ);
       const from = pageIndex * PAGE_SIZE;
@@ -128,6 +131,7 @@ export default function InventarioScreen() {
         .select(
           "id,nombre,marca,activo,precio_min_venta,stock_disponible,lote_proximo,fecha_exp_proxima"
         )
+        .eq("empresa_id", empresaActivaId)
         .order("nombre", { ascending: true });
 
       // En modo lista normal paginar; en búsqueda traer todos los matches sin límite.
@@ -159,7 +163,7 @@ export default function InventarioScreen() {
         setRows((prev) => (replace ? list : [...prev, ...list]));
       }
     },
-    [debouncedQ, showInactive]
+    [debouncedQ, showInactive, empresaActivaId]
   );
 
   const loadFirst = useCallback(async () => {
@@ -192,7 +196,7 @@ export default function InventarioScreen() {
     }, [refreshRole, loadFirst])
   );
 
-  useEffect(() => onAppResumed(() => { void refreshRole(); loadFirst(); }), [refreshRole, loadFirst]);
+  useResumeLoad(empresaActivaId, () => { void refreshRole(); }, () => { loadFirst(); });
 
   const loadMore = useCallback(async () => {
     if (debouncedQ || !hasMore || loadingMoreRef.current || initialLoading) return;
@@ -231,6 +235,7 @@ export default function InventarioScreen() {
       <Stack.Screen options={{ title: "Inventario" }} />
 
       <SafeAreaView style={[s.container, { backgroundColor: colors.background }]} edges={["bottom"]}>
+        <View style={s.webCenter}>
         <View style={s.headerPad}>
           {/* ✅ Search con X */}
           <View style={s.searchWrap}>
@@ -317,6 +322,7 @@ export default function InventarioScreen() {
             ) : null
           }
         />
+        </View>
       </SafeAreaView>
 
       {productoOpen && productoId != null ? (
@@ -336,6 +342,15 @@ export default function InventarioScreen() {
 const styles = (colors: any) =>
   StyleSheet.create({
     container: { flex: 1 },
+
+    webCenter: {
+      flex: 1,
+      ...(Platform.OS === "web" && {
+        maxWidth: 720,
+        width: "100%",
+        alignSelf: "center",
+      }),
+    },
 
     headerPad: {
       paddingHorizontal: 12,

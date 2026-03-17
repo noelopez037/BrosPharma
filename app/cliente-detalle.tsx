@@ -13,6 +13,7 @@ import { AppButton } from "../components/ui/app-button";
 import { generarEstadoCuentaClientePdf } from "../lib/estadoCuentaClientePdf";
 import { supabase } from "../lib/supabase";
 import { useRole } from "../lib/useRole";
+import { useEmpresaActiva } from "../lib/useEmpresaActiva";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 
@@ -64,6 +65,7 @@ export default function ClienteDetalle() {
   const clienteId = Number(id);
 
   const { role, isReady, refreshRole } = useRole();
+  const { empresaActivaId } = useEmpresaActiva();
   const roleUp = String(role ?? "").trim().toUpperCase() as Role;
   const canEdit = isReady && roleUp === "ADMIN";
   const canDelete = isReady && roleUp === "ADMIN";
@@ -78,18 +80,20 @@ export default function ClienteDetalle() {
       setRow(null);
       return;
     }
+    if (!empresaActivaId) return;
 
     const { data, error } = await supabase
       .from("clientes")
       .select(
         "id,nombre,nit,telefono,direccion,activo,vendedor_id,vendedor:profiles!clientes_vendedor_id_fkey(id,full_name,role)"
       )
+      .eq("empresa_id", empresaActivaId)
       .eq("id", clienteId)
       .maybeSingle();
 
     if (error) throw error;
     setRow((data ?? null) as any);
-  }, [clienteId]);
+  }, [clienteId, empresaActivaId]);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -128,7 +132,7 @@ export default function ClienteDetalle() {
           style: "destructive",
           onPress: async () => {
             try {
-               const { error } = await supabase.from("clientes").delete().eq("id", row.id);
+               const { error } = await supabase.from("clientes").delete().eq("empresa_id", empresaActivaId).eq("id", row.id);
                if (error) throw error;
                Alert.alert("Listo", "Cliente eliminado");
                goBackSafe();
@@ -146,7 +150,7 @@ export default function ClienteDetalle() {
     if (!row || pdfLoading) return;
     setPdfLoading(true);
     try {
-      const { data, error } = await supabase.rpc("rpc_estado_cuenta_cliente_pdf", { p_cliente_id: row.id });
+      const { data, error } = await supabase.rpc("rpc_estado_cuenta_cliente_pdf", { p_empresa_id: empresaActivaId, p_cliente_id: row.id });
       if (error) throw error;
       if (!data || typeof data !== "object") throw new Error("Respuesta invalida del RPC");
 
@@ -159,7 +163,7 @@ export default function ClienteDetalle() {
     } finally {
       setPdfLoading(false);
     }
-  }, [canGenerarEstadoCuentaPdf, row, pdfLoading]);
+  }, [canGenerarEstadoCuentaPdf, empresaActivaId, row, pdfLoading]);
 
   const vendedorNombre = (row?.vendedor?.full_name ?? "").trim();
   const vendedorRole = normalizeUpper(row?.vendedor?.role);

@@ -8,6 +8,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -40,6 +41,8 @@ type Props = {
   isAdmin: boolean;
   vendedorId: string | null; // pre-set for VENTAS role
   uid: string | null;
+  empresaActivaId: number | null;
+  editClienteId?: number; // when provided: load & update instead of insert
 };
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -61,11 +64,16 @@ export function ClienteFormInline({
   colors: C,
   isAdmin,
   vendedorId: initialVendedorId,
+  empresaActivaId,
+  editClienteId,
 }: Props) {
+  const isEditing = editClienteId != null;
+
   const [nombre, setNombre] = useState("");
   const [nit, setNit] = useState("");
   const [telefono, setTelefono] = useState("");
   const [direccion, setDireccion] = useState("");
+  const [activo, setActivo] = useState(true);
 
   // Vendedor state (only relevant for isAdmin)
   const [vendedorId, setVendedorId] = useState<string | null>(null);
@@ -76,6 +84,29 @@ export function ClienteFormInline({
 
   const [saving, setSaving] = useState(false);
   const [nitError, setNitError] = useState<string | null>(null);
+
+  // Load existing data when editing
+  React.useEffect(() => {
+    if (!isEditing || !editClienteId || !empresaActivaId) return;
+    // Load vendedores first so the label resolves correctly
+    if (isAdmin) loadVendedores().catch(() => {});
+    supabase
+      .from("clientes")
+      .select("id,nombre,nit,telefono,direccion,activo,vendedor_id")
+      .eq("empresa_id", empresaActivaId)
+      .eq("id", editClienteId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!data) return;
+        setNombre(String(data.nombre ?? ""));
+        setNit(String(data.nit ?? ""));
+        setTelefono(String(data.telefono ?? ""));
+        setDireccion(String(data.direccion ?? ""));
+        setActivo(!!(data as any).activo);
+        setVendedorId((data as any).vendedor_id ?? null);
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editClienteId, isEditing, empresaActivaId, isAdmin]);
 
   const danger = isDark ? "#FF6B6B" : "#CC0000";
   const blue = C.primary;
@@ -128,24 +159,46 @@ export function ClienteFormInline({
     const nitSave = nitToSave(nit);
     const vendIdToSave = isAdmin ? vendedorId : initialVendedorId;
 
+    if (!empresaActivaId) {
+      setNitError("Sin empresa activa. Contacta al administrador.");
+      return;
+    }
     setSaving(true);
     try {
-      const { data, error } = await supabase
-        .from("clientes")
-        .insert({
+      if (isEditing && editClienteId) {
+        const payload: any = {
           nombre: cleanNombre,
           nit: nitSave,
           telefono: cleanTel,
           direccion: cleanDir,
-          activo: true,
+          activo,
           vendedor_id: vendIdToSave ?? null,
-        })
-        .select("id")
-        .single();
-
-      if (error) throw error;
-      const newId = (data as any)?.id;
-      onDone(Number(newId));
+        };
+        const { error } = await supabase
+          .from("clientes")
+          .update(payload)
+          .eq("empresa_id", empresaActivaId)
+          .eq("id", editClienteId);
+        if (error) throw error;
+        onDone(editClienteId);
+      } else {
+        const { data, error } = await supabase
+          .from("clientes")
+          .insert({
+            empresa_id: empresaActivaId,
+            nombre: cleanNombre,
+            nit: nitSave,
+            telefono: cleanTel,
+            direccion: cleanDir,
+            activo: true,
+            vendedor_id: vendIdToSave ?? null,
+          })
+          .select("id")
+          .single();
+        if (error) throw error;
+        const newId = (data as any)?.id;
+        onDone(Number(newId));
+      }
     } catch (e: any) {
       const msg = String(e?.message ?? "No se pudo guardar");
       if (msg.toLowerCase().includes("ux_clientes_nit")) {
@@ -163,10 +216,14 @@ export function ClienteFormInline({
     telefono,
     direccion,
     nit,
+    activo,
     isAdmin,
+    isEditing,
+    editClienteId,
     vendedorId,
     initialVendedorId,
     onDone,
+    empresaActivaId,
   ]);
 
   // ── render ─────────────────────────────────────────────────────────────────
@@ -345,9 +402,23 @@ export function ClienteFormInline({
         </>
       ) : null}
 
+      {/* Activo toggle — only shown when editing */}
+      {isEditing ? (
+        <View style={[s.switchRow, { borderColor: C.border }]}>
+          <Text style={[s.switchLabel, { color: C.text }]}>Activo</Text>
+          <Switch
+            value={activo}
+            onValueChange={setActivo}
+            trackColor={{ false: C.border, true: "#34C759" }}
+            thumbColor={Platform.OS === "android" ? "#FFFFFF" : undefined}
+            style={Platform.OS === "android" ? { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] } : undefined}
+          />
+        </View>
+      ) : null}
+
       {/* Save button */}
       <AppButton
-        title={saving ? "Guardando..." : "Guardar cliente"}
+        title={saving ? "Guardando..." : isEditing ? "Guardar cambios" : "Guardar cliente"}
         onPress={onSave}
         disabled={!isFormValid || saving}
         style={[s.saveBtn, { backgroundColor: blue, marginTop: 20 }] as any}
@@ -388,6 +459,16 @@ const s = StyleSheet.create({
     fontSize: 16,
   },
   err: { marginTop: 4, fontSize: 12, fontWeight: "700" },
+  switchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 14,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+  },
+  switchLabel: { fontSize: 14, fontWeight: "600" },
   select: {
     flex: 1,
     borderWidth: 1,

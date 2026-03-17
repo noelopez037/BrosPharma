@@ -19,11 +19,14 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { AppButton } from "../../../components/ui/app-button";
 import { VentaDetallePanel } from "../../../components/ventas/VentaDetallePanel";
 import { VentaNuevaModal } from "../../../components/ventas/VentaNuevaModal";
+import { CotizacionModal } from "../../../components/ventas/CotizacionModal";
 import { supabase } from "../../../lib/supabase";
 import { useThemePref } from "../../../lib/themePreference";
 import { alphaColor } from "../../../lib/ui";
 import { useRole } from "../../../lib/useRole";
-import { onAppResumed } from "../../../lib/resumeEvents";
+import { useEmpresaActiva } from "../../../lib/useEmpresaActiva";
+import { useResumeLoad } from "../../../lib/useResumeLoad";
+import { onVentaEstadoChanged, emitVentaEstadoChanged } from "../../../lib/ventaEstadoEvents";
 import { FB_DARK_DANGER } from "../../../src/theme/headerColors";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
@@ -178,10 +181,11 @@ type VentaCardProps = {
   facturas: string[];
   onPress: (id: number) => void;
   C: Colors;
+  hasUrgent?: boolean;
 };
 
 const VentaCard = React.memo(
-  ({ item, chips, facturas, onPress, C }: VentaCardProps) => {
+  ({ item, chips, facturas, onPress, C, hasUrgent }: VentaCardProps) => {
     const vendedorChip = item.vendedor_codigo ? String(item.vendedor_codigo) : shortUid(item.vendedor_id);
     const facturaLabel =
       facturas.length === 1 ? `Factura: ${facturas[0]}` : facturas.length > 1 ? `Facturas: ${facturas.join(", ")}` : null;
@@ -192,6 +196,7 @@ const VentaCard = React.memo(
         style={({ pressed }) => [
           s.card,
           { borderColor: C.border, backgroundColor: C.card },
+          hasUrgent ? { borderLeftColor: FB_DARK_DANGER, borderLeftWidth: 3 } : null,
           pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
         ]}
       >
@@ -234,7 +239,8 @@ const VentaCard = React.memo(
     prev.chips === next.chips &&
     prev.facturas === next.facturas &&
     prev.onPress === next.onPress &&
-    prev.C === next.C
+    prev.C === next.C &&
+    prev.hasUrgent === next.hasUrgent
 );
 
 type VentasListEmptyProps = {
@@ -322,6 +328,7 @@ export default function Ventas() {
   );
 
   const { role, refreshRole } = useRole();
+  const { empresaActivaId } = useEmpresaActiva();
   const roleUp = normalizeUpper(role) as Role;
   const canCreate = roleUp === "VENTAS" || roleUp === "ADMIN";
 
@@ -339,7 +346,9 @@ export default function Ventas() {
   // filtros (tipo CxC): cliente + rango de fechas
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [nuevaVentaOpen, setNuevaVentaOpen] = useState(false);
+  const [cotizacionOpen, setCotizacionOpen] = useState(false);
   const [editingVentaId, setEditingVentaId] = useState<number | null>(null);
+  const [detalleRefreshKey, setDetalleRefreshKey] = useState(0);
   const [clientes, setClientes] = useState<{ id: number; nombre: string }[]>([]);
   const [clienteOpen, setClienteOpen] = useState(false);
   const [fClienteId, setFClienteId] = useState<number | null>(null);
@@ -353,9 +362,11 @@ export default function Ventas() {
     let alive = true;
     (async () => {
       try {
+        if (!empresaActivaId) return;
         const { data, error } = await supabase
           .from("clientes")
           .select("id,nombre")
+          .eq("empresa_id", empresaActivaId)
           .order("nombre", { ascending: true });
         if (!alive) return;
         if (error) {
@@ -370,7 +381,7 @@ export default function Ventas() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [empresaActivaId]);
 
   React.useEffect(() => {
     const timer = setTimeout(() => {
@@ -394,10 +405,13 @@ export default function Ventas() {
 
     (async () => {
       try {
+        if (!empresaActivaId) { setSearchRows([]); return; }
+
         // Buscar por nombre de cliente (siempre)
         let query = supabase
           .from("ventas")
           .select("id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada")
+          .eq("empresa_id", empresaActivaId)
           .eq("estado", estado)
           .ilike("cliente_nombre", `%${trimmed}%`)
           .order("fecha", { ascending: false })
@@ -409,6 +423,7 @@ export default function Ventas() {
           query = supabase
             .from("ventas")
             .select("id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada")
+            .eq("empresa_id", empresaActivaId)
             .eq("estado", estado)
             .or(`cliente_nombre.ilike.%${trimmed}%,id.eq.${trimmed}`)
             .order("fecha", { ascending: false })
@@ -426,7 +441,7 @@ export default function Ventas() {
         if (mySeq === searchSeq.current) setSearchLoading(false);
       }
     })();
-  }, [debouncedQ, estado]);
+  }, [debouncedQ, estado, empresaActivaId]);
 
   const [rowsRaw, setRowsRaw] = useState<VentaRow[]>([]);
   const [tagsByVenta, setTagsByVenta] = useState<Record<string, string[]>>({});
@@ -511,7 +526,7 @@ export default function Ventas() {
         enRutaAny: unknown;
       };
 
-      const { data, error } = await supabase.rpc("rpc_ventas_dots", { p_limit: 200 });
+      const { data, error } = await supabase.rpc("rpc_ventas_dots", { p_empresa_id: empresaActivaId, p_limit: 200 });
       if (mySeq !== dotsReqSeq.current) return;
       if (error) throw error;
 
@@ -542,7 +557,7 @@ export default function Ventas() {
       if (mySeq !== dotsReqSeq.current) return;
       // Keep previous dot state on error to avoid flicker.
     }
-  }, []);
+  }, [empresaActivaId]);
 
   const fetchVentas = useCallback(
     async (targetEstado: Estado, opts?: { silent?: boolean }) => {
@@ -553,6 +568,7 @@ export default function Ventas() {
       }
 
       try {
+        if (!empresaActivaId) return;
         const { data, error } = await supabase
           .from("ventas")
           .select(
@@ -560,6 +576,7 @@ export default function Ventas() {
             ventas_tags!ventas_tags_venta_id_fkey(tag,removed_at),
             ventas_facturas!ventas_facturas_venta_id_fkey(numero_factura)`
           )
+          .eq("empresa_id", empresaActivaId)
           .eq("estado", targetEstado)
           .order("fecha", { ascending: false })
           .limit(50);
@@ -604,7 +621,7 @@ export default function Ventas() {
         if (mySeq === reqSeq.current) setListLoading(false);
       }
     },
-    []
+    [empresaActivaId]
   );
 
   const loadEstado = useCallback(
@@ -653,6 +670,7 @@ export default function Ventas() {
 
   const onPullRefresh = useCallback(() => {
     setPullRefreshing(true);
+    dotsCacheRef.current = { data: null, timestamp: 0 };
     Promise.allSettled([refreshRole(), fetchVentas(estado, { silent: true }), refreshDots()]).finally(() => {
       setPullRefreshing(false);
     });
@@ -677,7 +695,52 @@ export default function Ventas() {
     }, [fetchAll])
   );
 
-  useEffect(() => onAppResumed(() => { void fetchAll(); }), [fetchAll]);
+  useResumeLoad(empresaActivaId, () => { void fetchAll(); });
+
+  // Recargar cuando el usuario cambia de empresa activa
+  useEffect(() => {
+    if (!empresaActivaId) return;
+    cacheRef.current = {};
+    dotsCacheRef.current = { data: null, timestamp: 0 };
+    void fetchAll();
+  }, [empresaActivaId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Realtime: escucha cambios en ventas de esta empresa y refresca automáticamente
+  useEffect(() => {
+    if (!empresaActivaId) return;
+    const channel = supabase
+      .channel(`ventas_realtime_${empresaActivaId}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "ventas", filter: `empresa_id=eq.${empresaActivaId}` },
+        () => { emitVentaEstadoChanged(); }
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "ventas", filter: `empresa_id=eq.${empresaActivaId}` },
+        () => { emitVentaEstadoChanged(); }
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "ventas_tags", filter: `empresa_id=eq.${empresaActivaId}` },
+        () => { emitVentaEstadoChanged(); }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "ventas_tags", filter: `empresa_id=eq.${empresaActivaId}` },
+        () => { emitVentaEstadoChanged(); }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [empresaActivaId]);
+
+  useEffect(() => onVentaEstadoChanged(() => {
+    delete cacheRef.current[estado];
+    dotsCacheRef.current = { data: null, timestamp: 0 };
+    void fetchVentas(estado, { silent: true });
+    void refreshDots();
+    setSelectedVentaId(null);
+  }), [estado, fetchVentas, refreshDots]);
 
   const rows = useMemo(() => {
     const search = debouncedQ.trim().toLowerCase();
@@ -818,7 +881,24 @@ export default function Ventas() {
     return map;
   }, [visibleRows, tagsByVenta]);
 
-  const sections = useMemo(() => groupVentasByDay(visibleRows), [visibleRows]);
+  const urgentIds = useMemo(() => {
+    if (estado !== "FACTURADO") return new Set<number>();
+    const ids = new Set<number>();
+    visibleRows.forEach((r) => {
+      if ((tagsByVenta[String(r.id)] ?? []).includes("ANULACION_REQUERIDA")) ids.add(r.id);
+    });
+    return ids;
+  }, [estado, visibleRows, tagsByVenta]);
+
+  const sections = useMemo(() => {
+    if (urgentIds.size === 0) return groupVentasByDay(visibleRows);
+    const urgentes = visibleRows.filter((r) => urgentIds.has(r.id));
+    const resto = visibleRows.filter((r) => !urgentIds.has(r.id));
+    return [
+      { title: "__ANULACION_URGENTE__", data: urgentes },
+      ...groupVentasByDay(resto),
+    ];
+  }, [visibleRows, urgentIds]);
 
   const tabs: { key: Estado; label: string }[] = useMemo(
     () => [
@@ -851,9 +931,10 @@ export default function Ventas() {
         facturas={facturasByVenta[String(item.id)] ?? EMPTY_FACTURAS}
         onPress={handleVentaPress}
         C={C}
+        hasUrgent={urgentIds.has(item.id)}
       />
     ),
-    [C, chipsById, facturasByVenta, handleVentaPress]
+    [C, chipsById, facturasByVenta, handleVentaPress, urgentIds]
   );
 
   const listEmptyComponent = (
@@ -869,11 +950,22 @@ export default function Ventas() {
   );
 
   const renderSectionHeader = useCallback(
-    ({ section }: { section: { title: string } }) => (
-      <View style={[s.sectionHeader, { backgroundColor: C.bg, alignItems: "flex-end" }]}>
-        <Text style={[s.sectionHeaderText, { color: C.sub, textAlign: "right" }]}>{formatYmdEsLong(section.title)}</Text>
-      </View>
-    ),
+    ({ section }: { section: { title: string } }) => {
+      if (section.title === "__ANULACION_URGENTE__") {
+        return (
+          <View style={[s.sectionHeader, { backgroundColor: C.bg, alignItems: "flex-end" }]}>
+            <Text style={[s.sectionHeaderText, { color: FB_DARK_DANGER, textAlign: "right" }]}>
+              Requieren anulación
+            </Text>
+          </View>
+        );
+      }
+      return (
+        <View style={[s.sectionHeader, { backgroundColor: C.bg, alignItems: "flex-end" }]}>
+          <Text style={[s.sectionHeaderText, { color: C.sub, textAlign: "right" }]}>{formatYmdEsLong(section.title)}</Text>
+        </View>
+      );
+    },
     [C.bg, C.sub]
   );
 
@@ -948,18 +1040,32 @@ export default function Ventas() {
             <Text style={[s.title, { color: C.text }]}>Mateo 7:7</Text>
           </Pressable>
           {canCreate ? (
-            <AppButton
-              title="+ Nueva venta"
-              size="sm"
-              onPress={() => {
-                if (Platform.OS === "web") {
-                  setEditingVentaId(null);
-                  setNuevaVentaOpen(true);
-                } else {
-                  router.push("/venta-nueva" as any);
-                }
-              }}
-            />
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <AppButton
+                title="+ Cotización"
+                size="sm"
+                variant="ghost"
+                onPress={() => {
+                  if (Platform.OS === "web") {
+                    setCotizacionOpen(true);
+                  } else {
+                    router.push("/cotizacion-nueva" as any);
+                  }
+                }}
+              />
+              <AppButton
+                title="+ Nueva venta"
+                size="sm"
+                onPress={() => {
+                  if (Platform.OS === "web") {
+                    setEditingVentaId(null);
+                    setNuevaVentaOpen(true);
+                  } else {
+                    router.push("/venta-nueva" as any);
+                  }
+                }}
+              />
+            </View>
           ) : null}
         </View>
 
@@ -982,6 +1088,7 @@ export default function Ventas() {
                   if (t.key === estado) return;
                   const nextEstado = t.key;
                   setEstado(nextEstado);
+                  setSelectedVentaId(null);
                   loadEstado(nextEstado).catch(() => {});
                   const dotsCached = dotsCacheRef.current;
                   const dotsFresh = !!dotsCached.data && Date.now() - dotsCached.timestamp < 25000;
@@ -1049,6 +1156,7 @@ export default function Ventas() {
                 ventaId={selectedVentaId}
                 embedded
                 onEditWeb={(id) => { setEditingVentaId(id); setNuevaVentaOpen(true); }}
+                refreshKey={detalleRefreshKey}
               />
             ) : (
               <View style={[s.splitPlaceholder, { borderColor: C.border }]}>
@@ -1390,11 +1498,18 @@ export default function Ventas() {
       <VentaNuevaModal
         visible={nuevaVentaOpen}
         onClose={() => { setNuevaVentaOpen(false); setEditingVentaId(null); }}
-        onDone={() => { setNuevaVentaOpen(false); setEditingVentaId(null); loadEstado(estado).catch(() => {}); }}
+        onDone={() => { const wasEdit = !!editingVentaId; setNuevaVentaOpen(false); setEditingVentaId(null); loadEstado(estado).catch(() => {}); if (wasEdit) setDetalleRefreshKey((k) => k + 1); }}
         isDark={isDark}
         colors={{ card: C.card, text: C.text, border: C.border, sub: C.sub }}
         mode={editingVentaId ? "edit" : "create"}
         ventaId={editingVentaId}
+      />
+      <CotizacionModal
+        visible={cotizacionOpen}
+        onClose={() => setCotizacionOpen(false)}
+        onDone={() => setCotizacionOpen(false)}
+        isDark={isDark}
+        colors={{ card: C.card, text: C.text, border: C.border, sub: C.sub }}
       />
     </SafeAreaView>
   );

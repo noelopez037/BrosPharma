@@ -76,6 +76,29 @@ export function KeyboardAwareModal({
 
   if (!visible) return null;
 
+  if (Platform.OS === "web") {
+    return (
+      <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
+        <View style={styles.rootWeb}>
+          <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: overlayColor }]} onPress={handleBackdropPress} />
+          <View
+            style={[
+              styles.card,
+              styles.cardWeb,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+              },
+              cardStyle,
+            ]}
+          >
+            {children}
+          </View>
+        </View>
+      </Modal>
+    );
+  }
+
   return (
     <Modal transparent visible={visible} animationType={animationType} onRequestClose={onClose}>
       <View style={styles.root}>
@@ -108,10 +131,16 @@ export function KeyboardAwareModal({
 
 const styles = StyleSheet.create({
   root: { flex: 1, justifyContent: "flex-end" },
+  rootWeb: { flex: 1, justifyContent: "center", alignItems: "center" },
   card: {
     marginHorizontal: 16,
     borderWidth: 1,
     borderRadius: 16,
     padding: 14,
+  },
+  cardWeb: {
+    marginHorizontal: 0,
+    width: "100%",
+    maxWidth: 480,
   },
 });

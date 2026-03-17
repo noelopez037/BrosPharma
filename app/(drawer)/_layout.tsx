@@ -20,6 +20,7 @@ import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { alphaColor } from "../../lib/ui";
 import { useRole } from "../../lib/useRole";
+import { useEmpresaActiva, setEmpresaActiva } from "../../lib/useEmpresaActiva";
 import {
   FB_DARK_BORDER,
   FB_DARK_DANGER,
@@ -27,6 +28,59 @@ import {
   getDrawerColors,
   getHeaderColors,
 } from "../../src/theme/headerColors";
+
+function ThemeSwitch({
+  value,
+  onChange,
+  isDark,
+}: {
+  value: boolean;
+  onChange: (v: boolean) => void;
+  isDark: boolean;
+}) {
+  const trackOn = isDark ? "#2D88FF" : "#153c9e";
+  const trackOff = "#767577";
+
+  if (Platform.OS === "web") {
+    return (
+      <Pressable
+        onPress={() => onChange(!value)}
+        style={{
+          width: 40,
+          height: 22,
+          borderRadius: 11,
+          backgroundColor: value ? trackOn : trackOff,
+          justifyContent: "center",
+          paddingHorizontal: 2,
+          alignItems: value ? "flex-end" : "flex-start",
+          cursor: "pointer",
+        } as any}
+      >
+        <View
+          style={{
+            width: 18,
+            height: 18,
+            borderRadius: 9,
+            backgroundColor: "#FFFFFF",
+            shadowColor: "#000",
+            shadowOpacity: 0.2,
+            shadowRadius: 2,
+            shadowOffset: { width: 0, height: 1 },
+          }}
+        />
+      </Pressable>
+    );
+  }
+
+  return (
+    <Switch
+      value={value}
+      onValueChange={onChange}
+      trackColor={{ false: trackOff, true: trackOn }}
+      thumbColor="#FFFFFF"
+    />
+  );
+}
 
 export default function DrawerLayout() {
   // puedes dejarlo si lo usas en otro lado; el drawer se pinta con resolved
@@ -68,6 +122,7 @@ export default function DrawerLayout() {
 
   const [userName, setUserName] = useState<string>("");
   const { role, isAdmin, refreshRole } = useRole();
+  const { empresaActivaId, empresas } = useEmpresaActiva();
   const [solicitudesCount, setSolicitudesCount] = useState<number>(0);
 
   const header = getHeaderColors(isDark);
@@ -305,12 +360,26 @@ export default function DrawerLayout() {
         return;
       }
 
+      if (!empresaActivaId) {
+        if (alive) setSolicitudesCount(0);
+        return;
+      }
+
       try {
-        const { count, error } = await supabase
-          .from("vw_ventas_solicitudes_pendientes_admin")
-          .select("venta_id", { head: true, count: "exact" });
-        if (error) throw error;
-        if (alive) setSolicitudesCount(Number(count ?? 0));
+        const [solRes, pagosRes] = await Promise.all([
+          supabase
+            .from("vw_ventas_solicitudes_pendientes_admin")
+            .select("venta_id", { head: true, count: "exact" })
+            .eq("empresa_id", empresaActivaId),
+          supabase
+            .from("ventas_pagos_reportados")
+            .select("id", { head: true, count: "exact" })
+            .eq("empresa_id", empresaActivaId)
+            .eq("estado", "PENDIENTE"),
+        ]);
+        if (solRes.error) throw solRes.error;
+        const total = Number(solRes.count ?? 0) + Number(pagosRes.count ?? 0);
+        if (alive) setSolicitudesCount(total);
       } catch {
         if (alive) setSolicitudesCount(0);
       }
@@ -332,7 +401,7 @@ export default function DrawerLayout() {
       unsub();
       if (timer) clearInterval(timer);
     };
-  }, [showSolicitudes, pathname]);
+  }, [showSolicitudes, pathname, empresaActivaId]);
 
   useEffect(() => {
     if (isWeb) return;
@@ -406,19 +475,66 @@ export default function DrawerLayout() {
           >
             <View
               style={[
-                styles.drawerHeader,
+                styles.webDrawerHeader,
                 {
                   backgroundColor: drawerBg,
                   borderBottomColor: drawerBorder,
-                  paddingHorizontal: 24,
                 },
               ]}
             >
-              <Image
-                source={require("../../assets/images/logo-dark.png")}
-                style={{ width: "100%", height: 140, tintColor: isDark ? "#FFFFFF" : undefined }}
-                resizeMode="contain"
-              />
+              {(() => {
+                const empresaActiva = empresas.find((e) => e.id === empresaActivaId);
+                const logoUri = empresaActiva?.logo_url ?? null;
+                const needsWhite = isDark && empresaActiva?.slug === "bros-pharma";
+                const isBrosPharma = empresaActiva?.slug === "bros-pharma";
+                const logoHeight = isBrosPharma ? 150 : 90;
+                return logoUri ? (
+                  <Image
+                    source={{ uri: logoUri }}
+                    style={[
+                      { width: "100%", height: logoHeight },
+                      needsWhite ? (Platform.OS === "web" ? { filter: "brightness(0) invert(1)" } as any : { tintColor: "#FFFFFF" }) : null,
+                    ]}
+                    resizeMode="contain"
+                  />
+                ) : (
+                  <Image
+                    source={require("../../assets/images/logo-dark.png")}
+                    style={{ width: "100%", height: 150, tintColor: isDark ? "#FFFFFF" : undefined }}
+                    resizeMode="contain"
+                  />
+                );
+              })()}
+              {empresas.length > 1 && (
+                <View style={[styles.switcherRow, { marginTop: 12 }]}>
+                  {empresas.map((e) => {
+                    const isActive = e.id === empresaActivaId;
+                    return (
+                      <Pressable
+                        key={e.id}
+                        onPress={() => setEmpresaActiva(e.id)}
+                        style={[
+                          styles.switcherPill,
+                          {
+                            backgroundColor: isActive ? drawerActiveBg : "transparent",
+                            borderColor: isActive ? drawerActiveTint : drawerBorder,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.switcherPillText,
+                            { color: isActive ? drawerActiveTint : drawerMuted },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {e.nombre}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )}
             </View>
 
             <ScrollView
@@ -464,11 +580,10 @@ export default function DrawerLayout() {
                 <View style={styles.themeControls}>
                   <Ionicons name="sunny-outline" size={18} color={drawerMuted} style={{ marginRight: 8 }} />
 
-                  <Switch
+                  <ThemeSwitch
                     value={mode === "dark"}
-                    onValueChange={(v) => setMode(v ? "dark" : "light")}
-                    trackColor={Platform.OS === "android" ? { false: switchTrackOff, true: switchTrackOn } : undefined}
-                    thumbColor={Platform.OS === "android" ? (mode === "dark" ? switchThumbOn : switchThumbOff) : undefined}
+                    onChange={(v) => setMode(v ? "dark" : "light")}
+                    isDark={isDark}
                   />
 
                   <Ionicons name="moon-outline" size={18} color={drawerMuted} style={{ marginLeft: 8 }} />
@@ -491,24 +606,8 @@ export default function DrawerLayout() {
 
           <View style={[styles.webMain, { backgroundColor: webBg }]}>
             <View style={styles.webMainInner}>
-              <View
-                style={[
-                  styles.webCard,
-                  {
-                    backgroundColor: webCardBg,
-                    borderColor: webCardBorder,
-                    shadowOpacity: isDark ? 0 : 0.08,
-                  },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.webCardInner,
-                    {
-                      backgroundColor: webCardBg,
-                    },
-                  ]}
-                >
+              <View style={[styles.webCard, { backgroundColor: webBg }]}>
+                <View style={[styles.webCardInner, { backgroundColor: webBg }]}>
                   <View style={styles.webCardBody}>
                     <Slot />
                   </View>
@@ -527,54 +626,35 @@ export default function DrawerLayout() {
         <Drawer
          detachInactiveScreens={false}
         screenOptions={({ navigation: drawerNavigation }) => {
-          const showBack = !isTabsRoute;
-          const homePath = isFacturacion ? "/ventas" : "/";
-
           return {
             headerShown: true,
-            headerTitle: undefined,
+            headerTitle: empresas.find((e) => e.id === empresaActivaId)?.nombre ?? "",
             headerStyle: { backgroundColor: header.bg },
             headerTitleStyle: {
               color: header.fg,
               fontWeight: Platform.OS === "ios" ? "600" : "500",
             },
             headerTintColor: header.fg,
-            headerLeft: () => {
-              if (!showBack && isWeb) return null;
-
-              return (
-                <Pressable
-                  onPress={() => {
-                    if (showBack) {
-                      router.replace(homePath as any);
-                      return;
-                    }
-                    try {
-                      (drawerNavigation as any)?.openDrawer?.();
-                    } catch {
-                      // ignore
-                    }
-                  }}
-                  hitSlop={12}
-                  style={({ pressed }) => [
-                    {
-                      marginLeft: 10,
-                      padding: 8,
-                      borderRadius: 999,
-                    },
-                    pressed && { opacity: 0.85 },
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityLabel={showBack ? "Volver al inicio" : "Abrir menu"}
-                >
-                  <Ionicons
-                    name={showBack ? "arrow-back" : "menu"}
-                    size={22}
-                    color={header.fg}
-                  />
-                </Pressable>
-              );
-            },
+            headerLeft: () => (
+              <Pressable
+                onPress={() => {
+                  try {
+                    (drawerNavigation as any)?.openDrawer?.();
+                  } catch {
+                    // ignore
+                  }
+                }}
+                hitSlop={12}
+                style={({ pressed }) => [
+                  { marginLeft: 10, padding: 8, borderRadius: 999 },
+                  pressed && { opacity: 0.85 },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Abrir menu"
+              >
+                <Ionicons name="menu" size={22} color={header.fg} />
+              </Pressable>
+            ),
 
             // WEB only: permanent sidebar drawer (no overlay)
             ...(isWeb
@@ -634,30 +714,86 @@ export default function DrawerLayout() {
                   ]}
                 >
                   <View>
-                    <View
-                      style={[
-                        styles.drawerHeader,
-                        { backgroundColor: drawerBg, borderBottomColor: drawerBorder },
-                      ]}
-                    >
-              <View
-                style={[
-                  styles.brandMark,
-                  {
-                    backgroundColor: isDark ? drawerActiveBg : (alphaColor(header.bg, 0.10) as any),
-                    borderColor: isDark ? drawerBorder : (alphaColor(header.bg, 0.22) as any),
-                  },
-                ]}
-              >
-                <MaterialCommunityIcons name="needle" size={26} color={drawerActiveTint} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.drawerHeaderText, { color: drawerText }]}>Bros Pharma</Text>
-                <Text style={[styles.drawerHeaderSub, { color: drawerMuted }]} numberOfLines={1}>
-                  {headerSub}
-                </Text>
-              </View>
-            </View>
+                    {/* Header: logo o ícono + nombre */}
+                    {(() => {
+                      const empresaActiva = empresas.find((e) => e.id === empresaActivaId);
+                      const logoUri = empresaActiva?.logo_url ?? null;
+                      const needsWhite = isDark && empresaActiva?.slug === "bros-pharma";
+                      return (
+                        <View
+                          style={[
+                            styles.drawerHeader,
+                            { backgroundColor: drawerBg, borderBottomColor: drawerBorder },
+                            logoUri ? { flexDirection: "column", alignItems: "stretch" } : null,
+                          ]}
+                        >
+                          {logoUri ? (
+                            <Image
+                              key={needsWhite ? "white" : "default"}
+                              source={{ uri: logoUri }}
+                              style={[
+                                styles.mobileLogoFull,
+                                empresaActiva?.slug === "bros-pharma" ? { height: 150 } : { height: 100 },
+                                needsWhite ? { tintColor: "#FFFFFF" } : null,
+                              ]}
+                              resizeMode="contain"
+                            />
+                          ) : (
+                            <>
+                              <View
+                                style={[
+                                  styles.brandMark,
+                                  {
+                                    backgroundColor: isDark ? drawerActiveBg : (alphaColor(header.bg, 0.10) as any),
+                                    borderColor: isDark ? drawerBorder : (alphaColor(header.bg, 0.22) as any),
+                                  },
+                                ]}
+                              >
+                                <MaterialCommunityIcons name="needle" size={26} color={drawerActiveTint} />
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <Text style={[styles.drawerHeaderText, { color: drawerText }]}>
+                                  {empresaActiva?.nombre ?? "Bros Pharma"}
+                                </Text>
+                                <Text style={[styles.drawerHeaderSub, { color: drawerMuted }]} numberOfLines={1}>
+                                  {headerSub}
+                                </Text>
+                              </View>
+                            </>
+                          )}
+                        </View>
+                      );
+                    })()}
+
+                    {/* Switcher de empresa */}
+                    {empresas.length > 1 && (
+                      <View style={[styles.switcherRow, { paddingHorizontal: 16, paddingBottom: 8 }]}>
+                        {empresas.map((e) => {
+                          const isActive = e.id === empresaActivaId;
+                          return (
+                            <Pressable
+                              key={e.id}
+                              onPress={() => { setEmpresaActiva(e.id); closeDrawer(); }}
+                              style={[
+                                styles.switcherPill,
+                                {
+                                  backgroundColor: isActive ? drawerActiveBg : "transparent",
+                                  borderColor: isActive ? drawerActiveTint : drawerBorder,
+                                },
+                              ]}
+                            >
+                              <Text
+                                style={[styles.switcherPillText, { color: isActive ? drawerActiveTint : drawerMuted }]}
+                                numberOfLines={1}
+                              >
+                                {e.nombre}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    )}
+
             {/* Custom Drawer Items with Icons (Option A) */}
             <View style={styles.menuList}>
               <Text style={[styles.sectionLabel, { color: sectionLabelColor }]}>Navegacion</Text>
@@ -879,21 +1015,10 @@ export default function DrawerLayout() {
                         style={{ marginRight: 8 }}
                       />
 
-                      <Switch
+                      <ThemeSwitch
                         value={mode === "dark"}
-                        onValueChange={(v) => setMode(v ? "dark" : "light")}
-                        trackColor={
-                          Platform.OS === "android"
-                            ? { false: switchTrackOff, true: switchTrackOn }
-                            : undefined
-                        }
-                        thumbColor={
-                          Platform.OS === "android"
-                            ? mode === "dark"
-                              ? switchThumbOn
-                              : switchThumbOff
-                            : undefined
-                        }
+                        onChange={(v) => setMode(v ? "dark" : "light")}
+                        isDark={isDark}
                       />
 
                       <Ionicons
@@ -991,6 +1116,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
+  webDrawerHeader: {
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: "column",
+    alignItems: "stretch",
+  },
   brandMark: {
     width: 44,
     height: 44,
@@ -1048,13 +1181,13 @@ const styles = StyleSheet.create({
     fontWeight: Platform.OS === "ios" ? "700" : "600",
     letterSpacing: 0.6,
     textTransform: "uppercase",
-    marginTop: 12,
-    marginBottom: 8,
+    marginTop: Platform.OS === "web" ? 8 : 12,
+    marginBottom: Platform.OS === "web" ? 4 : 8,
   },
   menuItem: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 11,
+    paddingVertical: Platform.OS === "web" ? 4 : 14,
     paddingHorizontal: 12,
     borderRadius: 12,
   },
@@ -1086,6 +1219,32 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     includeFontPadding: false,
   },
+  brandLogo: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    marginRight: 12,
+  },
+  mobileLogoFull: {
+    width: "100%",
+    alignSelf: "center",
+  },
+  switcherRow: {
+    flexDirection: "row",
+    gap: 8,
+    flexWrap: "wrap",
+    marginTop: 8,
+  },
+  switcherPill: {
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  switcherPillText: {
+    fontSize: 13,
+    fontWeight: Platform.OS === "ios" ? "600" : "500",
+  },
 
   webShell: {
     flex: 1,
@@ -1104,38 +1263,24 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     borderRadius: 14,
-    paddingVertical: 12,
+    paddingVertical: 8,
     paddingHorizontal: 12,
-    marginBottom: 6,
+    marginBottom: 4,
   },
   webMain: {
     flex: 1,
-    paddingVertical: 32,
-    paddingHorizontal: 24,
     alignItems: "stretch",
   },
   webMainInner: {
     flex: 1,
     width: "100%",
-    maxWidth: 1600,
-    marginLeft: "auto",
-    marginRight: "auto",
   },
   webCard: {
     flex: 1,
-    borderRadius: 28,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 0,
     overflow: "hidden",
-    shadowColor: "#000",
-    shadowOpacity: Platform.OS === "web" ? 0 : 0.08,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
   },
   webCardInner: {
     flex: 1,
-    padding: 24,
-    borderRadius: 24,
     overflow: "hidden",
   },
   webCardBody: {

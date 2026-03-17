@@ -31,6 +31,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import ImageViewer from "react-native-image-zoom-viewer";
+import { useEmpresaActiva } from "../lib/useEmpresaActiva";
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
@@ -119,11 +120,11 @@ function extFromMime(mime: string) {
   return "jpg";
 }
 
-function makeComprobantePath(compraId: number, mimeType: string) {
+function makeComprobantePath(empresaId: number, compraId: number, mimeType: string) {
   const stamp = Date.now();
   const rnd = Math.random().toString(16).slice(2);
   const ext = extFromMime(mimeType);
-  return `compras/${compraId}/${stamp}-${rnd}.${ext}`;
+  return `${empresaId}/compras/${compraId}/${stamp}-${rnd}.${ext}`;
 }
 
 // ✅ Normaliza lo guardado en DB: puede ser path o URL completa
@@ -269,6 +270,7 @@ export default function CompraDetalleScreen() {
   const compraId = Number(id);
 
   const { colors } = useTheme();
+  const { empresaActivaId, isReady: empresaReady } = useEmpresaActiva();
 
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
@@ -405,6 +407,7 @@ export default function CompraDetalleScreen() {
 
   const fetchAll = useCallback(async () => {
     if (!Number.isFinite(compraId) || compraId <= 0) return;
+    if (!empresaActivaId) return;
 
     setLoading(true);
     try {
@@ -413,6 +416,7 @@ export default function CompraDetalleScreen() {
         .select(
           "id,fecha,numero_factura,tipo_pago,fecha_vencimiento,estado,monto_total,saldo_pendiente,comentarios,proveedor_id,proveedores(nombre)"
         )
+        .eq("empresa_id", empresaActivaId)
         .eq("id", compraId)
         .maybeSingle();
 
@@ -438,6 +442,7 @@ export default function CompraDetalleScreen() {
         .select(
           "id,compra_id,producto_id,lote_id,cantidad,precio_compra_unit,subtotal,productos(nombre,image_path,marca_id,marcas(nombre)),producto_lotes(lote,fecha_exp)"
         )
+        .eq("empresa_id", empresaActivaId)
         .eq("compra_id", compraId)
         .order("id", { ascending: true });
 
@@ -471,6 +476,7 @@ export default function CompraDetalleScreen() {
         const { data: srows, error: se } = await supabase
           .from("stock_lotes")
           .select("lote_id,stock_total,stock_reservado")
+          .eq("empresa_id", empresaActivaId)
           .in("lote_id", loteIds);
 
         if (se) throw se;
@@ -495,6 +501,7 @@ export default function CompraDetalleScreen() {
       const { data: p, error: pe } = await supabase
         .from("compras_pagos")
         .select("id,compra_id,fecha,monto,metodo,referencia,comprobante_path,comentario")
+        .eq("empresa_id", empresaActivaId)
         .eq("compra_id", compraId)
         .order("fecha", { ascending: false });
 
@@ -508,7 +515,7 @@ export default function CompraDetalleScreen() {
     } finally {
       setLoading(false);
     }
-  }, [compraId]);
+  }, [compraId, empresaActivaId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -584,7 +591,7 @@ export default function CompraDetalleScreen() {
   ): Promise<string | null> => {
     if (!pagoImg?.uri) return null;
 
-    const path = makeComprobantePath(compraIdLocal, pagoImg.mimeType);
+    const path = makeComprobantePath(empresaActivaId!, compraIdLocal, pagoImg.mimeType);
 
     // 🔒 Upload robusto: bytes reales
     const bytes = await uriToBytes(pagoImg.uri);
@@ -604,6 +611,10 @@ export default function CompraDetalleScreen() {
   const guardarPago = async () => {
     if (!compra) return;
     if (savingPago) return;
+    if (!empresaReady) return;
+    if (!empresaActivaId) {
+      return Alert.alert("Sin empresa", "No tienes una empresa activa asignada. Contacta al administrador.");
+    }
 
     const monto = safeNumber(pagoMonto);
     if (!(monto > 0)) {

@@ -30,6 +30,8 @@ import { DoneAccessory } from "../ui/done-accessory";
 import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { alphaColor } from "../../lib/ui";
+import { emitSolicitudesChanged } from "../../lib/solicitudesEvents";
+import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useRole } from "../../lib/useRole";
 
 const BUCKET_COMPROBANTES = "comprobantes";
@@ -108,11 +110,11 @@ async function uriToBytes(uri: string): Promise<Uint8Array> {
   return out;
 }
 
-function makeComprobantePath(ventaId: number, mimeType: string) {
+function makeComprobantePath(empresaId: number, ventaId: number, mimeType: string) {
   const stamp = Date.now();
   const rnd = Math.random().toString(16).slice(2);
   const ext = extFromMime(mimeType);
-  return `ventas/${ventaId}/comprobantes/${stamp}-${rnd}.${ext}`;
+  return `${empresaId}/ventas/${ventaId}/comprobantes/${stamp}-${rnd}.${ext}`;
 }
 
 function normalizeComprobanteRef(raw: string) {
@@ -275,8 +277,11 @@ function CxcDetallePanelContent({
   const [viewerMimeType, setViewerMimeType] = useState<string | null>(null);
   const viewerBusyRef = useRef(false);
   const [savingDownload, setSavingDownload] = useState(false);
+  const [confirmDeletePagoData, setConfirmDeletePagoData] = useState<any | null>(null);
+  const [deletingPago, setDeletingPago] = useState(false);
 
   const { role, refreshRole } = useRole();
+  const { empresaActivaId, isReady: empresaReady } = useEmpresaActiva();
   const roleNormalized = normalizeUpper(role);
   const canLoadPagosReportados = roleNormalized === "ADMIN" || roleNormalized === "VENTAS";
 
@@ -296,11 +301,13 @@ function CxcDetallePanelContent({
       setPagosReportadosPendientes([]);
       return;
     }
+    if (!empresaActivaId) return;
     setLoading(true);
     try {
       const { data: v } = await supabase
         .from("vw_cxc_ventas")
         .select("*")
+        .eq("empresa_id", empresaActivaId)
         .eq("venta_id", id)
         .maybeSingle();
       setRow(v as any);
@@ -310,6 +317,7 @@ function CxcDetallePanelContent({
         .select(
           "id,venta_id,producto_id,lote_id,cantidad,precio_venta_unit,subtotal,producto_lotes(lote,fecha_exp),productos(nombre,marcas(nombre))"
         )
+        .eq("empresa_id", empresaActivaId)
         .eq("venta_id", id)
         .order("id", { ascending: true });
       setLineas((d ?? []) as any[]);
@@ -319,6 +327,7 @@ function CxcDetallePanelContent({
         .select(
           "id,venta_id,tipo,path,numero_factura,original_name,size_bytes,created_at,monto_total,fecha_vencimiento"
         )
+        .eq("empresa_id", empresaActivaId)
         .eq("venta_id", id)
         .order("created_at", { ascending: false });
       const frows = (f ?? []).map((r: any) => ({ ...r, path: normalizeStoragePath(r.path) }));
@@ -329,6 +338,7 @@ function CxcDetallePanelContent({
         .select(
           "id,venta_id,factura_id,fecha,monto,metodo,referencia,comprobante_path,comentario,created_by"
         )
+        .eq("empresa_id", empresaActivaId)
         .eq("venta_id", id)
         .order("fecha", { ascending: false });
       setPagos((p ?? []) as any[]);
@@ -339,6 +349,7 @@ function CxcDetallePanelContent({
           .select(
             "id,venta_id,factura_id,fecha_reportado,created_at,monto,metodo,referencia,comprobante_path,comentario,created_by,estado"
           )
+          .eq("empresa_id", empresaActivaId)
           .eq("venta_id", id)
           .eq("estado", "PENDIENTE")
           .order("created_at", { ascending: false });
@@ -356,7 +367,7 @@ function CxcDetallePanelContent({
     } finally {
       setLoading(false);
     }
-  }, [id, canLoadPagosReportados]);
+  }, [id, canLoadPagosReportados, empresaActivaId]);
 
   useFocusEffect(useCallback(() => { fetchAll(); }, [fetchAll]));
 
@@ -421,7 +432,7 @@ function CxcDetallePanelContent({
 
   const subirComprobanteSiExiste = async (ventaIdLocal: number): Promise<string | null> => {
     if (!pagoImg?.uri) return null;
-    const path = makeComprobantePath(ventaIdLocal, pagoImg.mimeType);
+    const path = makeComprobantePath(empresaActivaId!, ventaIdLocal, pagoImg.mimeType);
     if (Platform.OS === "web") {
       const res = await fetch(pagoImg.uri);
       const blob = await res.blob();
@@ -538,6 +549,10 @@ function CxcDetallePanelContent({
       return;
     }
     if (!pagoImg?.uri) { Alert.alert("Falta comprobante", "El comprobante es obligatorio."); return; }
+    if (!empresaReady) return;
+    if (!empresaActivaId) {
+      return Alert.alert("Sin empresa", "No tienes una empresa activa asignada. Contacta al administrador.");
+    }
     setSavingPago(true);
     try {
       const comprobantePath = await subirComprobanteSiExiste(Number(row.venta_id));
@@ -559,6 +574,7 @@ function CxcDetallePanelContent({
       setPagoReferencia("");
       setPagoComentario("");
       setPagoImg(null);
+      emitSolicitudesChanged();
       await fetchAll();
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo aplicar el pago");
@@ -685,39 +701,35 @@ function CxcDetallePanelContent({
     }
   }, [viewerRemoteUrl, viewerUrl, viewerMimeType]);
 
-  const confirmDeletePago = useCallback(
-    (p: any) => {
-      const refInfo = p.referencia ? `\nRef: ${p.referencia}` : "";
-      Alert.alert(
-        "Eliminar pago",
-        `Se eliminará el pago del ${fmtDate(p.fecha)} por ${fmtQ(p.monto)}.${refInfo}`,
-        [
-          { text: "Cancelar", style: "cancel" },
-          {
-            text: "Eliminar",
-            style: "destructive",
-            onPress: async () => {
-              try {
-                const { error } = await supabase.rpc("rpc_venta_pago_eliminar", {
-                  p_pago_id: Number(p.id),
-                });
-                if (error) throw error;
-                await fetchAll();
-              } catch (e: any) {
-                Alert.alert("Error", e?.message ?? "No se pudo eliminar");
-              }
-            },
-          },
-        ]
-      );
-    },
-    [fetchAll]
-  );
+  const confirmDeletePago = useCallback((p: any) => {
+    setConfirmDeletePagoData(p);
+  }, []);
+
+  const doDeletePago = useCallback(async () => {
+    if (!confirmDeletePagoData) return;
+    setDeletingPago(true);
+    try {
+      const { error } = await supabase.rpc("rpc_venta_pago_eliminar", {
+        p_pago_id: Number(confirmDeletePagoData.id),
+      });
+      if (error) throw error;
+      setConfirmDeletePagoData(null);
+      await fetchAll();
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "No se pudo eliminar");
+    } finally {
+      setDeletingPago(false);
+    }
+  }, [confirmDeletePagoData, fetchAll]);
 
   const runPagoReportadoAction = useCallback(
     async (p: any, action: "aprobar" | "rechazar") => {
       const pid = Number(p?.id);
       if (!Number.isFinite(pid) || pid <= 0) return;
+      if (!empresaReady) return;
+      if (!empresaActivaId) {
+        return Alert.alert("Sin empresa", "No tienes una empresa activa asignada. Contacta al administrador.");
+      }
       setActingPagoReportadoId(pid);
       try {
         if (action === "aprobar") {
@@ -741,7 +753,7 @@ function CxcDetallePanelContent({
         setActingPagoReportadoId(null);
       }
     },
-    [fetchAll]
+    [empresaActivaId, empresaReady, fetchAll]
   );
 
   const handleAprobarPagoReportado = useCallback(
@@ -1248,16 +1260,17 @@ function CxcDetallePanelContent({
             <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
               <View style={[styles.modalBg, { backgroundColor: C.overlay }]}>
                 <KeyboardAvoidingView
-                  behavior={Platform.OS === "ios" ? "padding" : "height"}
-                  style={{ width: "100%" }}
-                  keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
+                  behavior="padding"
+                  style={Platform.OS === "web"
+                    ? { width: "100%", maxWidth: 480, alignSelf: "center" }
+                    : { width: "100%" }}
+                  keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 24}
                 >
                   <ScrollView
                     keyboardShouldPersistTaps="handled"
-                    keyboardDismissMode="on-drag"
-                    contentContainerStyle={{ paddingBottom: 12 }}
+                    keyboardDismissMode="interactive"
+                    contentContainerStyle={{ paddingBottom: 24 }}
                     showsVerticalScrollIndicator={false}
-                    automaticallyAdjustKeyboardInsets
                   >
                     <TouchableWithoutFeedback onPress={() => {}} accessible={false}>
                       <View
@@ -1717,6 +1730,56 @@ function CxcDetallePanelContent({
         ) : null}
 
         <DoneAccessory nativeID={DONE_ACCESSORY_ID} />
+
+        {/* Modal confirmación eliminar pago */}
+        <Modal
+          visible={!!confirmDeletePagoData}
+          transparent
+          animationType="fade"
+          onRequestClose={() => !deletingPago && setConfirmDeletePagoData(null)}
+        >
+          <Pressable
+            style={{ ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.45)" }}
+            onPress={() => !deletingPago && setConfirmDeletePagoData(null)}
+          />
+          <View
+            pointerEvents="box-none"
+            style={{ ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", padding: 24 }}
+          >
+            <View style={{ backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 18, padding: 20, width: "100%", maxWidth: 360 }}>
+              <Text style={{ color: C.text, fontWeight: "800", fontSize: 16, marginBottom: 6 }}>
+                Eliminar pago
+              </Text>
+              <Text style={{ color: C.sub, fontSize: 14, marginBottom: 4 }}>
+                {fmtDate(confirmDeletePagoData?.fecha)} · {fmtQ(confirmDeletePagoData?.monto)}
+              </Text>
+              {confirmDeletePagoData?.referencia ? (
+                <Text style={{ color: C.sub, fontSize: 13, marginBottom: 4 }}>Ref: {confirmDeletePagoData.referencia}</Text>
+              ) : null}
+              <Text style={{ color: C.sub, fontSize: 13, marginBottom: 20 }}>
+                Esta acción no se puede deshacer.
+              </Text>
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                <Pressable
+                  onPress={() => setConfirmDeletePagoData(null)}
+                  disabled={deletingPago}
+                  style={({ pressed }) => [{ flex: 1, alignItems: "center", borderWidth: 1, borderColor: C.border, borderRadius: 10, paddingVertical: 10 }, pressed ? { opacity: 0.7 } : null]}
+                >
+                  <Text style={{ color: C.text, fontWeight: "700", fontSize: 14 }}>Cancelar</Text>
+                </Pressable>
+                <Pressable
+                  onPress={doDeletePago}
+                  disabled={deletingPago}
+                  style={({ pressed }) => [{ flex: 1, alignItems: "center", borderWidth: 1, borderColor: "#ef4444", backgroundColor: "#ef4444", borderRadius: 10, paddingVertical: 10 }, pressed || deletingPago ? { opacity: 0.7 } : null]}
+                >
+                  <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>
+                    {deletingPago ? "Eliminando..." : "Sí, eliminar"}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     </>
   );
@@ -1810,7 +1873,8 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: Platform.OS === "web" ? 10 : 13,
+    fontSize: 16,
   },
   chip: {
     borderWidth: StyleSheet.hairlineWidth,

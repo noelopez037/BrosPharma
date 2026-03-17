@@ -25,9 +25,11 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { RoleGate } from "../components/auth/RoleGate";
 import { AppButton } from "../components/ui/app-button";
 import { DoneAccessory } from "../components/ui/done-accessory";
+import { emitSolicitudesChanged } from "../lib/solicitudesEvents";
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
+import { useEmpresaActiva } from "../lib/useEmpresaActiva";
 import { useRole } from "../lib/useRole";
 
 const BUCKET_COMPROBANTES = "comprobantes";
@@ -105,11 +107,11 @@ async function uriToBytes(uri: string): Promise<Uint8Array> {
   return out;
 }
 
-function makeComprobantePath(ventaId: number, mimeType: string) {
+function makeComprobantePath(empresaId: number, ventaId: number, mimeType: string) {
   const stamp = Date.now();
   const rnd = Math.random().toString(16).slice(2);
   const ext = extFromMime(mimeType);
-  return `ventas/${ventaId}/comprobantes/${stamp}-${rnd}.${ext}`;
+  return `${empresaId}/ventas/${ventaId}/comprobantes/${stamp}-${rnd}.${ext}`;
 }
 
 function normalizeComprobanteRef(raw: string) {
@@ -247,6 +249,7 @@ export default function CxcVentaDetalle() {
   const [savingDownload, setSavingDownload] = useState(false);
 
   const { role, refreshRole } = useRole();
+  const { empresaActivaId, isReady: empresaReady } = useEmpresaActiva();
   const roleNormalized = normalizeUpper(role);
   const canLoadPagosReportados = roleNormalized === "ADMIN" || roleNormalized === "VENTAS";
 
@@ -258,18 +261,20 @@ export default function CxcVentaDetalle() {
 
   const fetchAll = useCallback(async () => {
     if (!Number.isFinite(id) || id <= 0) return;
+    if (!empresaActivaId) return;
     setLoading(true);
     try {
       // summary from vw
-      const { data: v } = await supabase.from("vw_cxc_ventas").select("*").eq("venta_id", id).maybeSingle();
+      const { data: v } = await supabase.from("vw_cxc_ventas").select("*").eq("empresa_id", empresaActivaId).eq("venta_id", id).maybeSingle();
       setRow(v as any);
 
-      const { data: d } = await supabase.from("ventas_detalle").select("id,venta_id,producto_id,lote_id,cantidad,precio_venta_unit,subtotal,producto_lotes(lote,fecha_exp),productos(nombre,marcas(nombre))").eq("venta_id", id).order("id", { ascending: true });
+      const { data: d } = await supabase.from("ventas_detalle").select("id,venta_id,producto_id,lote_id,cantidad,precio_venta_unit,subtotal,producto_lotes(lote,fecha_exp),productos(nombre,marcas(nombre))").eq("empresa_id", empresaActivaId).eq("venta_id", id).order("id", { ascending: true });
       setLineas((d ?? []) as any[]);
 
       const { data: f } = await supabase
         .from("ventas_facturas")
         .select("id,venta_id,tipo,path,numero_factura,original_name,size_bytes,created_at,monto_total,fecha_vencimiento")
+        .eq("empresa_id", empresaActivaId)
         .eq("venta_id", id)
         .order("created_at", { ascending: false });
       const frows = (f ?? []).map((r: any) => ({ ...r, path: normalizeStoragePath(r.path) }));
@@ -278,6 +283,7 @@ export default function CxcVentaDetalle() {
       const { data: p } = await supabase
         .from("ventas_pagos")
         .select("id,venta_id,factura_id,fecha,monto,metodo,referencia,comprobante_path,comentario,created_by")
+        .eq("empresa_id", empresaActivaId)
         .eq("venta_id", id)
         .order("fecha", { ascending: false });
       setPagos((p ?? []) as any[]);
@@ -286,6 +292,7 @@ export default function CxcVentaDetalle() {
         const { data: pr } = await supabase
           .from("ventas_pagos_reportados")
           .select("id,venta_id,factura_id,fecha_reportado,created_at,monto,metodo,referencia,comprobante_path,comentario,created_by,estado")
+          .eq("empresa_id", empresaActivaId)
           .eq("venta_id", id)
           .eq("estado", "PENDIENTE")
           .order("created_at", { ascending: false });
@@ -303,7 +310,7 @@ export default function CxcVentaDetalle() {
     } finally {
       setLoading(false);
     }
-  }, [id, canLoadPagosReportados]);
+  }, [id, canLoadPagosReportados, empresaActivaId]);
 
   useFocusEffect(useCallback(() => { fetchAll(); }, [fetchAll]));
 
@@ -376,7 +383,7 @@ export default function CxcVentaDetalle() {
 
   const subirComprobanteSiExiste = async (ventaIdLocal: number): Promise<string | null> => {
     if (!pagoImg?.uri) return null;
-    const path = makeComprobantePath(ventaIdLocal, pagoImg.mimeType);
+    const path = makeComprobantePath(empresaActivaId!, ventaIdLocal, pagoImg.mimeType);
 
     if (Platform.OS === "web") {
       const res = await fetch(pagoImg.uri);
@@ -510,6 +517,11 @@ export default function CxcVentaDetalle() {
       return;
     }
 
+    if (!empresaReady) return;
+    if (!empresaActivaId) {
+      return Alert.alert("Sin empresa", "No tienes una empresa activa asignada. Contacta al administrador.");
+    }
+
     setSavingPago(true);
     try {
       const comprobantePath = await subirComprobanteSiExiste(Number(row.venta_id));
@@ -531,6 +543,7 @@ export default function CxcVentaDetalle() {
       setPagoModal(false);
       setPagoFacturaId(null);
       setPagoMonto(""); setPagoReferencia(""); setPagoComentario(""); setPagoImg(null);
+      emitSolicitudesChanged();
       await fetchAll();
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo aplicar el pago");
@@ -711,6 +724,10 @@ export default function CxcVentaDetalle() {
     async (p: any, action: "aprobar" | "rechazar") => {
       const pid = Number(p?.id);
       if (!Number.isFinite(pid) || pid <= 0) return;
+      if (!empresaReady) return;
+      if (!empresaActivaId) {
+        return Alert.alert("Sin empresa", "No tienes una empresa activa asignada. Contacta al administrador.");
+      }
       setActingPagoReportadoId(pid);
       try {
         if (action === "aprobar") {
@@ -734,7 +751,7 @@ export default function CxcVentaDetalle() {
         setActingPagoReportadoId(null);
       }
     },
-    [fetchAll]
+    [empresaActivaId, empresaReady, fetchAll]
   );
 
   const handleAprobarPagoReportado = useCallback(
@@ -1098,8 +1115,8 @@ export default function CxcVentaDetalle() {
           >
             <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
               <View style={[styles.modalBg, { backgroundColor: C.overlay }]}> 
-                <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ width: '100%' }} keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}>
-                  <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={{ paddingBottom: 12 }} showsVerticalScrollIndicator={false} automaticallyAdjustKeyboardInsets>
+                <KeyboardAvoidingView behavior="padding" style={{ width: '100%' }} keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 24}>
+                  <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={{ paddingBottom: 24 }} showsVerticalScrollIndicator={false}>
                     <TouchableWithoutFeedback onPress={() => {}} accessible={false}>
                       <View style={[styles.modalCard, styles.shadowCard, { backgroundColor: C.card, borderColor: C.border }]}> 
                       {facturaPickerOpen ? (
@@ -1407,7 +1424,7 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 18, fontWeight: '800', letterSpacing: -0.2 },
   modalSub: { marginTop: 4, fontSize: 13, fontWeight: '600' },
   inputLabel: { fontSize: 13, fontWeight: '700', marginTop: 8 },
-  input: { marginTop: 6, borderWidth: StyleSheet.hairlineWidth, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 },
+  input: { marginTop: 6, borderWidth: StyleSheet.hairlineWidth, borderRadius: 12, paddingHorizontal: 12, paddingVertical: Platform.OS === "web" ? 10 : 13, fontSize: 16 },
   chip: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 8 },
   linkBtnSmall: { borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 12 },
   linkBtnTextSmall: { fontSize: 12, fontWeight: '700' },

@@ -6,10 +6,11 @@ import { FlatList, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, Vie
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { useRole } from "../../lib/useRole";
+import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useThemePref } from "../../lib/themePreference";
 import { AppButton } from "../../components/ui/app-button";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
-import { onAppResumed } from "../../lib/resumeEvents";
+import { useResumeLoad } from "../../lib/useResumeLoad";
 
 type VentaRow = {
   id: number;
@@ -76,6 +77,7 @@ export default function RecetasPendientesScreen() {
   useGoHomeOnBack(true, "/(drawer)/(tabs)");
 
   const { role, uid, isReady, refreshRole } = useRole();
+  const { empresaActivaId } = useEmpresaActiva();
   const roleUp = String(role ?? "").trim().toUpperCase();
   const isAdmin = isReady && roleUp === "ADMIN";
   const isVentas = isReady && roleUp === "VENTAS";
@@ -165,6 +167,7 @@ export default function RecetasPendientesScreen() {
       setVendedores([]);
       return;
     }
+    if (!empresaActivaId) return;
     let alive = true;
     (async () => {
       try {
@@ -194,7 +197,7 @@ export default function RecetasPendientesScreen() {
 
         if (out.length === 0) {
           try {
-            const { data: vdata } = await supabase.from("vw_cxc_ventas").select("vendedor_id,vendedor_codigo");
+            const { data: vdata } = await supabase.from("vw_cxc_ventas").select("vendedor_id,vendedor_codigo").eq("empresa_id", empresaActivaId);
             const map = new Map<string, string>();
             (vdata ?? []).forEach((r: any) => {
               const id = String(r.vendedor_id ?? "").trim();
@@ -215,7 +218,7 @@ export default function RecetasPendientesScreen() {
     return () => {
       alive = false;
     };
-  }, [isAdmin]);
+  }, [isAdmin, empresaActivaId]);
 
   const fetchRange = useCallback(
     async (d: Date | null, h: Date | null, vendedorIdOverride?: string | null) => {
@@ -226,7 +229,7 @@ export default function RecetasPendientesScreen() {
       if (months.length > 18) throw new Error("Rango demasiado grande. Reduce a 18 meses.");
 
       const calls = months.map(({ year, month }) =>
-        supabase.rpc("rpc_ventas_receta_pendiente_por_mes", { p_year: year, p_month: month })
+        supabase.rpc("rpc_ventas_receta_pendiente_por_mes", { p_empresa_id: empresaActivaId, p_year: year, p_month: month })
       );
 
       const results = await Promise.allSettled(calls);
@@ -281,7 +284,7 @@ export default function RecetasPendientesScreen() {
 
       return out;
     },
-    [isAdmin, isVentas, uid, selectedVendedorId]
+    [empresaActivaId, isAdmin, isVentas, uid, selectedVendedorId]
   );
 
   const openFilters = useCallback(() => {
@@ -398,7 +401,7 @@ export default function RecetasPendientesScreen() {
     }, [loadAll])
   );
 
-  useEffect(() => onAppResumed(() => { void loadAll(); }), [loadAll]);
+  useResumeLoad(empresaActivaId, () => { void loadAll(); });
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

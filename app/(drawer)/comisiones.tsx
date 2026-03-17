@@ -22,7 +22,8 @@ import { supabase } from "../../lib/supabase";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useThemePref } from "../../lib/themePreference";
 import { useRole } from "../../lib/useRole";
-import { onAppResumed } from "../../lib/resumeEvents";
+import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
+import { useResumeLoad } from "../../lib/useResumeLoad";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
 type RpcComisionRow = {
@@ -158,6 +159,7 @@ export default function ComisionesScreen() {
   }, []);
 
   const { role, uid, isReady, refreshRole } = useRole();
+  const { empresaActivaId } = useEmpresaActiva();
   const roleUp = normalizeUpper(role);
   const isAdmin = roleUp === "ADMIN";
   const isVentas = roleUp === "VENTAS";
@@ -221,6 +223,7 @@ export default function ComisionesScreen() {
     if (!uid) return [];
 
     const args: any = {
+      p_empresa_id: empresaActivaId,
       p_desde: desde,
       p_hasta: hasta,
       p_iva_pct: 12,
@@ -233,7 +236,7 @@ export default function ComisionesScreen() {
     const { data, error } = await supabase.rpc("rpc_comisiones_resumen_mes", args);
     if (error) throw error;
     return (data ?? []) as RpcComisionRow[];
-  }, [desde, hasta, fVendedorId, isAdmin, uid]);
+  }, [desde, hasta, empresaActivaId, fVendedorId, isAdmin, uid]);
 
   const fetchVentasPagadas = useCallback(async (): Promise<CxCVentaRow[]> => {
     if (!uid) return [];
@@ -243,6 +246,7 @@ export default function ComisionesScreen() {
     const isVentasLocal = roleUp === "VENTAS";
 
     const params: any = {};
+    params.p_empresa_id = empresaActivaId;
     if (isAdminLocal && fVendedorId) params.p_vendedor_id = fVendedorId;
 
     const { data, error } = await supabase.rpc("rpc_cxc_ventas", params);
@@ -282,7 +286,7 @@ export default function ComisionesScreen() {
       });
 
     return rows;
-  }, [desde, hasta, fVendedorId, role, uid]);
+  }, [desde, hasta, empresaActivaId, fVendedorId, role, uid]);
 
   useFocusEffect(
     useCallback(() => {
@@ -355,7 +359,7 @@ export default function ComisionesScreen() {
     }, [fetchRows, fetchVentasPagadas, fVendedorId, isAdmin, isAllowed, isReady, uid])
   );
 
-  useEffect(() => onAppResumed(() => { void fetchRows(); void fetchVentasPagadas(); }), [fetchRows, fetchVentasPagadas]);
+  useResumeLoad(empresaActivaId, () => { void fetchRows(); }, () => { void fetchVentasPagadas(); });
 
   // Filtrado por rol (defensivo; el backend ya aplica seguridad)
   const rows = useMemo(() => {

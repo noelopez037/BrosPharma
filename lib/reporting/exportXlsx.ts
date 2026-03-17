@@ -41,6 +41,17 @@ export async function exportSimpleXlsx<Row>({
   }
 
   const worksheet = XLSX.utils.aoa_to_sheet(aoa);
+
+  // Auto-fit column widths based on max content length across header + all rows
+  worksheet["!cols"] = columns.map((_, ci) => {
+    const maxLen = aoa.reduce((max, row) => {
+      const cell = row[ci];
+      const len = cell == null ? 0 : String(cell).length;
+      return len > max ? len : max;
+    }, 6);
+    return { wch: Math.min(maxLen + 2, 60) };
+  });
+
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, sheetName.slice(0, 31));
 
