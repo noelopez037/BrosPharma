@@ -871,7 +871,16 @@ export default function Inicio() {
     const todayStr = `${today.getUTCFullYear()}-${pad2(today.getUTCMonth() + 1)}-${pad2(today.getUTCDate())}`;
     const in30Str = `${in30.getUTCFullYear()}-${pad2(in30.getUTCMonth() + 1)}-${pad2(in30.getUTCDate())}`;
 
-    const [stockResult, expResult] = await Promise.all([
+    // vw_inventario_productos agrega stock real por producto (no por lote)
+    const [ceroResult, alertResult, expResult] = await Promise.all([
+      supabase
+        .from("vw_inventario_productos")
+        .select("id, nombre, marca, stock_disponible")
+        .eq("empresa_id", empresaId)
+        .eq("activo", true)
+        .eq("stock_disponible", 0)
+        .order("nombre", { ascending: true })
+        .limit(20),
       supabase.rpc("rpc_report_inventario_alertas", { p_empresa_id: empresaId }),
       supabase.rpc("rpc_report_inventario_alertas", {
         p_empresa_id: empresaId,
@@ -879,25 +888,30 @@ export default function Inicio() {
         p_stock_bajo: 99999,
       }),
     ]);
-    if (stockResult.error) throw stockResult.error;
+    if (ceroResult.error) throw ceroResult.error;
 
-    const mapAlerta = (r: any): BodegaAlerta => ({
-      tipo: String(r.tipo ?? ""),
-      producto_id: r.producto_id ?? "",
-      producto: String(r.producto ?? ""),
+    const criticos: BodegaAlerta[] = ((ceroResult.data ?? []) as any[]).map((r) => ({
+      tipo: "CERO",
+      producto_id: r.id ?? "",
+      producto: String(r.nombre ?? ""),
       marca: String(r.marca ?? ""),
-      stock_disponible: Number(r.stock_disponible ?? 0),
-      fecha_exp: r.fecha_exp ? String(r.fecha_exp).slice(0, 10) : null,
-      lote: r.lote ? String(r.lote) : null,
-    });
+      stock_disponible: 0,
+      fecha_exp: null,
+      lote: null,
+    }));
 
-    const stockAlertas: BodegaAlerta[] = ((stockResult.data ?? []) as any[]).map(mapAlerta);
-    const criticos = stockAlertas.filter((a) => a.stock_disponible === 0).slice(0, 20);
-    const productosCero = stockAlertas.filter((a) => a.stock_disponible === 0).length;
-    const alertasCount = stockAlertas.length;
+    const alertasCount = (alertResult.data ?? []).length;
 
     const expAlertas: BodegaAlerta[] = ((expResult.data ?? []) as any[])
-      .map(mapAlerta)
+      .map((r) => ({
+        tipo: String(r.tipo ?? ""),
+        producto_id: r.producto_id ?? "",
+        producto: String(r.producto ?? ""),
+        marca: String(r.marca ?? ""),
+        stock_disponible: Number(r.stock_disponible_lote ?? 0),
+        fecha_exp: r.fecha_exp ? String(r.fecha_exp).slice(0, 10) : null,
+        lote: r.lote ? String(r.lote) : null,
+      }))
       .filter((a) => a.fecha_exp && a.fecha_exp >= todayStr && a.fecha_exp <= in30Str)
       .sort((a, b) => (a.fecha_exp ?? "").localeCompare(b.fecha_exp ?? ""))
       .slice(0, 20);
@@ -906,7 +920,7 @@ export default function Inicio() {
       alertasCount,
       criticos,
       porVencer: expAlertas,
-      productosCero,
+      productosCero: criticos.length,
       porVencerCount: expAlertas.length,
     };
   }, []);
