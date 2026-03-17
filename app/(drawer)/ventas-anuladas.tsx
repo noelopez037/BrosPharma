@@ -13,7 +13,8 @@ import { alphaColor } from "../../lib/ui";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 import { useRole } from "../../lib/useRole";
-import { onAppResumed } from "../../lib/resumeEvents";
+import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
+import { useResumeLoad } from "../../lib/useResumeLoad";
 
 type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "";
 
@@ -91,7 +92,8 @@ export default function VentasAnuladasScreen() {
     [colors.background, colors.border, colors.card, colors.text, isDark]
   );
 
-  const { role, isReady, refreshRole } = useRole();
+  const { role, uid, isReady, refreshRole } = useRole();
+  const { empresaActivaId } = useEmpresaActiva();
 
   const { width } = useWindowDimensions();
   const canSplit = Platform.OS === "web" && width >= 1100;
@@ -110,12 +112,13 @@ export default function VentasAnuladasScreen() {
   }, []);
 
   const [q, setQ] = useState("");
-  // filtros estilo CxC
+  // filtros
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [clientes, setClientes] = useState<{ id: number; nombre: string }[]>([]);
-  const [clienteOpen, setClienteOpen] = useState(false);
   const [fClienteId, setFClienteId] = useState<number | null>(null);
-  const [fClienteQ, setFClienteQ] = useState("");
+  const [fClienteNombre, setFClienteNombre] = useState<string>("");
+  const [clienteSearchQ, setClienteSearchQ] = useState("");
+  const [clienteSearchResults, setClienteSearchResults] = useState<{ id: number; nombre: string }[]>([]);
+  const [clienteSearchLoading, setClienteSearchLoading] = useState(false);
   const [fDesde, setFDesde] = useState<Date | null>(null);
   const [fHasta, setFHasta] = useState<Date | null>(null);
   const [showDesdeIOS, setShowDesdeIOS] = useState(false);
@@ -124,9 +127,11 @@ export default function VentasAnuladasScreen() {
   const [initialLoading, setInitialLoading] = useState(true);
 
   const fetchAnuladas = useCallback(async () => {
+    if (!empresaActivaId) return;
     const { data, error } = await supabase
       .from("ventas_tags")
       .select("created_at, ventas:venta_id ( id, fecha, estado, cliente_nombre, vendedor_id, vendedor_codigo )")
+      .eq("empresa_id", empresaActivaId)
       .eq("tag", "ANULADO")
       .is("removed_at", null)
       .order("created_at", { ascending: false })
@@ -139,7 +144,35 @@ export default function VentasAnuladasScreen() {
       .filter(Boolean) as VentaRow[];
 
     setRowsRaw(rows);
-  }, []);
+  }, [empresaActivaId]);
+
+  const searchClientes = useCallback(async (term: string) => {
+    if (term.trim().length < 2) {
+      setClienteSearchResults([]);
+      setClienteSearchLoading(false);
+      return;
+    }
+    setClienteSearchLoading(true);
+    try {
+      if (!empresaActivaId) { setClienteSearchResults([]); return; }
+      let req = supabase
+        .from("clientes")
+        .select("id,nombre")
+        .eq("empresa_id", empresaActivaId)
+        .eq("activo", true)
+        .ilike("nombre", `%${term.trim()}%`)
+        .limit(20);
+      if (normalizeUpper(role) === "VENTAS" && uid) {
+        req = req.eq("vendedor_id", uid);
+      }
+      const { data } = await req;
+      setClienteSearchResults(data ?? []);
+    } catch {
+      setClienteSearchResults([]);
+    } finally {
+      setClienteSearchLoading(false);
+    }
+  }, [empresaActivaId, role, uid]);
 
   useFocusEffect(
     useCallback(() => {
@@ -176,32 +209,10 @@ export default function VentasAnuladasScreen() {
     }, [fetchAnuladas, isReady, refreshRole, role])
   );
 
-  useEffect(() => onAppResumed(() => { void fetchAnuladas(); }), [fetchAnuladas]);
+  useResumeLoad(empresaActivaId, () => { void fetchAnuladas(); });
 
-  // load clientes for filter dropdown
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const { data } = await supabase.from("clientes").select("id,nombre").order("nombre", { ascending: true });
-        if (alive && data) setClientes((data as any) as { id: number; nombre: string }[]);
-      } catch {
-        if (alive) setClientes([]);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  const filteredClientes = useMemo(() => {
-    const q = (fClienteQ ?? "").trim().toLowerCase();
-    if (!q) return clientes;
-    return (clientes ?? []).filter((c) => String(c.nombre ?? "").toLowerCase().includes(q) || String(c.id ?? "").includes(q));
-  }, [clientes, fClienteQ]);
 
   const openDesdePicker = () => {
-    setClienteOpen(false);
     if (Platform.OS === "android") {
       DateTimePickerAndroid.open({ value: fDesde ?? new Date(), mode: "date", onChange: (_ev, date) => { if (date) setFDesde(date); } });
     } else {
@@ -211,7 +222,6 @@ export default function VentasAnuladasScreen() {
   };
 
   const openHastaPicker = () => {
-    setClienteOpen(false);
     if (Platform.OS === "android") {
       DateTimePickerAndroid.open({ value: fHasta ?? new Date(), mode: "date", onChange: (_ev, date) => { if (date) setFHasta(date); } });
     } else {
@@ -222,9 +232,11 @@ export default function VentasAnuladasScreen() {
 
   const limpiarFiltros = () => {
     setFClienteId(null);
+    setFClienteNombre("");
+    setClienteSearchQ("");
+    setClienteSearchResults([]);
     setFDesde(null);
     setFHasta(null);
-    setClienteOpen(false);
     setShowDesdeIOS(false);
     setShowHastaIOS(false);
   };
@@ -242,12 +254,9 @@ export default function VentasAnuladasScreen() {
       const textMatch = hasSearch ? id.includes(search) || cliente.includes(search) || vcode.includes(search) : true;
       if (!textMatch) return false;
 
-      // cliente dropdown filter (compare by name)
-      if (fClienteId) {
-        const c = clientes.find((c) => c.id === fClienteId);
-        if (c) {
-          if (!String(r.cliente_nombre ?? "").toLowerCase().includes(String(c.nombre ?? "").toLowerCase())) return false;
-        }
+      // cliente filter
+      if (fClienteId && fClienteNombre) {
+        if (!String(r.cliente_nombre ?? "").toLowerCase().includes(fClienteNombre.toLowerCase())) return false;
       }
 
       // fecha range filter using Date objects
@@ -264,7 +273,7 @@ export default function VentasAnuladasScreen() {
 
       return true;
     });
-  }, [q, rowsRaw, fClienteId, fDesde, fHasta, clientes]);
+  }, [q, rowsRaw, fClienteId, fClienteNombre, fDesde, fHasta]);
 
   const sections = useMemo<AnuladaSection[]>(() => {
     const out: AnuladaSection[] = [];
@@ -532,60 +541,52 @@ export default function VentasAnuladasScreen() {
               </View>
 
             <Text style={[styles.sectionLabel, { color: C.text }]}>Cliente</Text>
-            <Pressable
-              onPress={() => { setClienteOpen((v) => !v); setShowDesdeIOS(false); setShowHastaIOS(false); }}
-              style={[styles.dropdownInput, { borderColor: C.border, backgroundColor: C.card }]}
-            >
-              <Text style={[styles.dropdownText, { color: C.text }]} numberOfLines={1}>{fClienteId ? (clientes.find(c => c.id === fClienteId)?.nombre ?? "Todos") : "Todos"}</Text>
-              <Text style={[styles.dropdownCaret, { color: C.sub }]}>{clienteOpen ? "▲" : "▼"}</Text>
-            </Pressable>
-            {clienteOpen ? (
-              <View style={[styles.dropdownPanel, { borderColor: C.border, backgroundColor: C.card }]}>
-                  <ScrollView style={{ maxHeight: 180 }} keyboardShouldPersistTaps="handled">
-                    <View style={{ paddingHorizontal: 12, paddingVertical: 8 }}>
-                      <TextInput
-                        value={fClienteQ}
-                        onChangeText={setFClienteQ}
-                        placeholder="Buscar cliente..."
-                        placeholderTextColor={C.sub}
-                        style={[
-                          styles.clientSearchInput,
-                          {
-                            color: C.text,
-                            borderColor: C.border,
-                            backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
-                          },
-                        ]}
-                        autoCapitalize="none"
-                        returnKeyType="search"
-                      />
-                    </View>
-                    <Pressable
-                      onPress={() => {
-                        setFClienteId(null);
-                        setClienteOpen(false);
-                        setFClienteQ("");
-                      }}
-                      style={[styles.ddRow, { borderBottomColor: isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)" }]}
-                    >
-                      <Text style={{ fontSize: 16, fontWeight: "600", color: C.text }}>Todos</Text>
-                    </Pressable>
-                    {filteredClientes.map((c) => (
-                      <Pressable
-                        key={String(c.id)}
-                        onPress={() => {
-                          setFClienteId(c.id);
-                          setClienteOpen(false);
-                          setFClienteQ("");
-                        }}
-                        style={[styles.ddRow, { borderBottomColor: isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)" }]}
-                      >
-                        <Text style={{ fontSize: 16, fontWeight: "600", color: C.text }}>{c.nombre}</Text>
-                      </Pressable>
-                    ))}
-                  </ScrollView>
+            {fClienteId ? (
+              <View style={[styles.dropdownInput, { borderColor: C.border, backgroundColor: C.card }]}>
+                <Text style={[styles.dropdownText, { color: C.text }]} numberOfLines={1}>{fClienteNombre}</Text>
+                <Pressable
+                  onPress={() => { setFClienteId(null); setFClienteNombre(""); setClienteSearchQ(""); setClienteSearchResults([]); }}
+                  hitSlop={8}
+                >
+                  <Text style={{ color: C.sub, fontSize: 22, fontWeight: "900", lineHeight: 22 }}>×</Text>
+                </Pressable>
               </View>
-            ) : null}
+            ) : (
+              <View style={[styles.dropdownPanel, { borderColor: C.border, backgroundColor: C.card, marginTop: 8 }]}>
+                <View style={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: 6 }}>
+                  <TextInput
+                    value={clienteSearchQ}
+                    onChangeText={(t) => { setClienteSearchQ(t); void searchClientes(t); }}
+                    placeholder="Buscar cliente..."
+                    placeholderTextColor={C.sub}
+                    style={[styles.clientSearchInput, { color: C.text, borderColor: C.border, backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)" }]}
+                    autoCapitalize="none"
+                    returnKeyType="search"
+                  />
+                </View>
+                {clienteSearchQ.trim().length >= 2 ? (
+                  <ScrollView style={{ maxHeight: 160 }} keyboardShouldPersistTaps="handled">
+                    {clienteSearchLoading ? (
+                      <Text style={{ padding: 12, color: C.sub, fontWeight: "600" }}>Buscando...</Text>
+                    ) : clienteSearchResults.length === 0 ? (
+                      <Text style={{ padding: 12, color: C.sub, fontWeight: "600" }}>Sin resultados</Text>
+                    ) : (
+                      clienteSearchResults.map((c) => (
+                        <Pressable
+                          key={String(c.id)}
+                          onPress={() => { setFClienteId(c.id); setFClienteNombre(c.nombre); setClienteSearchQ(""); setClienteSearchResults([]); }}
+                          style={[styles.ddRow, { borderBottomColor: isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)" }]}
+                        >
+                          <Text style={{ fontSize: 16, fontWeight: "600", color: C.text }}>{c.nombre}</Text>
+                        </Pressable>
+                      ))
+                    )}
+                  </ScrollView>
+                ) : clienteSearchQ.trim().length > 0 ? (
+                  <Text style={{ padding: 12, color: C.sub, fontWeight: "600" }}>Escribe 2+ letras para buscar...</Text>
+                ) : null}
+              </View>
+            )}
 
             <View style={{ height: 10 }} />
 
@@ -688,7 +689,6 @@ export default function VentasAnuladasScreen() {
               <Pressable
                 onPress={() => {
                   setFiltersOpen(false);
-                  setClienteOpen(false);
                   setShowDesdeIOS(false);
                   setShowHastaIOS(false);
                 }}

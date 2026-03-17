@@ -22,6 +22,7 @@ import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { getCached, setCached, LoteDetalle, ProductoDetalle, ProductoHead } from "../../lib/productoCache";
 import { useRole } from "../../lib/useRole";
+import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { AppButton } from "../ui/app-button";
 import { HEADER_BG } from "../../src/theme/headerColors";
 
@@ -138,6 +139,7 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
   const insets = useSafeAreaInsets();
 
   const { isAdmin } = useRole();
+  const { empresaActivaId } = useEmpresaActiva();
 
   const aliveRef = useRef(true);
   const requestIdRef = useRef(0);
@@ -227,7 +229,7 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
 
     setLoading(true);
     try {
-      const { data, error } = await supabase.rpc('rpc_producto_detalle', { p_producto_id: productoId });
+      const { data, error } = await supabase.rpc('rpc_producto_detalle', { p_empresa_id: empresaActivaId, p_producto_id: productoId });
 
       if (!aliveRef.current) return;
       if (closingRef.current) return;
@@ -250,7 +252,7 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
       if (requestId !== requestIdRef.current) return;
       setLoading(false);
     }
-  }, [productoId]);
+  }, [empresaActivaId, productoId]);
 
   useEffect(() => {
     translateY.setValue(0);
@@ -509,6 +511,11 @@ const styles = (C: SysColors) =>
       shadowRadius: 16,
       shadowOffset: { width: 0, height: -6 },
       elevation: Platform.OS === "android" ? 18 : 10,
+      ...(Platform.OS === "web" && {
+        maxWidth: 680,
+        width: "100%",
+        alignSelf: "center",
+      }),
     },
 
     handleArea: { paddingTop: 10, paddingBottom: 10, alignItems: "center" },

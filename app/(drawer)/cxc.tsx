@@ -23,7 +23,8 @@ import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useRole } from "../../lib/useRole";
-import { onAppResumed } from "../../lib/resumeEvents";
+import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
+import { useResumeLoad } from "../../lib/useResumeLoad";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
 type CxCRow = {
@@ -38,6 +39,7 @@ type CxCRow = {
   pagado: number | null;
   saldo: number | null;
   facturas: string[] | null;
+  estado: string | null;
 };
 
 type CxcSection = { title: string; data: CxCRow[] };
@@ -211,6 +213,7 @@ export default function CuentasPorCobrarScreen() {
   );
 
   const { role, uid, isReady, refreshRole } = useRole();
+  const { empresaActivaId } = useEmpresaActiva();
   const roleUp = normalizeUpper(role);
 
   useFocusEffect(
@@ -228,7 +231,7 @@ export default function CuentasPorCobrarScreen() {
     let alive = true;
     (async () => {
       try {
-        const { data, error } = await supabase.rpc("rpc_cxc_vendedores");
+        const { data, error } = await supabase.rpc("rpc_cxc_vendedores", { p_empresa_id: empresaActivaId });
         if (error) {
           if (alive) setVendedores([]);
           return;
@@ -251,18 +254,19 @@ export default function CuentasPorCobrarScreen() {
     return () => {
       alive = false;
     };
-  }, [roleUp]);
+  }, [empresaActivaId, roleUp]);
 
   // clientes list for dropdown
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const { data, error } = await supabase.from("clientes").select("id,nombre").order("nombre", { ascending: true });
+        if (!empresaActivaId) { if (alive) setClientes([]); return; }
+        const { data, error } = await supabase.from("clientes").select("id,nombre").eq("empresa_id", empresaActivaId).order("nombre", { ascending: true });
         if (error || !data || (data as any[]).length === 0) {
           // fallback: derive distinct clientes from CxC RPC
           try {
-            const { data: vdata, error: verr } = await supabase.rpc("rpc_cxc_ventas");
+            const { data: vdata, error: verr } = await supabase.rpc("rpc_cxc_ventas", { p_empresa_id: empresaActivaId });
             if (verr) {
               if (alive) setClientes([]);
               return;
@@ -292,11 +296,11 @@ export default function CuentasPorCobrarScreen() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [empresaActivaId]);
 
   const filteredClientes = useMemo(() => {
     const q = (fClienteQ ?? "").trim().toLowerCase();
-    if (!q) return clientes;
+    if (!q) return [];
     return (clientes ?? []).filter((c) => String(c.nombre ?? "").toLowerCase().includes(q) || String(c.id ?? "").includes(q));
   }, [clientes, fClienteQ]);
 
@@ -308,8 +312,8 @@ export default function CuentasPorCobrarScreen() {
 
     const { data, error } =
       roleUp === "ADMIN"
-        ? await supabase.rpc("rpc_cxc_ventas", { p_vendedor_id: fVendedorId })
-        : await supabase.rpc("rpc_cxc_ventas");
+        ? await supabase.rpc("rpc_cxc_ventas", { p_empresa_id: empresaActivaId, p_vendedor_id: fVendedorId })
+        : await supabase.rpc("rpc_cxc_ventas", { p_empresa_id: empresaActivaId });
 
     if (error) {
       throw error;
@@ -324,7 +328,7 @@ export default function CuentasPorCobrarScreen() {
     });
 
     return rows;
-  }, [fVendedorId, roleUp, uid]);
+  }, [empresaActivaId, fVendedorId, roleUp, uid]);
 
   useFocusEffect(
     useCallback(() => {
@@ -373,7 +377,7 @@ export default function CuentasPorCobrarScreen() {
     }, [fetchRows, isReady, uid])
   );
 
-  useEffect(() => onAppResumed(() => { void fetchRows(); }), [fetchRows]);
+  useResumeLoad(empresaActivaId, () => { void fetchRows(); });
 
   const badge = (c: CxCRow) => {
     const saldoNum = Number(c.saldo);
@@ -478,6 +482,13 @@ export default function CuentasPorCobrarScreen() {
       String(item.vendedor_codigo ?? "").trim() ||
       (vid ? vendedorLabelById.get(vid) : "") ||
       (vid ? shortId(vid) : "—");
+    const estadoUp = String(item.estado ?? "").toUpperCase();
+    const estadoStyle = estadoUp === "FACTURADO"
+      ? s.estadoFacturado
+      : estadoUp === "EN_RUTA"
+      ? s.estadoEnRuta
+      : s.estadoEntregado;
+    const estadoLabel = estadoUp === "FACTURADO" ? "Facturado" : estadoUp === "EN_RUTA" ? "En ruta" : "Entregado";
     return (
       <Pressable
         style={[
@@ -494,7 +505,10 @@ export default function CuentasPorCobrarScreen() {
       >
         <View style={s.row}>
           <View style={{ flex: 1 }}>
-            <Text style={s.title}>{item.cliente_nombre ?? "Cliente"}</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <Text style={s.title}>{item.cliente_nombre ?? "Cliente"}</Text>
+              <Text style={[s.estadoPill, estadoStyle]}>{estadoLabel}</Text>
+            </View>
             <Text style={s.sub}>Facturas: {fact}</Text>
             <Text style={s.sub}>Fecha: {fmtDateLongEs(item.fecha)}</Text>
             <Text style={s.sub}>Vendedor: {vendedorTxt}</Text>
@@ -976,4 +990,8 @@ const styles = (colors: any) =>
     iosPickerWrap: { marginTop: 10, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
     chipsRow: { flexDirection: "row", flexWrap: "wrap", marginTop: 10 },
     modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 12, marginTop: 16 },
+    estadoPill: { fontSize: 11, fontWeight: "800", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, overflow: "hidden" },
+    estadoFacturado: { backgroundColor: "#ddd6fe", color: "#3b0764" },
+    estadoEnRuta: { backgroundColor: "#fed7aa", color: "#7c2d12" },
+    estadoEntregado: { backgroundColor: "#bbf7d0", color: "#052e16" },
   });

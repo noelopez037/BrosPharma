@@ -248,7 +248,7 @@ export default function ResetPasswordScreen() {
       router.replace("/login");
 
     } catch (error: any) {
-      console.log("[Reset] ERROR", error?.message);
+      if (__DEV__) console.log("[Reset] ERROR", error?.message);
       setSaving(false);
       submittingRef.current = false;
       Alert.alert("No se pudo guardar", error?.message ?? "Intenta de nuevo más tarde");

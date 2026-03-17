@@ -678,6 +678,33 @@ export async function disablePushForThisDevice(): Promise<void> {
     const deviceIdPreview = `...${deviceId.slice(-6)}`;
     if (__DEV__) console.info("[push] disable:start", { deviceIdPreview });
 
+    // Intentar obtener el expo_token almacenado para usar la RPC anon
+    // (funciona incluso sin sesión activa, útil cuando la sesión expiró en background)
+    let storedToken: string | null = null;
+    try {
+      const { data } = await supabase.auth.getSession();
+      const userId = data?.session?.user?.id;
+      if (userId) {
+        storedToken = await getStoredTokenForUser(userId, deviceId);
+      }
+    } catch {
+      // ignorar — intentaremos igual con la RPC
+    }
+
+    // Primero intentar via RPC que funciona con o sin sesión activa
+    if (storedToken) {
+      const { error: rpcError } = await supabase.rpc("rpc_disable_push_for_device", {
+        p_device_id: deviceId,
+        p_expo_token: storedToken,
+      });
+      if (!rpcError) {
+        if (__DEV__) console.info("[push] disable:done (rpc)", { deviceIdPreview });
+        return;
+      }
+      if (__DEV__) console.warn("[push] disable:rpc_failed, trying direct update", rpcError);
+    }
+
+    // Fallback: update directo (requiere sesión válida, cubierto por RLS)
     const isoNow = new Date().toISOString();
     const { error } = await supabase
       .from("user_push_tokens")
@@ -685,7 +712,7 @@ export async function disablePushForThisDevice(): Promise<void> {
       .eq("device_id", deviceId);
 
     if (!error) {
-      if (__DEV__) console.info("[push] disable:done", { deviceIdPreview });
+      if (__DEV__) console.info("[push] disable:done (direct)", { deviceIdPreview });
       return;
     }
 
@@ -695,7 +722,7 @@ export async function disablePushForThisDevice(): Promise<void> {
         .update({ enabled: false })
         .eq("device_id", deviceId);
       if (!retryError) {
-        if (__DEV__) console.info("[push] disable:done", { deviceIdPreview });
+        if (__DEV__) console.info("[push] disable:done (direct-retry)", { deviceIdPreview });
         return;
       }
       throw retryError;

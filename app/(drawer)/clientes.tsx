@@ -18,7 +18,8 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { supabase } from "../../lib/supabase";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useRole } from "../../lib/useRole";
-import { onAppResumed } from "../../lib/resumeEvents";
+import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
+import { useResumeLoad } from "../../lib/useResumeLoad";
 import { ClienteDetallePanel } from "../../components/clientes/ClienteDetallePanel";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
@@ -118,8 +119,10 @@ export default function ClientesScreen() {
   );
 
   const [clienteFormOpen, setClienteFormOpen] = useState(false);
+  const [editClienteId, setEditClienteId] = useState<number | null>(null);
 
   const { role, uid, isReady, refreshRole } = useRole();
+  const { empresaActivaId } = useEmpresaActiva();
   const roleUp = normalizeUpper(role) as Role;
   const isAdmin = roleUp === "ADMIN";
   const isVentas = roleUp === "VENTAS";
@@ -148,6 +151,7 @@ export default function ClientesScreen() {
 
   const fetchClientes = useCallback(async (roleOverride?: Role) => {
     if (!isReady) return;
+    if (!empresaActivaId) return;
     setErrorMsg(null);
     const effectiveRoleUp = (roleOverride ?? roleUp) as Role;
     if (!effectiveRoleUp) return;
@@ -163,6 +167,7 @@ export default function ClientesScreen() {
         .select(
           "id,nombre,nit,telefono,direccion,activo,vendedor_id,vendedor:profiles!clientes_vendedor_id_fkey(id,full_name,role)"
         )
+        .eq("empresa_id", empresaActivaId)
         .order("nombre", { ascending: true })
         .limit(500);
 
@@ -219,7 +224,7 @@ export default function ClientesScreen() {
     }
 
     setRows((data ?? []) as any);
-  }, [dq, isReady, roleUp, showInactive, uid]);
+  }, [dq, isReady, roleUp, showInactive, uid, empresaActivaId]);
 
   // UX: swipe-back / back siempre regresa a Inicio.
   useGoHomeOnBack(true, "/(drawer)/(tabs)");
@@ -246,7 +251,7 @@ export default function ClientesScreen() {
     }, [fetchClientes, isReady, refreshRole])
   );
 
-  useEffect(() => onAppResumed(() => { void fetchClientes(); }), [fetchClientes]);
+  useResumeLoad(empresaActivaId, () => { void fetchClientes(); });
 
   const renderItem = ({ item }: { item: ClienteRow }) => {
     const vendedorNombre = (item.vendedor?.full_name ?? "").trim();
@@ -314,68 +319,61 @@ export default function ClientesScreen() {
       />
 
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
-        <View style={[s.stickyTop, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
-          <View style={s.searchWrap}>
-            <TextInput
-              value={q}
-              onChangeText={setQ}
-              placeholder="Buscar por nombre, NIT o teléfono..."
-              placeholderTextColor={colors.text + "66"}
-              style={s.searchInput}
-              autoCapitalize="none"
-              autoCorrect={false}
-              returnKeyType="search"
-            />
-            {q.trim().length > 0 ? (
-              <Pressable
-                onPress={() => setQ("")}
-                hitSlop={10}
-                accessibilityRole="button"
-                accessibilityLabel="Borrar búsqueda"
-                style={s.clearBtn}
-              >
-                <Text style={s.clearTxt}>×</Text>
-              </Pressable>
-            ) : null}
-          </View>
-
-          {isAdmin ? (
-            <View style={s.inactiveRow}>
-              <Text style={s.inactiveLabel}>Mostrar inactivos</Text>
-              <Switch
-                value={showInactive}
-                onValueChange={setShowInactive}
-                trackColor={{ false: colors.border, true: "#34C759" }}
-                thumbColor={Platform.OS === "android" ? "#FFFFFF" : undefined}
-                style={Platform.OS === "android" ? { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] } : undefined}
-              />
-            </View>
-          ) : null}
-
-          {errorMsg ? (
-            <View style={{ paddingVertical: 8 }}>
-              <Text style={[s.empty, { color: colors.notification ?? "#ff3b30" }]}>
-                {errorMsg}
-              </Text>
-            </View>
-          ) : null}
-
-          {initialLoading ? (
-            <View style={{ paddingVertical: 10 }}>
-              <Text style={[s.empty, { paddingTop: 0 }]}>Cargando...</Text>
-            </View>
-          ) : null}
-
-          {!initialLoading && rows.length === 0 ? (
-            <View style={{ paddingVertical: 8 }}>
-              <Text style={s.empty}>Sin clientes</Text>
-            </View>
-          ) : null}
-        </View>
-
         {canSplit ? (
           <View style={s.splitWrap}>
             <View style={[s.splitListPane, { borderRightColor: colors.border }]}>
+              <View style={[s.stickyTop, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+                <View style={s.searchWrap}>
+                  <TextInput
+                    value={q}
+                    onChangeText={setQ}
+                    placeholder="Buscar por nombre, NIT o teléfono..."
+                    placeholderTextColor={colors.text + "66"}
+                    style={s.searchInput}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="search"
+                  />
+                  {q.trim().length > 0 ? (
+                    <Pressable
+                      onPress={() => setQ("")}
+                      hitSlop={10}
+                      accessibilityRole="button"
+                      accessibilityLabel="Borrar búsqueda"
+                      style={s.clearBtn}
+                    >
+                      <Text style={s.clearTxt}>×</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+                {isAdmin ? (
+                  <View style={s.inactiveRow}>
+                    <Text style={s.inactiveLabel}>Mostrar inactivos</Text>
+                    <Switch
+                      value={showInactive}
+                      onValueChange={setShowInactive}
+                      trackColor={{ false: colors.border, true: "#34C759" }}
+                      thumbColor={Platform.OS === "android" ? "#FFFFFF" : undefined}
+                      style={Platform.OS === "android" ? { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] } : undefined}
+                    />
+                  </View>
+                ) : null}
+                {errorMsg ? (
+                  <View style={{ paddingVertical: 8 }}>
+                    <Text style={[s.empty, { color: colors.notification ?? "#ff3b30" }]}>{errorMsg}</Text>
+                  </View>
+                ) : null}
+                {initialLoading ? (
+                  <View style={{ paddingVertical: 10 }}>
+                    <Text style={[s.empty, { paddingTop: 0 }]}>Cargando...</Text>
+                  </View>
+                ) : null}
+                {!initialLoading && rows.length === 0 ? (
+                  <View style={{ paddingVertical: 8 }}>
+                    <Text style={s.empty}>Sin clientes</Text>
+                  </View>
+                ) : null}
+              </View>
               <FlatList
                 style={{ flex: 1, backgroundColor: colors.background }}
                 data={rows}
@@ -393,7 +391,18 @@ export default function ClientesScreen() {
             </View>
             <View style={s.splitDetailPane}>
               {selectedClienteId ? (
-                <ClienteDetallePanel clienteId={selectedClienteId} embedded />
+                <ClienteDetallePanel
+                  clienteId={selectedClienteId}
+                  embedded
+                  onEditWeb={(id) => {
+                    setEditClienteId(id);
+                    setClienteFormOpen(true);
+                  }}
+                  onDeleted={() => {
+                    setSelectedClienteId(null);
+                    void fetchClientes();
+                  }}
+                />
               ) : (
                 <View style={[s.splitPlaceholder, { borderColor: colors.border }]}>
                   <Text style={[s.splitPlaceholderText, { color: colors.text + "88" }]}>
@@ -404,20 +413,74 @@ export default function ClientesScreen() {
             </View>
           </View>
         ) : (
-          <FlatList
-            style={{ backgroundColor: colors.background }}
-            data={rows}
-            keyExtractor={(it) => String(it.id)}
-            renderItem={renderItem}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-            automaticallyAdjustKeyboardInsets
-            contentContainerStyle={{
-              paddingHorizontal: 12,
-              paddingTop: 12,
-              paddingBottom: 16 + bottomRail,
-            }}
-          />
+          <>
+            <View style={[s.stickyTop, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+              <View style={s.searchWrap}>
+                <TextInput
+                  value={q}
+                  onChangeText={setQ}
+                  placeholder="Buscar por nombre, NIT o teléfono..."
+                  placeholderTextColor={colors.text + "66"}
+                  style={s.searchInput}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="search"
+                />
+                {q.trim().length > 0 ? (
+                  <Pressable
+                    onPress={() => setQ("")}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel="Borrar búsqueda"
+                    style={s.clearBtn}
+                  >
+                    <Text style={s.clearTxt}>×</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+              {isAdmin ? (
+                <View style={s.inactiveRow}>
+                  <Text style={s.inactiveLabel}>Mostrar inactivos</Text>
+                  <Switch
+                    value={showInactive}
+                    onValueChange={setShowInactive}
+                    trackColor={{ false: colors.border, true: "#34C759" }}
+                    thumbColor={Platform.OS === "android" ? "#FFFFFF" : undefined}
+                    style={Platform.OS === "android" ? { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] } : undefined}
+                  />
+                </View>
+              ) : null}
+              {errorMsg ? (
+                <View style={{ paddingVertical: 8 }}>
+                  <Text style={[s.empty, { color: colors.notification ?? "#ff3b30" }]}>{errorMsg}</Text>
+                </View>
+              ) : null}
+              {initialLoading ? (
+                <View style={{ paddingVertical: 10 }}>
+                  <Text style={[s.empty, { paddingTop: 0 }]}>Cargando...</Text>
+                </View>
+              ) : null}
+              {!initialLoading && rows.length === 0 ? (
+                <View style={{ paddingVertical: 8 }}>
+                  <Text style={s.empty}>Sin clientes</Text>
+                </View>
+              ) : null}
+            </View>
+            <FlatList
+              style={{ backgroundColor: colors.background }}
+              data={rows}
+              keyExtractor={(it) => String(it.id)}
+              renderItem={renderItem}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              automaticallyAdjustKeyboardInsets
+              contentContainerStyle={{
+                paddingHorizontal: 12,
+                paddingTop: 12,
+                paddingBottom: 16 + bottomRail,
+              }}
+            />
+          </>
         )}
 
         {canCreate ? (
@@ -425,6 +488,7 @@ export default function ClientesScreen() {
             style={[s.fab, { backgroundColor: fabBg, bottom: 18 + bottomRail }]}
             onPress={() => {
               if (Platform.OS === "web") {
+                setEditClienteId(null);
                 setClienteFormOpen(true);
               } else {
                 router.push("/cliente-form" as any);
@@ -439,16 +503,23 @@ export default function ClientesScreen() {
 
         <ClienteFormModal
           visible={clienteFormOpen}
-          onClose={() => setClienteFormOpen(false)}
-          onDone={(newId) => {
+          onClose={() => {
             setClienteFormOpen(false);
+            setEditClienteId(null);
+          }}
+          onDone={(savedId) => {
+            setClienteFormOpen(false);
+            setEditClienteId(null);
             void fetchClientes();
+            if (editClienteId) setSelectedClienteId(savedId);
           }}
           isDark={isDark}
           colors={modalColors}
           isAdmin={isAdmin}
           vendedorId={isVentas ? (uid ?? null) : null}
           uid={uid ?? null}
+          empresaActivaId={empresaActivaId}
+          editClienteId={editClienteId}
         />
       </SafeAreaView>
     </>

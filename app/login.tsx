@@ -1,12 +1,3 @@
-// app/login.tsx
-// Reemplaza tu archivo completo por este.
-// Cambios:
-// - Estilo nativo consistente (iOS/Android): inputs con altura correcta, botón azul iOS, tipografía normal
-// - Soporta dark/light (colores correctos)
-// - El teclado ya no tapa: KeyboardAvoidingView + ScrollView
-// - TextInput siempre visible (color, selectionColor, cursorColor, keyboardAppearance)
-// - SafeAreaView
-
 import { useTheme } from "@react-navigation/native";
 import { router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
@@ -30,83 +21,73 @@ import { supabase } from "../lib/supabase";
 import { alphaColor } from "../lib/ui";
 import { AppButton } from "../components/ui/app-button";
 import { claimPushForCurrentSession } from "../lib/pushNotifications";
-// Use static requires at module top so Metro bundles the assets and load is immediate
+
 const logoDark = require("../assets/images/logo-dark.png");
 const logoLight = require("../assets/images/logo-light.png");
+
+// En web Alert.alert es no-op — usar window.alert para feedback inmediato
+const showAlert = (title: string, message: string) => {
+  if (Platform.OS === "web") {
+    window.alert(`${title}\n\n${message}`);
+  } else {
+    Alert.alert(title, message);
+  }
+};
 
 export default function LoginScreen() {
   const { colors, dark } = useTheme();
   const isDark = !!dark;
   const insets = useSafeAreaInsets();
+  const isWeb = Platform.OS === "web";
 
   const didNavigateRef = useRef(false);
   const aliveRef = useRef(true);
 
   useEffect(() => {
-    return () => {
-      aliveRef.current = false;
-    };
+    return () => { aliveRef.current = false; };
   }, []);
 
   const C = {
-    bg: colors.background ?? (isDark ? "#000" : "#fff"),
-    card: colors.card ?? (isDark ? "#0f0f10" : "#fff"),
-    text: colors.text ?? (isDark ? "#fff" : "#111"),
-    sub: alphaColor(String(colors.text ?? (isDark ? "#ffffff" : "#000000")), 0.65) || (isDark ? "rgba(255,255,255,0.65)" : "#666"),
-    border: colors.border ?? (isDark ? "rgba(255,255,255,0.14)" : "#e5e5e5"),
-    tint: colors.primary ?? "#153c9e",
+    bg:     colors.background ?? (isDark ? "#000" : "#f2f2f7"),
+    card:   colors.card       ?? (isDark ? "#1c1c1e" : "#fff"),
+    text:   colors.text       ?? (isDark ? "#fff" : "#111"),
+    sub:    alphaColor(String(colors.text ?? (isDark ? "#ffffff" : "#000000")), 0.55) || (isDark ? "rgba(255,255,255,0.55)" : "#888"),
+    border: colors.border     ?? (isDark ? "rgba(255,255,255,0.12)" : "#e0e0e5"),
+    tint:   colors.primary    ?? "#153c9e",
   } as const;
 
-  const [email, setEmail] = useState("");
-  const [pass, setPass] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [email, setEmail]             = useState("");
+  const [pass, setPass]               = useState("");
+  const [loading, setLoading]         = useState(false);
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
-  const [sendingReset, setSendingReset] = useState(false);
+  const [sendingReset, setSendingReset]     = useState(false);
+  const [resetSent, setResetSent]           = useState(false);
 
   useEffect(() => {
-    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    if (isWeb) return; // el teclado en web no usa estos eventos
+    const showEvt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvt = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const s = Keyboard.addListener(showEvt, () => setIsKeyboardOpen(true));
+    const h = Keyboard.addListener(hideEvt, () => setIsKeyboardOpen(false));
+    return () => { s.remove(); h.remove(); };
+  }, [isWeb]);
 
-    const showSub = Keyboard.addListener(showEvent, () => setIsKeyboardOpen(true));
-    const hideSub = Keyboard.addListener(hideEvent, () => setIsKeyboardOpen(false));
-
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
-
-  const passRef = useRef<TextInput>(null);
+  const passRef  = useRef<TextInput>(null);
   const scrollRef = useRef<ScrollView>(null);
-
-  const networkErrorMessage =
-    "No hay conexión con el servidor. Verifica tu red e inténtalo de nuevo.";
 
   const isInvalidCredentialsError = (err: unknown) => {
     const e = err as any;
-    const code = String(e?.code ?? "");
-    const message = String(e?.message ?? "");
-
-    if (code === "invalid_credentials") return true;
-    if (/invalid login credentials/i.test(message)) return true;
-
+    if (String(e?.code ?? "") === "invalid_credentials") return true;
+    if (/invalid login credentials/i.test(String(e?.message ?? ""))) return true;
     return false;
   };
 
   const isNetworkError = (err: unknown) => {
     if (!err) return false;
-    if (err instanceof TypeError) {
-      return String((err as any).message ?? "").includes("Network request failed");
-    }
-
-    const e = err as any;
-    const message = String(e?.message ?? "");
-    if (message.includes("Network request failed")) return true;
-
-    // Supabase fetch-layer errors can come back without status/response.
-    const status = typeof e?.status === "number" ? e.status : undefined;
+    const msg = String((err as any)?.message ?? "");
+    if (msg.includes("Network request failed")) return true;
+    const status = (err as any)?.status;
     if (status === 0 || status === undefined) return true;
-
     return false;
   };
 
@@ -120,28 +101,19 @@ export default function LoginScreen() {
   const replaceToTabsDeferredOnce = async () => {
     if (didNavigateRef.current) return;
     didNavigateRef.current = true;
-
     Keyboard.dismiss();
-
-    await new Promise<void>((resolve) => {
-      InteractionManager.runAfterInteractions(() => resolve());
-    });
-
-    // Give the native navigation + layout a couple frames to settle.
-    // This avoids a rare iOS state where an invisible overlay keeps intercepting
-    // touches near the bottom immediately after auth -> nested navigator replace.
+    await new Promise<void>((r) => InteractionManager.runAfterInteractions(() => r()));
     await nextFrame();
     await nextFrame();
-
     router.replace("/(drawer)/(tabs)");
   };
 
   const onLogin = async () => {
     const cleanEmail = email.trim().toLowerCase();
-    const cleanPass = pass.trim();
+    const cleanPass  = pass.trim();
 
     if (!cleanEmail || !cleanPass) {
-      Alert.alert("Faltan datos", "Ingresa correo y contraseña");
+      showAlert("Faltan datos", "Ingresa correo y contraseña");
       return;
     }
 
@@ -156,29 +128,18 @@ export default function LoginScreen() {
         const message = isInvalidCredentialsError(error)
           ? "Correo o contraseña incorrectos."
           : isNetworkError(error)
-            ? networkErrorMessage
+            ? "No hay conexión. Verifica tu red e intenta de nuevo."
             : "Ocurrió un error inesperado";
-
-        Alert.alert("No se pudo iniciar sesión", message);
+        showAlert("No se pudo iniciar sesión", message);
         return;
       }
 
-      // Ensure we claim push tokens with the updated session.
       const { data: sessionData } = await supabase.auth.getSession();
-      if (__DEV__) {
-        console.log("[auth] session after login", {
-          userId: sessionData.session?.user?.id,
-          email: sessionData.session?.user?.email,
-        });
-      }
+      if (__DEV__) console.log("[auth] session", sessionData.session?.user?.email);
 
       if (Platform.OS !== "web") {
         try {
-          const claimResult = await claimPushForCurrentSession(supabase, {
-            forceUpsert: true,
-            reason: "login",
-          });
-          if (__DEV__) console.info("[push] claim:login", claimResult);
+          await claimPushForCurrentSession(supabase, { forceUpsert: true, reason: "login" });
         } catch (e) {
           console.error("[push] claim:login_error", e);
         }
@@ -186,12 +147,7 @@ export default function LoginScreen() {
 
       await replaceToTabsDeferredOnce();
     } catch (err) {
-      if (isNetworkError(err)) {
-        Alert.alert("Error", networkErrorMessage);
-        return;
-      }
-
-      Alert.alert("Error", "Ocurrió un error inesperado");
+      showAlert("Error", isNetworkError(err) ? "No hay conexión." : "Ocurrió un error inesperado");
     } finally {
       if (aliveRef.current) setLoading(false);
     }
@@ -201,37 +157,111 @@ export default function LoginScreen() {
     if (loading || sendingReset) return;
 
     const cleanEmail = email.trim().toLowerCase();
-
     if (!cleanEmail) {
-      Alert.alert("Falta correo", "Escribe tu correo para enviarte el link.");
+      showAlert("Falta correo", "Escribe tu correo arriba para enviarte el link.");
       return;
     }
 
     setSendingReset(true);
+    setResetSent(false);
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
-        redirectTo: "brospharma://reset-password",
-      });
+      // En web usar la URL actual; en nativo usar el deep link
+      const redirectTo = isWeb
+        ? `${window.location.origin}/reset-password`
+        : "brospharma://reset-password";
+
+      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, { redirectTo });
 
       if (error) throw error;
 
-      Alert.alert("Listo", "Te enviamos un correo para restablecer tu contraseña.");
+      setResetSent(true);
+      showAlert("Correo enviado", "Revisa tu bandeja de entrada (y la carpeta de spam).");
     } catch (error: any) {
-      Alert.alert("No se pudo enviar", error?.message ?? String(error));
+      const msg = String(error?.message ?? "");
+      if (/rate.limit|too many/i.test(msg)) {
+        showAlert("Espera un momento", "Por seguridad, solo puedes solicitar esto una vez por minuto.");
+      } else {
+        showAlert("No se pudo enviar", msg || "Error desconocido");
+      }
     } finally {
       if (aliveRef.current) setSendingReset(false);
     }
   };
 
+  // ─── RENDER WEB ─────────────────────────────────────────────────────────────
+  if (isWeb) {
+    return (
+      <View style={[webStyles.root, { backgroundColor: C.bg }]}>
+        <View style={[webStyles.card, { backgroundColor: C.card, borderColor: C.border }]}>
+          {/* Logo */}
+          <Image
+            source={isDark ? logoLight : logoDark}
+            style={[webStyles.logo, isDark ? { tintColor: "#ffffff" } : { tintColor: "#111111" }]}
+            resizeMode="contain"
+          />
+
+          <Text style={[webStyles.title, { color: C.text }]}>Iniciar sesión</Text>
+
+          <Text style={[webStyles.label, { color: C.text }]}>Correo</Text>
+          <TextInput
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="email-address"
+            placeholder="correo@ejemplo.com"
+            placeholderTextColor={C.sub}
+            style={[webStyles.input, { borderColor: C.border, color: C.text, backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "#fafafa" }]}
+            returnKeyType="next"
+            onSubmitEditing={() => passRef.current?.focus()}
+          />
+
+          <Text style={[webStyles.label, { color: C.text }]}>Contraseña</Text>
+          <TextInput
+            ref={passRef}
+            value={pass}
+            onChangeText={setPass}
+            secureTextEntry
+            placeholder="••••••••"
+            placeholderTextColor={C.sub}
+            style={[webStyles.input, { borderColor: C.border, color: C.text, backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "#fafafa" }]}
+            returnKeyType="done"
+            onSubmitEditing={onLogin}
+          />
+
+          {/* Forgot password */}
+          <Pressable
+            onPress={onForgotPassword}
+            disabled={loading || sendingReset}
+            style={[webStyles.forgotWrapper, (loading || sendingReset) && { opacity: 0.5 }]}
+          >
+            {sendingReset ? (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <ActivityIndicator size="small" color={C.tint} />
+                <Text style={[webStyles.forgotText, { color: C.tint }]}>Enviando...</Text>
+              </View>
+            ) : resetSent ? (
+              <Text style={[webStyles.forgotText, { color: "#34c759" }]}>✓ Correo enviado — revisa tu bandeja</Text>
+            ) : (
+              <Text style={[webStyles.forgotText, { color: C.tint }]}>¿Olvidaste tu contraseña?</Text>
+            )}
+          </Pressable>
+
+          <AppButton
+            title={loading ? "Entrando..." : "Entrar"}
+            onPress={onLogin}
+            loading={loading}
+            style={{ marginTop: 8, minHeight: 48 } as any}
+          />
+        </View>
+      </View>
+    );
+  }
+
+  // ─── RENDER NATIVO ───────────────────────────────────────────────────────────
   const contentAlignmentStyle = isKeyboardOpen
-    ? {
-        justifyContent: "flex-start" as const,
-        paddingTop: Platform.OS === "ios" ? 28 : 18,
-      }
-    : {
-        justifyContent: "center" as const,
-        paddingTop: 0,
-      };
+    ? { justifyContent: "flex-start" as const, paddingTop: Platform.OS === "ios" ? 28 : 18 }
+    : { justifyContent: "center" as const, paddingTop: 0 };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={["top", "bottom"]}>
@@ -263,10 +293,7 @@ export default function LoginScreen() {
               <View style={{ height: 12 }} />
             )}
 
-            <Text
-              maxFontSizeMultiplier={1.2}
-              style={[styles.title, { color: C.text }, isKeyboardOpen && { marginBottom: 6 }]}
-            >
+            <Text maxFontSizeMultiplier={1.2} style={[styles.title, { color: C.text }, isKeyboardOpen && { marginBottom: 6 }]}>
               Iniciar sesión
             </Text>
 
@@ -316,10 +343,12 @@ export default function LoginScreen() {
               {sendingReset ? (
                 <View style={styles.forgotLoadingRow}>
                   <ActivityIndicator size="small" color={C.tint} style={{ marginRight: 6 }} />
-                  <Text maxFontSizeMultiplier={1.2} style={[styles.forgotText, { color: C.tint }]}>
-                    Enviando...
-                  </Text>
+                  <Text maxFontSizeMultiplier={1.2} style={[styles.forgotText, { color: C.tint }]}>Enviando...</Text>
                 </View>
+              ) : resetSent ? (
+                <Text maxFontSizeMultiplier={1.2} style={[styles.forgotText, { color: "#34c759" }]}>
+                  ✓ Correo enviado
+                </Text>
               ) : (
                 <Text maxFontSizeMultiplier={1.2} style={[styles.forgotText, { color: C.tint }]}>
                   ¿Olvidaste tu contraseña?
@@ -337,6 +366,68 @@ export default function LoginScreen() {
   );
 }
 
+// ─── Web styles ──────────────────────────────────────────────────────────────
+const webStyles = StyleSheet.create({
+  root: {
+    flex: 1,
+    minHeight: "100vh" as any,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16,
+  },
+  card: {
+    width: "100%",
+    maxWidth: 420,
+    borderRadius: 20,
+    borderWidth: 1,
+    paddingHorizontal: 36,
+    paddingVertical: 40,
+    gap: 0,
+    // shadow web
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 24,
+  },
+  logo: {
+    width: 160,
+    height: 160,
+    alignSelf: "center",
+    marginBottom: 20,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: "700",
+    marginBottom: 20,
+    textAlign: "center",
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 6,
+    marginTop: 14,
+  },
+  input: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    fontSize: 15,
+    minHeight: 44,
+    outlineStyle: "none" as any,
+  },
+  forgotWrapper: {
+    alignSelf: "flex-end",
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  forgotText: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+});
+
+// ─── Native styles ───────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: {
     flexGrow: 1,
@@ -350,12 +441,8 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginBottom: 10,
   },
-  logoTintDark: {
-    tintColor: "#ffffff",
-  },
-  logoTintLight: {
-    tintColor: "#111111",
-  },
+  logoTintDark:  { tintColor: "#ffffff" },
+  logoTintLight: { tintColor: "#111111" },
   title: {
     fontSize: 26,
     fontWeight: "700",
@@ -391,5 +478,4 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 10,
   },
-  // Button styles handled by AppButton
 });

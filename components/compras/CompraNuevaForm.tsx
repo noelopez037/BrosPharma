@@ -15,8 +15,8 @@ import {
 } from "react-native";
 import { AppButton } from "../ui/app-button";
 import { useCompraDraft } from "../../lib/compraDraft";
-import { dispatchNotifs } from "../../lib/notif-dispatch";
 import { supabase } from "../../lib/supabase";
+import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useRole } from "../../lib/useRole";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -81,6 +81,7 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
   } = useCompraDraft();
   const { proveedor, numeroFactura, tipoPago, comentarios, fechaVenc, lineas } = draft;
   const { isAdmin } = useRole();
+  const { empresaActivaId, isReady: empresaReady } = useEmpresaActiva();
 
   const isEdit = !!(editId && Number.isFinite(Number(editId)) && Number(editId) > 0);
 
@@ -140,9 +141,12 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
       const seq = ++loadSeqRef.current;
       setLoadingEdit(true);
       try {
+        if (!empresaActivaId) { setLoadingEdit(false); return; }
+
         const { data: c, error: e1 } = await supabase
           .from("compras")
           .select("id,proveedor_id,numero_factura,tipo_pago,fecha_vencimiento,comentarios,proveedores(nombre)")
+          .eq("empresa_id", empresaActivaId)
           .eq("id", Number(idToLoad))
           .maybeSingle();
         if (seq !== loadSeqRef.current) return;
@@ -152,6 +156,7 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
         const { data: d, error: e2 } = await supabase
           .from("compras_detalle")
           .select("id,cantidad,precio_compra_unit,producto_id, productos(nombre,image_path,marca_id,marcas(nombre)), producto_lotes(lote,fecha_exp)")
+          .eq("empresa_id", empresaActivaId)
           .eq("compra_id", Number(idToLoad))
           .order("id", { ascending: true });
         if (seq !== loadSeqRef.current) return;
@@ -182,7 +187,7 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
         if (seq === loadSeqRef.current) setLoadingEdit(false);
       }
     },
-    [hydrateWhenReady, reset, setProveedor, setNumeroFactura, setTipoPago, setFechaVenc, setComentarios, updateLinea]
+    [empresaActivaId, hydrateWhenReady, reset, setProveedor, setNumeroFactura, setTipoPago, setFechaVenc, setComentarios, updateLinea]
   );
 
   // ── Reset or load edit on mount ───────────────────────────────────────────
@@ -245,6 +250,7 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
       const { data: existing } = await supabase
         .from("proveedores")
         .select("id, nombre, nit")
+        .eq("empresa_id", empresaActivaId)
         .eq("nit", nit)
         .maybeSingle();
       if (existing) {
@@ -253,7 +259,7 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
       }
       const { data, error } = await supabase
         .from("proveedores")
-        .insert({ nombre, nit, telefono: newProvTel.trim() || null, activo: true })
+        .insert({ empresa_id: empresaActivaId, nombre, nit, telefono: newProvTel.trim() || null, activo: true })
         .select("id,nombre,nit,telefono,activo")
         .single();
       if (error) throw error;
@@ -286,6 +292,7 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
       const { data } = await supabase
         .from("proveedores")
         .select("id,nombre,telefono")
+        .eq("empresa_id", empresaActivaId)
         .ilike("nombre", `%${term.trim()}%`)
         .eq("activo", true)
         .limit(20);
@@ -315,6 +322,7 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
       const { data } = await supabase
         .from("productos")
         .select("id,nombre,marca_id,marcas(nombre)")
+        .eq("empresa_id", empresaActivaId)
         .eq("activo", true)
         .ilike("nombre", `%${term.trim()}%`)
         .limit(20);
@@ -334,6 +342,7 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
     supabase
       .from("marcas")
       .select("id,nombre")
+      .eq("empresa_id", empresaActivaId)
       .order("nombre")
       .then(({ data }) => setMarcas((data ?? []) as Marca[]));
   }, []);
@@ -383,6 +392,7 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
         const { data, error } = await supabase
           .from("productos")
           .insert({
+            empresa_id: empresaActivaId,
             nombre,
             marca_id: newProdMarcaId,
             requiere_receta: newProdReceta,
@@ -420,7 +430,7 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
         const rawExt = extMatch ? extMatch[1].toLowerCase() : "jpg";
         const ext = rawExt === "jpeg" ? "jpg" : rawExt;
         const contentType = ext === "png" ? "image/png" : ext === "heic" ? "image/heic" : "image/jpeg";
-        const path = `compras/${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`;
+        const path = `${empresaActivaId}/compras/imagenes/${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`;
         const ab = await file.arrayBuffer();
         const { error } = await supabase.storage.from(BUCKET).upload(path, ab, { contentType, upsert: true });
         if (error) throw error;
@@ -461,6 +471,8 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
 
   const guardar = async () => {
     if (saving || loadingEdit) return;
+    if (!empresaReady) return;
+    if (!empresaActivaId) return void window.alert("Sin empresa: No tienes una empresa activa asignada. Contacta al administrador.");
 
     const factura = numeroFactura.trim();
     if (!proveedor?.id) return void window.alert("Falta proveedor: Selecciona un proveedor");
@@ -498,21 +510,19 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
       if (isEdit && editId) {
         const { error } = await supabase.rpc("rpc_compra_reemplazar", {
           p_compra_id: Number(editId),
+          p_empresa_id: empresaActivaId,
           p_compra,
           p_detalles: detalles,
         });
         if (error) throw error;
       } else {
         const { error } = await supabase.rpc("rpc_crear_compra", {
+          p_empresa_id: empresaActivaId,
           p_compra,
           p_detalles: detalles,
         });
         if (error) throw error;
       }
-
-      void dispatchNotifs(20).catch((e: any) =>
-        console.warn("[notif] dispatch failed", e?.message ?? e)
-      );
 
       reset();
       onDone();
@@ -1020,6 +1030,7 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
                                     const { data: existing } = await supabase
                                       .from("marcas")
                                       .select("id, nombre")
+                                      .eq("empresa_id", empresaActivaId)
                                       .ilike("nombre", nm)
                                       .maybeSingle();
                                     if (existing) {
@@ -1032,7 +1043,7 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
                                     }
                                     const { data, error } = await supabase
                                       .from("marcas")
-                                      .insert({ nombre: nm, activo: true })
+                                      .insert({ empresa_id: empresaActivaId, nombre: nm, activo: true })
                                       .select("id,nombre")
                                       .single();
                                     if (error) throw error;

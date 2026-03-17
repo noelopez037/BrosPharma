@@ -18,8 +18,10 @@ import {
 } from "react-native";
 import { AppButton } from "../ui/app-button";
 import { supabase } from "../../lib/supabase";
-import { dispatchNotifs } from "../../lib/notif-dispatch";
 import { useVentaDraft } from "../../lib/ventaDraft";
+import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
+import { useRole } from "../../lib/useRole";
+import { generarCotizacionPdf } from "../../lib/cotizacionPdf";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -82,7 +84,7 @@ type Props = {
   isDark: boolean;
   colors: Colors;
   canCreate: boolean;
-  mode?: "create" | "edit";
+  mode?: "create" | "edit" | "cotizacion";
   ventaId?: number | null;
 };
 
@@ -101,6 +103,9 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
     setRecetaUri,
   } = useVentaDraft();
   const { cliente, comentarios, lineas, receta_uri } = draft;
+  const { empresaActivaId, empresas, isReady: empresaReady } = useEmpresaActiva();
+  const { role, uid, isReady: roleReady } = useRole();
+  const isVentas = roleReady && String(role ?? "").trim().toUpperCase() === "VENTAS";
 
   const isEdit = mode === "edit" && !!ventaId;
   const [saving, setSaving] = useState(false);
@@ -126,9 +131,12 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
         setOriginalQtyByProd({});
         setStockBaseByProd({});
 
+        if (!empresaActivaId) throw new Error("Sin empresa activa");
+
         const { data: trows, error: te } = await supabase
           .from("ventas_tags")
           .select("tag")
+          .eq("empresa_id", empresaActivaId)
           .eq("venta_id", ventaId)
           .is("removed_at", null)
           .in("tag", ["EDICION_REQUERIDA"])
@@ -139,6 +147,7 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
         const { data: v, error: ve } = await supabase
           .from("ventas")
           .select("id,cliente_id,comentarios,estado")
+          .eq("empresa_id", empresaActivaId)
           .eq("id", ventaId)
           .maybeSingle();
         if (ve) throw ve;
@@ -150,6 +159,7 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
         const { data: c, error: ce } = await supabase
           .from("clientes")
           .select("id,nombre,nit,telefono,direccion")
+          .eq("empresa_id", empresaActivaId)
           .eq("id", Number((v as any).cliente_id))
           .maybeSingle();
         if (ce) throw ce;
@@ -158,6 +168,7 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
         const { data: d, error: de } = await supabase
           .from("ventas_detalle")
           .select("id,cantidad,precio_venta_unit,producto_id,productos(nombre,marca_id,marcas(nombre))")
+          .eq("empresa_id", empresaActivaId)
           .eq("venta_id", ventaId)
           .order("id", { ascending: true });
         if (de) throw de;
@@ -182,6 +193,7 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
           const { data: inv, error: ie } = await supabase
             .from("vw_inventario_productos_v2")
             .select("id,stock_disponible,precio_min_venta,tiene_iva,requiere_receta")
+            .eq("empresa_id", empresaActivaId)
             .in("id", prodIds);
           if (ie) throw ie;
           const baseMap: Record<string, number> = {};
@@ -317,18 +329,30 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
     }
     setClienteDropLoading(true);
     try {
-      const { data } = await supabase
+      if (!empresaActivaId) { setClienteDropResults([]); return; }
+      // VENTAS: esperar a que el rol esté listo y filtrar solo sus clientes
+      if (!roleReady) { setClienteDropResults([]); return; }
+      if (isVentas && !uid) { setClienteDropResults([]); return; }
+
+      let req = supabase
         .from("clientes")
         .select("id,nombre,nit,telefono,direccion")
+        .eq("empresa_id", empresaActivaId)
         .ilike("nombre", `%${term.trim()}%`)
         .limit(20);
+
+      if (isVentas) {
+        req = req.eq("vendedor_id", uid!);
+      }
+
+      const { data } = await req;
       setClienteDropResults(data ?? []);
     } catch {
       setClienteDropResults([]);
     } finally {
       setClienteDropLoading(false);
     }
-  }, []);
+  }, [empresaActivaId, isVentas, roleReady, uid]);
 
   const searchProductos = useCallback(async (term: string, lineKey: string) => {
     if (term.trim().length < 2) {
@@ -336,11 +360,13 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
       setProdLoadingByKey((prev) => ({ ...prev, [lineKey]: false }));
       return;
     }
+    if (!empresaActivaId) { setProdResultsByKey((prev) => ({ ...prev, [lineKey]: [] })); return; }
     setProdLoadingByKey((prev) => ({ ...prev, [lineKey]: true }));
     try {
       const { data } = await supabase
         .from("vw_inventario_productos_v2")
         .select("id,nombre,marca,stock_disponible,precio_min_venta,tiene_iva,requiere_receta")
+        .eq("empresa_id", empresaActivaId)
         .eq("activo", true)
         .ilike("nombre", `%${term.trim()}%`)
         .limit(20);
@@ -353,7 +379,7 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
     } finally {
       setProdLoadingByKey((prev) => ({ ...prev, [lineKey]: false }));
     }
-  }, []);
+  }, [empresaActivaId]);
 
   const saveNewCliente = useCallback(async () => {
     if (!newClienteNombre.trim()) return;
@@ -362,6 +388,7 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
       const { data, error } = await supabase
         .from("clientes")
         .insert({
+          empresa_id: empresaActivaId,
           nombre: newClienteNombre.trim(),
           nit: newClienteNit.trim() || null,
           telefono: newClienteTelefono.trim() || null,
@@ -387,7 +414,7 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
     } finally {
       setSavingNewCliente(false);
     }
-  }, [newClienteNombre, newClienteNit, newClienteTelefono, newClienteDireccion, setCliente]);
+  }, [newClienteNombre, newClienteNit, newClienteTelefono, newClienteDireccion, setCliente, empresaActivaId]);
 
   // ── validation ─────────────────────────────────────────────────────────────
 
@@ -398,10 +425,10 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
     const qty = parseIntSafe(l.cantidad);
     const price = parseDecimalSafe(l.precio_unit);
     if (qty <= 0) return { ok: false, msg: "Cantidad debe ser mayor a 0" };
-    if (qty > stock) return { ok: false, msg: `Cantidad supera disponibles (${stock})` };
+    if (mode !== "cotizacion" && qty > stock) return { ok: false, msg: `Cantidad supera disponibles (${stock})` };
     if (price < min) return { ok: false, msg: `Precio menor al minimo (${fmtQ(min)})` };
     return { ok: true, msg: "" };
-  }, [effectiveStockForLine]);
+  }, [effectiveStockForLine, mode]);
 
   const allValid = useMemo(() => {
     if (loadingEdit) return false;
@@ -461,11 +488,56 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
       .map((l) => Number(l.producto_id))
       .filter((id) => Number.isFinite(id) && id > 0);
     if (new Set(productIds).size !== productIds.length) {
-      return window.alert("No puedes agregar el mismo producto más de una vez. Edita la cantidad en una sola línea.");
+      Alert.alert("Aviso", "No puedes agregar el mismo producto más de una vez. Edita la cantidad en una sola línea.");
+      return;
     }
     if (saving) return;
 
+    if (!empresaReady) {
+      return;
+    }
+
+    if (!empresaActivaId) {
+      Alert.alert("Sin empresa", "No tienes una empresa activa asignada. Contacta al administrador.");
+      return;
+    }
+
+    if (mode === "cotizacion") {
+      const empresaInfo = empresas.find((e) => e.id === empresaActivaId);
+      setSaving(true);
+      generarCotizacionPdf({
+        empresa: {
+          nombre: empresaInfo?.nombre ?? "Bros Pharma",
+          logo_url: empresaInfo?.logo_url ?? null,
+        },
+        cliente: {
+          nombre: cliente?.nombre ?? "",
+          nit: cliente?.nit ?? null,
+          telefono: cliente?.telefono ?? null,
+          direccion: cliente?.direccion ?? null,
+        },
+        lineas: lineas.map((l: any) => ({
+          producto_label: String(l.producto_label ?? ""),
+          cantidad: parseIntSafe(String(l.cantidad ?? 0)),
+          precio_unit: parseDecimalSafe(String(l.precio_unit ?? 0)),
+          tiene_iva: l.tiene_iva ?? null,
+        })),
+        comentarios: comentarios?.trim() || null,
+      }, {
+        fileName: `cotizacion-${cliente?.nombre?.replace(/[^a-zA-Z0-9]/g, "-") ?? "cliente"}`,
+      }).then(() => {
+        setSaving(false);
+        reset();
+        onDone();
+      }).catch((e: any) => {
+        setSaving(false);
+        Alert.alert("Error", String(e?.message ?? "No se pudo generar el PDF"));
+      });
+      return;
+    }
+
     const p_venta = {
+      empresa_id: empresaActivaId,
       cliente_id: Number(cliente.id),
       comentarios: comentarios?.trim() ? comentarios.trim() : null,
     };
@@ -491,9 +563,6 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
           const { data, error } = await supabase.rpc("rpc_crear_venta" as any, { p_venta, p_items } as any);
           if (error) throw error;
           savedVentaId = (data as any)?.venta_id ?? null;
-          if (savedVentaId) {
-            dispatchNotifs(20).catch((e: any) => console.warn("[notif] dispatch failed", e?.message ?? e));
-          }
         }
 
         let recetaOk = true;
@@ -503,7 +572,7 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
             const rnd = Math.random().toString(16).slice(2);
             const ext = extFromUri(receta_uri);
             const contentType = mimeFromExt(ext);
-            const path = `ventas/${savedVentaId}/recetas/${stamp}-${rnd}.${ext}`;
+            const path = `${empresaActivaId}/ventas/${savedVentaId}/recetas/${stamp}-${rnd}.${ext}`;
             const ab = await uriToArrayBuffer(receta_uri);
             const bytes = new Uint8Array(ab);
             const { error: upErr } = await supabase.storage
@@ -531,6 +600,8 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
         let msg = "No se pudo guardar la venta.";
         if (raw.includes("there is no unique or exclusion constraint matching the on conflict specification")) {
           msg = "No se puede agregar el mismo producto más de una vez en la venta. Edita la cantidad en una sola línea.";
+        } else if (raw.includes("empresa_invalida") || raw.includes("no_membresia_empresa")) {
+          msg = "No tienes membresía activa en esta empresa. Contacta al administrador.";
         } else if (e?.message) {
           msg = String(e.message);
         }
@@ -866,9 +937,9 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
           </View>
         ) : null}
         <AppButton
-          title={loadingEdit ? "Cargando..." : !allValid ? "Revisa datos" : saving ? "Guardando..." : isEdit ? "Guardar cambios" : "Guardar venta"}
+          title={!empresaReady ? "Cargando..." : loadingEdit ? "Cargando..." : !allValid ? "Revisa datos" : saving ? (mode === "cotizacion" ? "Generando PDF..." : "Guardando...") : mode === "cotizacion" ? "Generar cotización PDF" : isEdit ? "Guardar cambios" : "Guardar venta"}
           onPress={onGuardar}
-          disabled={loadingEdit || !allValid || saving}
+          disabled={!empresaReady || loadingEdit || !allValid || saving}
           style={[styles.saveBtn, { backgroundColor: C.blueText, marginBottom: 10 }] as any}
         />
       </ScrollView>
@@ -897,7 +968,7 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
                 style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.bg }]}
                 autoFocus
               />
-              <Text style={[styles.label, { color: C.text }]}>NIT</Text>
+              <Text style={[styles.label, { color: C.text }]}>NIT *</Text>
               <TextInput
                 value={newClienteNit}
                 onChangeText={setNewClienteNit}
@@ -905,7 +976,7 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
                 placeholderTextColor={C.sub}
                 style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.bg }]}
               />
-              <Text style={[styles.label, { color: C.text }]}>Teléfono</Text>
+              <Text style={[styles.label, { color: C.text }]}>Teléfono *</Text>
               <TextInput
                 value={newClienteTelefono}
                 onChangeText={setNewClienteTelefono}
@@ -914,7 +985,7 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
                 keyboardType="phone-pad"
                 style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.bg }]}
               />
-              <Text style={[styles.label, { color: C.text }]}>Dirección</Text>
+              <Text style={[styles.label, { color: C.text }]}>Dirección *</Text>
               <TextInput
                 value={newClienteDireccion}
                 onChangeText={setNewClienteDireccion}
@@ -925,7 +996,7 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
               <AppButton
                 title={savingNewCliente ? "Guardando..." : "Guardar cliente"}
                 onPress={saveNewCliente}
-                disabled={!newClienteNombre.trim() || savingNewCliente}
+                disabled={!newClienteNombre.trim() || !newClienteNit.trim() || !newClienteTelefono.trim() || !newClienteDireccion.trim() || savingNewCliente}
                 style={[styles.saveBtn, { backgroundColor: C.blueText, marginTop: 16, marginBottom: 20 }] as any}
               />
             </ScrollView>

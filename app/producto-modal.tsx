@@ -19,6 +19,7 @@ import {
 } from "react-native";
 import ImageViewer from "react-native-image-zoom-viewer";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useEmpresaActiva } from "../lib/useEmpresaActiva";
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { AppButton } from "../components/ui/app-button";
@@ -165,6 +166,7 @@ export default function ProductoModal() {
 
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const { empresaActivaId } = useEmpresaActiva();
 
   const [viewerOpen, setViewerOpen] = useState(false);
   const [savingPhoto, setSavingPhoto] = useState(false);
@@ -231,12 +233,14 @@ export default function ProductoModal() {
   }, []);
 
   const fetchProductoHead = useCallback(async () => {
+    if (!empresaActivaId) return;
     const { data, error } = await supabase
       .from("productos")
       // NOTE: la columna legacy "marca" (texto) ya no existe; usamos marcas via FK
       .select(
         "id,nombre,marca_id,image_path,activo,tiene_iva,requiere_receta,marcas:marcas!productos_marca_id_fk(nombre)"
       )
+      .eq("empresa_id", empresaActivaId)
       .eq("id", productoId)
       .maybeSingle();
 
@@ -269,14 +273,16 @@ export default function ProductoModal() {
     } else {
       setImageUrl(null);
     }
-  }, [productoId]);
+  }, [productoId, empresaActivaId]);
 
   const fetchLotes = useCallback(async () => {
+    if (!empresaActivaId) return;
     const { data, error } = await supabase
       .from("vw_producto_lotes_detalle")
       .select(
         "producto_id,nombre,marca,image_path,activo,tiene_iva,requiere_receta,precio_compra_actual,precio_min_venta,lote_id,lote,fecha_exp,stock_total_lote,stock_reservado_lote,stock_disponible_lote"
       )
+      .eq("empresa_id", empresaActivaId)
       .eq("producto_id", productoId)
       .order("fecha_exp", { ascending: true });
 
@@ -285,7 +291,7 @@ export default function ProductoModal() {
       return;
     }
     setRows((data ?? []) as LoteRow[]);
-  }, [productoId]);
+  }, [productoId, empresaActivaId]);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);

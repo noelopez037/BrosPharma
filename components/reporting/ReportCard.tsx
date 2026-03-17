@@ -18,6 +18,7 @@ type ReportCardProps = {
   loading?: boolean;
   disabled?: boolean;
   exportButtonVariant?: "default" | "excel";
+  style?: object;
 };
 
 export function ReportCard({
@@ -31,6 +32,7 @@ export function ReportCard({
   loading,
   disabled,
   exportButtonVariant = "default",
+  style,
 }: ReportCardProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -54,7 +56,7 @@ export function ReportCard({
       : null;
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, style]}>
       <View style={styles.header}>
         <View style={styles.headerText}>
           <Text style={styles.title}>{title}</Text>

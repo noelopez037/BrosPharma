@@ -21,6 +21,7 @@ import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll"
 import { useVentaDraft, type Cliente } from "../lib/ventaDraft";
 import { supabase } from "../lib/supabase";
 import { useRole } from "../lib/useRole";
+import { useEmpresaActiva } from "../lib/useEmpresaActiva";
 import { goBackSafe } from "../lib/goBackSafe";
 import { getHeaderColors } from "../src/theme/headerColors";
 
@@ -86,6 +87,7 @@ export default function SelectCliente() {
   const [loading, setLoading] = useState(false);
 
   const { role, uid, isReady, refreshRole } = useRole();
+  const { empresaActivaId } = useEmpresaActiva();
   const roleUp = String(role ?? "").trim().toUpperCase() as Role;
   const isVentas = isReady && roleUp === "VENTAS";
   const canCreateCliente = isReady && (roleUp === "ADMIN" || roleUp === "VENTAS");
@@ -97,11 +99,14 @@ export default function SelectCliente() {
   const [newDir, setNewDir] = useState("");
 
   const load = async () => {
+    if (!empresaActivaId) return;
+    if (!isReady) return;
     setLoading(true);
     try {
       let req = supabase
         .from("clientes")
         .select("id,nombre,nit,telefono,direccion,activo,vendedor_id")
+        .eq("empresa_id", empresaActivaId)
         .eq("activo", true)
         .order("nombre", { ascending: true })
         .limit(300);
@@ -143,7 +148,7 @@ export default function SelectCliente() {
     }, 220);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, isVentas, uid, mode]);
+  }, [q, isVentas, isReady, uid, mode, empresaActivaId]);
 
   const pick = (c: ClienteRow) => {
     const payload: Cliente = {
@@ -166,6 +171,7 @@ export default function SelectCliente() {
 
   const crear = async () => {
     if (!canCreateCliente) return;
+    if (!empresaActivaId) return Alert.alert("Error", "Sin empresa activa");
 
     const nombre = newNombre.trim();
     const telefono = newTel.trim();
@@ -187,6 +193,7 @@ export default function SelectCliente() {
       const { data, error } = await supabase
         .from("clientes")
         .insert({
+          empresa_id: empresaActivaId,
           nombre,
           nit: nitSave,
           telefono,

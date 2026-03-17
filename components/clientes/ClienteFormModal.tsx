@@ -23,6 +23,8 @@ type Props = {
   isAdmin: boolean;
   vendedorId: string | null;
   uid: string | null;
+  empresaActivaId: number | null;
+  editClienteId?: number | null; // when provided: edit mode
 };
 
 export function ClienteFormModal({
@@ -34,6 +36,8 @@ export function ClienteFormModal({
   isAdmin,
   vendedorId,
   uid,
+  empresaActivaId,
+  editClienteId,
 }: Props) {
   if (Platform.OS !== "web" || !createPortal) return null;
   if (!visible) return null;
@@ -51,7 +55,7 @@ export function ClienteFormModal({
         {/* Header */}
         <View style={[styles.header, { borderBottomColor: C.border }]}>
           <View style={styles.closeBtnPlaceholder} />
-          <Text style={[styles.headerTitle, { color: C.text }]}>Nuevo cliente</Text>
+          <Text style={[styles.headerTitle, { color: C.text }]}>{editClienteId ? "Editar cliente" : "Nuevo cliente"}</Text>
           <Pressable onPress={onClose} style={styles.closeBtn} hitSlop={8}>
             <Text style={[styles.closeText, { color: C.sub }]}>✕</Text>
           </Pressable>
@@ -71,6 +75,8 @@ export function ClienteFormModal({
             isAdmin={isAdmin}
             vendedorId={vendedorId}
             uid={uid}
+            empresaActivaId={empresaActivaId}
+            editClienteId={editClienteId ?? undefined}
           />
         </ScrollView>
       </View>

@@ -23,12 +23,12 @@ import { AppButton } from "../components/ui/app-button";
 import { DoneAccessory } from "../components/ui/done-accessory";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
 import { supabase } from "../lib/supabase";
-import { dispatchNotifs } from "../lib/notif-dispatch";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
 import { useVentaDraft } from "../lib/ventaDraft";
 import { goBackSafe } from "../lib/goBackSafe";
 import { useRole } from "../lib/useRole";
+import { useEmpresaActiva } from "../lib/useEmpresaActiva";
 import { FB_DARK_DANGER } from "../src/theme/headerColors";
 
 const BUCKET_VENTAS_DOCS = "Ventas-Docs";
@@ -119,6 +119,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
   const skipResetOnFocusRef = useRef(false);
   const loadedEditIdRef = useRef<string | null>(null);
   const { role, isReady: roleReady, refreshRole } = useRole();
+  const { empresaActivaId, isReady: empresaReady } = useEmpresaActiva();
   const [saving, setSaving] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(false);
 
@@ -186,9 +187,11 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
     }
     setClienteDropLoading(true);
     try {
+      if (!empresaActivaId) { setClienteDropResults([]); return; }
       const { data } = await supabase
         .from("clientes")
         .select("id,nombre,nit,telefono,direccion")
+        .eq("empresa_id", empresaActivaId)
         .ilike("nombre", `%${term.trim()}%`)
         .limit(20);
       setClienteDropResults(data ?? []);
@@ -197,7 +200,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
     } finally {
       setClienteDropLoading(false);
     }
-  }, []);
+  }, [empresaActivaId]);
 
   const searchProductos = useCallback(async (term: string, lineKey: string) => {
     if (term.trim().length < 2) {
@@ -205,11 +208,13 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
       setProdLoadingByKey((prev) => ({ ...prev, [lineKey]: false }));
       return;
     }
+    if (!empresaActivaId) { setProdResultsByKey((prev) => ({ ...prev, [lineKey]: [] })); return; }
     setProdLoadingByKey((prev) => ({ ...prev, [lineKey]: true }));
     try {
       const { data } = await supabase
         .from("vw_inventario_productos_v2")
         .select("id,nombre,marca,stock_disponible,precio_min_venta,tiene_iva,requiere_receta")
+        .eq("empresa_id", empresaActivaId)
         .eq("activo", true)
         .ilike("nombre", `%${term.trim()}%`)
         .limit(20);
@@ -223,7 +228,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
     } finally {
       setProdLoadingByKey((prev) => ({ ...prev, [lineKey]: false }));
     }
-  }, []);
+  }, [empresaActivaId]);
 
   const saveNewCliente = useCallback(async () => {
     if (!newClienteNombre.trim()) return;
@@ -232,6 +237,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
       const { data, error } = await supabase
         .from("clientes")
         .insert({
+          empresa_id: empresaActivaId,
           nombre: newClienteNombre.trim(),
           nit: newClienteNit.trim() || null,
           telefono: newClienteTelefono.trim() || null,
@@ -257,7 +263,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
     } finally {
       setSavingNewCliente(false);
     }
-  }, [newClienteNombre, newClienteNit, newClienteTelefono, newClienteDireccion, setCliente]);
+  }, [newClienteNombre, newClienteNit, newClienteTelefono, newClienteDireccion, setCliente, empresaActivaId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -280,10 +286,13 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
           try {
             setLoadingEdit(true);
 
+            if (!empresaActivaId) { setLoadingEdit(false); return; }
+
             // Validar que exista autorizacion de edicion activa
             const { data: trows, error: te } = await supabase
               .from("ventas_tags")
               .select("tag")
+              .eq("empresa_id", empresaActivaId)
               .eq("venta_id", Number(editId))
               .is("removed_at", null)
               .in("tag", ["EDICION_REQUERIDA"])
@@ -294,6 +303,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
             const { data: v, error: ve } = await supabase
               .from("ventas")
               .select("id,cliente_id,comentarios,estado")
+              .eq("empresa_id", empresaActivaId)
               .eq("id", Number(editId))
               .maybeSingle();
             if (ve) throw ve;
@@ -305,6 +315,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
             const { data: c, error: ce } = await supabase
               .from("clientes")
               .select("id,nombre,nit,telefono,direccion")
+              .eq("empresa_id", empresaActivaId)
               .eq("id", Number((v as any).cliente_id))
               .maybeSingle();
             if (ce) throw ce;
@@ -313,6 +324,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
             const { data: d, error: de } = await supabase
               .from("ventas_detalle")
               .select("id,cantidad,precio_venta_unit,producto_id, productos(nombre,marca_id,marcas(nombre))")
+              .eq("empresa_id", empresaActivaId)
               .eq("venta_id", Number(editId))
               .order("id", { ascending: true });
             if (de) throw de;
@@ -340,6 +352,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
               const { data: inv, error: ie } = await supabase
                 .from("vw_inventario_productos_v2")
                 .select("id,stock_disponible,precio_min_venta,tiene_iva,requiere_receta")
+                .eq("empresa_id", empresaActivaId)
                 .in("id", prodIds);
               if (ie) throw ie;
 
@@ -425,7 +438,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
       return () => {
         alive = false;
       };
-    }, [addLinea, editId, isEdit, refreshRole, reset, setCliente, setComentarios, setRecetaUri, updateLinea])
+    }, [addLinea, editId, empresaActivaId, isEdit, refreshRole, reset, setCliente, setComentarios, setRecetaUri, updateLinea])
   );
 
   const roleUp = normalizeUpper(role) as Role;
@@ -525,7 +538,16 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
 
     if (saving) return;
 
+    if (!empresaReady) {
+      return;
+    }
+
+    if (!empresaActivaId) {
+      return Alert.alert("Sin empresa", "No tienes una empresa activa asignada. Contacta al administrador.");
+    }
+
     const p_venta = {
+      empresa_id: empresaActivaId,
       cliente_id: Number(cliente.id),
       comentarios: comentarios?.trim() ? comentarios.trim() : null,
     };
@@ -549,10 +571,6 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
 
         const ventaId = isEdit ? Number(editId) : ((data as any)?.venta_id ?? null);
 
-        if (!isEdit && ventaId) {
-          dispatchNotifs(20).catch((e: any) => console.warn("[notif] dispatch failed", e?.message ?? e));
-        }
-
         // Si el usuario adjunto receta en el formulario, subirla ahora (no bloquea la venta si falla).
         let recetaOk = true;
         if (ventaId && receta_uri) {
@@ -561,7 +579,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
             const rnd = Math.random().toString(16).slice(2);
             const ext = extFromUri(receta_uri);
             const contentType = mimeFromExt(ext);
-            const path = `ventas/${ventaId}/recetas/${stamp}-${rnd}.${ext}`;
+            const path = `${empresaActivaId}/ventas/${ventaId}/recetas/${stamp}-${rnd}.${ext}`;
 
             const ab = await uriToArrayBuffer(receta_uri);
             const bytes = new Uint8Array(ab);
@@ -1017,16 +1035,18 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
 
           <AppButton
             title={
-              !allValid
-                ? "Revisa datos"
-                : saving
-                  ? "Guardando..."
-                  : isEdit
-                    ? "Guardar cambios"
-                    : "Guardar venta"
+              !empresaReady
+                ? "Cargando..."
+                : !allValid
+                  ? "Revisa datos"
+                  : saving
+                    ? "Guardando..."
+                    : isEdit
+                      ? "Guardar cambios"
+                      : "Guardar venta"
             }
             onPress={onGuardar}
-            disabled={!allValid || saving || loadingEdit}
+            disabled={!empresaReady || !allValid || saving || loadingEdit}
             style={[styles.saveBtn, { backgroundColor: C.blueText, marginBottom: 10 + insets.bottom }] as any}
           />
           </ScrollView>
@@ -1058,7 +1078,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
                 style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.bg }]}
                 autoFocus
               />
-              <Text style={[styles.label, { color: C.text }]}>NIT</Text>
+              <Text style={[styles.label, { color: C.text }]}>NIT *</Text>
               <TextInput
                 value={newClienteNit}
                 onChangeText={setNewClienteNit}
@@ -1066,7 +1086,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
                 placeholderTextColor={C.sub}
                 style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.bg }]}
               />
-              <Text style={[styles.label, { color: C.text }]}>Teléfono</Text>
+              <Text style={[styles.label, { color: C.text }]}>Teléfono *</Text>
               <TextInput
                 value={newClienteTelefono}
                 onChangeText={setNewClienteTelefono}
@@ -1075,7 +1095,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
                 keyboardType="phone-pad"
                 style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.bg }]}
               />
-              <Text style={[styles.label, { color: C.text }]}>Dirección</Text>
+              <Text style={[styles.label, { color: C.text }]}>Dirección *</Text>
               <TextInput
                 value={newClienteDireccion}
                 onChangeText={setNewClienteDireccion}
@@ -1086,7 +1106,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
               <AppButton
                 title={savingNewCliente ? "Guardando..." : "Guardar cliente"}
                 onPress={saveNewCliente}
-                disabled={!newClienteNombre.trim() || savingNewCliente}
+                disabled={!newClienteNombre.trim() || !newClienteNit.trim() || !newClienteTelefono.trim() || !newClienteDireccion.trim() || savingNewCliente}
                 style={[styles.saveBtn, { backgroundColor: C.blueText, marginTop: 16, marginBottom: 20 }] as any}
               />
             </ScrollView>

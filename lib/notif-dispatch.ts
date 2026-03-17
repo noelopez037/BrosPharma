@@ -2,7 +2,7 @@ import { supabase } from "./supabase";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function dispatchOnce(limit: number) {
+async function dispatchOnce(empresaId: number, limit: number) {
   const { data } = await supabase.auth.getSession();
   const token = data?.session?.access_token;
 
@@ -13,7 +13,7 @@ async function dispatchOnce(limit: number) {
   const { data: out, error } = await supabase.functions.invoke(
     "notif-dispatch",
     {
-      body: { limit },
+      body: { limit, empresa_id: empresaId },
       headers: {
         Authorization: `Bearer ${token}`,
         ...(process.env.EXPO_PUBLIC_DISPATCH_SECRET
@@ -34,7 +34,7 @@ async function dispatchOnce(limit: number) {
   return out;
 }
 
-async function dispatchWithRetry(limit: number) {
+async function dispatchWithRetry(empresaId: number, limit: number) {
   let lastError: unknown;
   const delays = [0, 800, 2000];
 
@@ -44,7 +44,7 @@ async function dispatchWithRetry(limit: number) {
     }
 
     try {
-      return await dispatchOnce(limit);
+      return await dispatchOnce(empresaId, limit);
     } catch (err) {
       lastError = err;
     }
@@ -61,9 +61,9 @@ type DispatchResult = Awaited<ReturnType<typeof dispatchOnce>>;
 
 let inFlight: Promise<DispatchResult> | null = null;
 
-export async function dispatchNotifs(limit = 20) {
+export async function dispatchNotifs(empresaId: number, limit = 20) {
   if (!inFlight) {
-    inFlight = dispatchWithRetry(limit).finally(() => {
+    inFlight = dispatchWithRetry(empresaId, limit).finally(() => {
       inFlight = null;
     });
   }

@@ -29,11 +29,12 @@ import { AppButton } from "../ui/app-button";
 import { KeyboardAwareModal } from "../ui/keyboard-aware-modal";
 import { useKeyboardAutoScroll } from "../ui/use-keyboard-autoscroll";
 import { goBackSafe } from "../../lib/goBackSafe";
-import { dispatchNotifs } from "../../lib/notif-dispatch";
 import { emitSolicitudesChanged } from "../../lib/solicitudesEvents";
+import { emitVentaEstadoChanged } from "../../lib/ventaEstadoEvents";
 import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { alphaColor } from "../../lib/ui";
+import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useRole } from "../../lib/useRole";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
@@ -135,6 +136,7 @@ type VentaDetallePanelProps = {
   ventaId: number;
   embedded?: boolean;
   onEditWeb?: (ventaId: number) => void;
+  refreshKey?: number;
 };
 
 type VentaDetallePanelContentProps = {
@@ -142,13 +144,14 @@ type VentaDetallePanelContentProps = {
   ventaIdProp: number;
   params: VentaDetalleRouteParams | null;
   onEditWeb?: (ventaId: number) => void;
+  refreshKey?: number;
 };
 
 const BUCKET = "Ventas-Docs";
 
-export function VentaDetallePanel({ ventaId, embedded = false, onEditWeb }: VentaDetallePanelProps) {
+export function VentaDetallePanel({ ventaId, embedded = false, onEditWeb, refreshKey }: VentaDetallePanelProps) {
   if (embedded) {
-    return <VentaDetallePanelContent embedded ventaIdProp={ventaId} params={null} onEditWeb={onEditWeb} />;
+    return <VentaDetallePanelContent embedded ventaIdProp={ventaId} params={null} onEditWeb={onEditWeb} refreshKey={refreshKey} />;
   }
   return <VentaDetallePanelWithParams fallbackVentaId={ventaId} />;
 }
@@ -324,6 +327,19 @@ async function openInBrowser(url: string) {
 
 async function downloadAndShareFile(url: string, filename: string) {
   if (!url) throw new Error("URL inválida");
+
+  if (Platform.OS === "web") {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename || "archivo";
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    return;
+  }
+
   const baseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
   if (!baseDir) throw new Error("No hay directorio local disponible");
 
@@ -338,7 +354,7 @@ async function downloadAndShareFile(url: string, filename: string) {
   await Share.share({ url: dl.uri });
 }
 
-function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, onEditWeb }: VentaDetallePanelContentProps) {
+function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, onEditWeb, refreshKey }: VentaDetallePanelContentProps) {
   const insets = useSafeAreaInsets();
   const { scrollRef, handleFocus } = useKeyboardAutoScroll(110);
   const { colors } = useTheme();
@@ -381,6 +397,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
   );
 
   const { role, refreshRole } = useRole();
+  const { empresaActivaId, isReady: empresaReady } = useEmpresaActiva();
   const roleUp = normalizeUpper(role) as Role;
   const [venta, setVenta] = useState<Venta | null>(null);
   const [clienteMini, setClienteMini] = useState<ClienteMini | null>(null);
@@ -389,6 +406,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
   const [facturas, setFacturas] = useState<FacturaRow[]>([]);
   const [facturaDraft, setFacturaDraft] = useState<Record<string, FacturaDraft>>({});
   const [montoTouched, setMontoTouched] = useState<Record<"IVA" | "EXENTO", boolean>>({ IVA: false, EXENTO: false });
+  const [facturaTouched, setFacturaTouched] = useState(false);
 
   const [tagsActivos, setTagsActivos] = useState<string[]>([]);
   const [solicitudAnulacion, setSolicitudAnulacion] = useState<SolicitudAnulacion | null>(null);
@@ -404,6 +422,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
   const [uploadingPdfTipo, setUploadingPdfTipo] = useState<"IVA" | "EXENTO" | null>(null);
   const [facturando, setFacturando] = useState(false);
   const [anulando, setAnulando] = useState(false);
+  const [cancelandoAnulacion, setCancelandoAnulacion] = useState(false);
   const [enRutaLoading, setEnRutaLoading] = useState(false);
   const [entregarLoading, setEntregarLoading] = useState(false);
 
@@ -447,6 +466,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     setFacturas([]);
     setFacturaDraft({});
     setMontoTouched({ IVA: false, EXENTO: false });
+    setFacturaTouched(false);
     setTagsActivos([]);
     setClienteMini(null);
     setSolicitudAnulacion(null);
@@ -461,11 +481,17 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       return;
     }
 
+    if (!empresaActivaId) {
+      setClienteMini(null);
+      return;
+    }
+
     (async () => {
       try {
         const { data, error } = await supabase
           .from("clientes")
           .select("id,nombre,nit,telefono,direccion")
+          .eq("empresa_id", empresaActivaId)
           .eq("id", cid)
           .maybeSingle();
         if (error) throw error;
@@ -478,23 +504,27 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     return () => {
       alive = false;
     };
-  }, [venta?.cliente_id]);
+  }, [venta?.cliente_id, empresaActivaId]);
 
   const fetchTags = useCallback(async () => {
+    if (!empresaActivaId) return;
     const { data, error } = await supabase
       .from("ventas_tags")
       .select("tag")
+      .eq("empresa_id", empresaActivaId)
       .eq("venta_id", ventaIdNum)
       .is("removed_at", null);
     if (error) throw error;
     const tags = (data ?? []).map((r: any) => String(r.tag ?? "").trim().toUpperCase()).filter(Boolean);
     setTagsActivos(tags);
-  }, [ventaIdNum]);
+  }, [ventaIdNum, empresaActivaId]);
 
   const fetchSolicitudAnulacion = useCallback(async () => {
+    if (!empresaActivaId) return;
     const { data, error } = await supabase
       .from("vw_venta_razon_anulacion")
       .select("venta_id,solicitud_nota,solicitud_fecha,solicitud_user_id")
+      .eq("empresa_id", empresaActivaId)
       .eq("venta_id", ventaIdNum)
       .maybeSingle();
     if (error) throw error;
@@ -515,27 +545,31 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     } catch {
       setSolicitudAnulacionByName(null);
     }
-  }, [ventaIdNum]);
+  }, [ventaIdNum, empresaActivaId]);
 
   const fetchVenta = useCallback(async () => {
+    if (!empresaActivaId) return;
     const { data, error } = await supabase
       .from("ventas")
       .select(
         "id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,comentarios,requiere_receta,receta_cargada"
       )
+      .eq("empresa_id", empresaActivaId)
       .eq("id", ventaIdNum)
       .maybeSingle();
     if (error) throw error;
     setVenta((data ?? null) as any);
-  }, [ventaIdNum]);
+  }, [ventaIdNum, empresaActivaId]);
 
   const fetchLineas = useCallback(async (allowSplit: boolean) => {
+    if (!empresaActivaId) return;
     const base = "id,producto_id,lote_id,cantidad,precio_venta_unit,subtotal,producto_lotes(lote,fecha_exp),productos(nombre,marca_id,marcas(nombre)";
     const select = allowSplit ? `${base},tiene_iva)` : `${base})`;
 
     const { data, error } = await supabase
       .from("ventas_detalle")
       .select(select)
+      .eq("empresa_id", empresaActivaId)
       .eq("venta_id", ventaIdNum)
       .order("id", { ascending: true });
     if (error) throw error;
@@ -555,12 +589,14 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     }));
 
     setLineas(mapped);
-  }, [ventaIdNum]);
+  }, [ventaIdNum, empresaActivaId]);
 
   const fetchFacturas = useCallback(async () => {
+    if (!empresaActivaId) return;
     const { data, error } = await supabase
       .from("ventas_facturas")
       .select("id,venta_id,tipo,path,numero_factura,original_name,size_bytes,monto_total,fecha_emision,fecha_vencimiento")
+      .eq("empresa_id", empresaActivaId)
       .eq("venta_id", ventaIdNum)
       .order("created_at", { ascending: false });
     if (error) throw error;
@@ -586,12 +622,14 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       };
     });
     setFacturaDraft((prev) => ({ ...prev, ...next }));
-  }, [ventaIdNum]);
+  }, [ventaIdNum, empresaActivaId]);
 
   const fetchRecetas = useCallback(async () => {
+    if (!empresaActivaId) return;
     const { data, error } = await supabase
       .from("ventas_recetas")
       .select("id,venta_id,path,created_at,uploaded_by")
+      .eq("empresa_id", empresaActivaId)
       .eq("venta_id", ventaIdNum)
       .order("created_at", { ascending: true });
     if (error) throw error;
@@ -612,7 +650,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     }
 
     setRecetas(items);
-  }, [ventaIdNum]);
+  }, [ventaIdNum, empresaActivaId]);
 
   const fetchAll = useCallback(async () => {
     if (!Number.isFinite(ventaIdNum) || ventaIdNum <= 0) {
@@ -623,6 +661,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       setSolicitudAnulacion(null);
       return;
     }
+    if (!empresaActivaId) return;
 
     const r = (normalizeUpper(await refreshRole()) as Role) ?? "";
     const allowSplit = r === "ADMIN" || r === "FACTURACION";
@@ -637,7 +676,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
         setSolicitudAnulacion(null);
       }),
     ]);
-  }, [fetchFacturas, fetchLineas, fetchRecetas, fetchSolicitudAnulacion, fetchTags, fetchVenta, refreshRole, ventaIdNum]);
+  }, [fetchFacturas, fetchLineas, fetchRecetas, fetchSolicitudAnulacion, fetchTags, fetchVenta, refreshRole, ventaIdNum, empresaActivaId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -646,6 +685,13 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       });
     }, [fetchAll])
   );
+
+  // Cuando el padre incremente refreshKey (ej: después de editar desde modal web),
+  // volver a cargar todos los datos del panel.
+  React.useEffect(() => {
+    if (refreshKey == null || refreshKey === 0) return;
+    fetchAll().catch(() => {});
+  }, [fetchAll, refreshKey]);
 
   const ivaLineas = useMemo(() => {
     if (!canSplitIva) return [] as DetalleRow[];
@@ -831,6 +877,10 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     if (!venta.requiere_receta) return;
     if (!canEditRecetas) return;
     if (uploading) return;
+    if (!empresaReady) return;
+    if (!empresaActivaId) {
+      return Alert.alert("Sin empresa", "No tienes una empresa activa asignada. Contacta al administrador.");
+    }
 
     try {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -866,7 +916,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
        }
        const stamp = Date.now();
        const rnd = Math.random().toString(16).slice(2);
-       const path = `ventas/${venta.id}/recetas/${stamp}-${rnd}.${ext}`;
+       const path = `${empresaActivaId}/ventas/${venta.id}/recetas/${stamp}-${rnd}.${ext}`;
 
        setUploading(true);
        const bytes = await uriToBytes(uploadUri);
@@ -899,11 +949,12 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     } finally {
       setUploading(false);
     }
-  }, [canEditRecetas, fetchRecetas, fetchVenta, scrollRef, uploading, venta, returnTo]);
+  }, [canEditRecetas, empresaActivaId, empresaReady, fetchRecetas, fetchVenta, scrollRef, uploading, venta, returnTo]);
 
   const setNumero = useCallback((tipo: "IVA" | "EXENTO", val: string) => {
     // Factura No: is always numeric.
     const clean = String(val ?? "").replace(/\D+/g, "");
+    setFacturaTouched(true);
     setFacturaDraft((prev) => {
       const cur = prev[tipo] ?? { tipo, numero: "", monto: "", path: null, originalName: null, sizeBytes: null };
       return { ...prev, [tipo]: { ...cur, numero: clean } };
@@ -912,6 +963,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
 
   const setMonto = useCallback((tipo: "IVA" | "EXENTO", val: string) => {
     const clean = sanitizeMontoDraftInput(val);
+    setFacturaTouched(true);
     setMontoTouched((prev) => (prev[tipo] ? prev : { ...prev, [tipo]: true }));
     setFacturaDraft((prev) => {
       const cur = prev[tipo] ?? { tipo, numero: "", monto: "", path: null, originalName: null, sizeBytes: null };
@@ -939,7 +991,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
 
         const stamp = Date.now();
         const rnd = Math.random().toString(16).slice(2);
-        const path = `ventas/${venta.id}/facturas/${tipo}/${stamp}-${rnd}.pdf`;
+        const path = `${empresaActivaId}/ventas/${venta.id}/facturas/${tipo}/${stamp}-${rnd}.pdf`;
 
         const bytes = await uriToBytes(uri);
         const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, bytes, {
@@ -968,6 +1020,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
             }
           }
 
+          setFacturaTouched(true);
           return {
             ...prev,
             [tipo]: {
@@ -1070,37 +1123,42 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       const path = String(d?.path ?? facturaCurrentByTipo[tipo]?.path ?? "").trim();
       if (!path) return;
 
+      const doDelete = async () => {
+        try {
+          // 1) borrar archivo
+          const { error: rmErr } = await supabase.storage.from(BUCKET).remove([path]);
+          if (rmErr) throw rmErr;
+
+          // 2) borrar fila
+          const { error: delErr } = await supabase
+            .from("ventas_facturas")
+            .delete()
+            .eq("empresa_id", empresaActivaId)
+            .eq("venta_id", Number(venta.id))
+            .eq("tipo", tipo);
+          if (delErr) throw delErr;
+
+          setFacturaDraft((prev) => {
+            const cur = prev[tipo] ?? { tipo, numero: "", monto: "", path: null, originalName: null, sizeBytes: null };
+            return { ...prev, [tipo]: { ...cur, path: null, originalName: null, sizeBytes: null, numero: "", monto: "" } };
+          });
+
+          await fetchVenta();
+          await fetchFacturas();
+        } catch (e: any) {
+          Alert.alert("Error", e?.message ?? "No se pudo eliminar la factura");
+        }
+      };
+
+      if (Platform.OS === "web") {
+        const ok = window.confirm("Se eliminara el PDF y el registro. ¿Seguro?");
+        if (ok) doDelete();
+        return;
+      }
+
       Alert.alert("Eliminar factura", "Se eliminara el PDF y el registro. ¿Seguro?", [
         { text: "Cancelar", style: "cancel" },
-        {
-          text: "Eliminar",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              // 1) borrar archivo
-              const { error: rmErr } = await supabase.storage.from(BUCKET).remove([path]);
-              if (rmErr) throw rmErr;
-
-              // 2) borrar fila
-              const { error: delErr } = await supabase
-                .from("ventas_facturas")
-                .delete()
-                .eq("venta_id", Number(venta.id))
-                .eq("tipo", tipo);
-              if (delErr) throw delErr;
-
-              setFacturaDraft((prev) => {
-                const cur = prev[tipo] ?? { tipo, numero: "", monto: "", path: null, originalName: null, sizeBytes: null };
-                return { ...prev, [tipo]: { ...cur, path: null, originalName: null, sizeBytes: null, numero: "", monto: "" } };
-              });
-
-              await fetchVenta();
-              await fetchFacturas();
-            } catch (e: any) {
-              Alert.alert("Error", e?.message ?? "No se pudo eliminar la factura");
-            }
-          },
-        },
+        { text: "Eliminar", style: "destructive", onPress: doDelete },
       ]);
     },
     [canFacturar, facturaCurrentByTipo, facturaDraft, fetchFacturas, fetchVenta, venta]
@@ -1127,9 +1185,9 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       });
       if (error) throw error;
 
-      void dispatchNotifs(20).catch((e: any) => console.warn("[notif] dispatch failed", e?.message ?? e));
-
       Alert.alert("Listo", "Venta facturada.");
+      setFacturaTouched(false);
+      emitVentaEstadoChanged();
       await fetchVenta();
       await fetchFacturas();
     } catch (e: any) {
@@ -1137,7 +1195,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     } finally {
       setFacturando(false);
     }
-  }, [buildFacturaPayload, canFacturar, facturando, fetchFacturas, fetchVenta, venta]);
+  }, [buildFacturaPayload, canFacturar, empresaActivaId, facturando, fetchFacturas, fetchVenta, venta]);
 
   const pasarEnRuta = useCallback(
     async (nota?: string) => {
@@ -1155,6 +1213,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
         if (error) throw error;
 
         Alert.alert("Listo", "Venta marcada como EN RUTA.");
+        emitVentaEstadoChanged();
         await fetchVenta();
       } catch (e: any) {
         Alert.alert("Error", e?.message ?? "No se pudo marcar EN RUTA");
@@ -1173,13 +1232,33 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     if (Platform.OS === "ios" && typeof (Alert as any).prompt === "function") {
       (Alert as any).prompt(
         "Marcar EN RUTA",
-        "Opcional: nota para auditoria",
+        "Nota de auditoria (requerida)",
         [
           { text: "Cancelar", style: "cancel" },
-          { text: "Confirmar", onPress: (text: string) => pasarEnRuta(text).catch(() => {}) },
+          {
+            text: "Confirmar",
+            onPress: (text: string) => {
+              if (!text?.trim()) {
+                Alert.alert("Requerido", "Debes escribir una nota de auditoria.");
+                return;
+              }
+              pasarEnRuta(text).catch(() => {});
+            },
+          },
         ],
         "plain-text"
       );
+      return;
+    }
+
+    if (Platform.OS === "web") {
+      const nota = window.prompt("Nota de auditoria (requerida):\n\n¿Confirmas que esta venta ya está empacada y sale a ruta?");
+      if (nota === null) return;
+      if (!nota.trim()) {
+        window.alert("Debes escribir una nota de auditoria.");
+        return;
+      }
+      pasarEnRuta(nota).catch(() => {});
       return;
     }
 
@@ -1205,6 +1284,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
         if (error) throw error;
 
         Alert.alert("Listo", "Venta marcada como ENTREGADO.");
+        emitVentaEstadoChanged();
         await fetchVenta();
       } catch (e: any) {
         Alert.alert("Error", e?.message ?? "No se pudo marcar ENTREGADO");
@@ -1223,13 +1303,33 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     if (Platform.OS === "ios" && typeof (Alert as any).prompt === "function") {
       (Alert as any).prompt(
         "Marcar ENTREGADO",
-        "Opcional: nota para auditoria",
+        "Nota de auditoria (requerida)",
         [
           { text: "Cancelar", style: "cancel" },
-          { text: "Confirmar", onPress: (text: string) => marcarEntregado(text).catch(() => {}) },
+          {
+            text: "Confirmar",
+            onPress: (text: string) => {
+              if (!text?.trim()) {
+                Alert.alert("Requerido", "Debes escribir una nota de auditoria.");
+                return;
+              }
+              marcarEntregado(text).catch(() => {});
+            },
+          },
         ],
         "plain-text"
       );
+      return;
+    }
+
+    if (Platform.OS === "web") {
+      const nota = window.prompt("Nota de auditoria (requerida):\n\n¿Confirmas que esta venta fue entregada?");
+      if (nota === null) return;
+      if (!nota.trim()) {
+        window.alert("Debes escribir una nota de auditoria.");
+        return;
+      }
+      marcarEntregado(nota).catch(() => {});
       return;
     }
 
@@ -1269,6 +1369,10 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     if (!venta) return;
     if (!canAnular) return;
     if (anulando || facturando || uploadingPdfTipo) return;
+    if (!empresaReady) return;
+    if (!empresaActivaId) {
+      return Alert.alert("Sin empresa", "No tienes una empresa activa asignada. Contacta al administrador.");
+    }
 
     if (!facturaDraftComplete) {
       Alert.alert("Falta info", "Completa numero, monto y PDF de las facturas requeridas para anular.");
@@ -1301,17 +1405,25 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       });
       if (ae) throw ae;
 
+      emitVentaEstadoChanged();
       Alert.alert("Listo", "Venta anulada.", [{ text: "OK", onPress: () => goBackSafe("/(drawer)/(tabs)/ventas") }]);
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo anular");
     } finally {
       setAnulando(false);
     }
-  }, [anulando, buildFacturaPayload, canAnular, facturaDraftComplete, facturaHasChanges, facturando, fetchFacturas, isFacturado, uploadingPdfTipo, venta]);
+  }, [anulando, buildFacturaPayload, canAnular, empresaActivaId, empresaReady, facturaDraftComplete, facturaHasChanges, facturando, fetchFacturas, isFacturado, uploadingPdfTipo, venta]);
 
   const confirmAnular = useCallback(() => {
     if (!venta) return;
     if (!canAnular) return;
+
+    if (Platform.OS === "web") {
+      const ok = window.confirm("Esto liberara el stock reservado y marcara la venta como ANULADA. ¿Confirmas?");
+      if (ok) runAnular().catch(() => {});
+      return;
+    }
+
     Alert.alert(
       "Anular venta",
       "Esto liberara el stock reservado y marcara la venta como ANULADA. ¿Confirmas?",
@@ -1321,6 +1433,43 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       ]
     );
   }, [anulando, canAnular, runAnular, venta]);
+
+  const runCancelarAnulacion = useCallback(async () => {
+    if (!venta || !canAnular) return;
+    if (cancelandoAnulacion || anulando) return;
+    setCancelandoAnulacion(true);
+    try {
+      const { error } = await supabase.rpc("rpc_cancelar_anulacion_requerida", {
+        p_venta_id: Number(venta.id),
+      });
+      if (error) throw error;
+      emitVentaEstadoChanged();
+      await fetchTags();
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "No se pudo cancelar la anulación");
+    } finally {
+      setCancelandoAnulacion(false);
+    }
+  }, [anulando, cancelandoAnulacion, canAnular, fetchTags, venta]);
+
+  const confirmCancelarAnulacion = useCallback(() => {
+    if (!venta || !canAnular) return;
+
+    if (Platform.OS === "web") {
+      const ok = window.confirm("¿Cancelar la solicitud de anulación? La venta volverá al estado normal.");
+      if (ok) runCancelarAnulacion().catch(() => {});
+      return;
+    }
+
+    Alert.alert(
+      "Cancelar anulación",
+      "¿Cancelar la solicitud de anulación? La venta volverá al estado normal.",
+      [
+        { text: "No", style: "cancel" },
+        { text: "Sí, cancelar", onPress: () => runCancelarAnulacion().catch(() => {}) },
+      ]
+    );
+  }, [canAnular, runCancelarAnulacion, venta]);
 
   const edicionAutorizada = useMemo(() => {
     return hasTag("EDICION_REQUERIDA") && normalizeUpper(venta?.estado) === "NUEVO";
@@ -1342,6 +1491,10 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       return;
     }
     if (solSending) return;
+    if (!empresaReady) return;
+    if (!empresaActivaId) {
+      return Alert.alert("Sin empresa", "No tienes una empresa activa asignada. Contacta al administrador.");
+    }
 
     setSolSending(true);
     try {
@@ -1351,8 +1504,6 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
         p_nota: nota,
       });
       if (error) throw error;
-
-      void dispatchNotifs(20).catch((e: any) => console.warn("[notif] dispatch failed", e?.message ?? e));
 
       // ADMIN: auto-aprobar (no requiere aprobacion manual)
       if (roleUp === "ADMIN") {
@@ -1367,6 +1518,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       setSolAccion(null);
       setSolNota("");
       emitSolicitudesChanged();
+      emitVentaEstadoChanged();
       await fetchVenta();
       await fetchTags();
       Alert.alert("Listo", roleUp === "ADMIN" ? "Solicitud aprobada." : "Solicitud enviada.");
@@ -1375,13 +1527,17 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     } finally {
       setSolSending(false);
     }
-  }, [canSolicitar, fetchTags, fetchVenta, roleUp, solAccion, solNota, solSending, venta]);
+  }, [canSolicitar, empresaActivaId, empresaReady, fetchTags, fetchVenta, roleUp, solAccion, solNota, solSending, venta]);
 
   const deleteReceta = useCallback(
     async (r: RecetaItem) => {
       if (!venta) return;
       if (!canEditRecetas) return;
       if (deletingId) return;
+      if (!empresaReady) return;
+      if (!empresaActivaId) {
+        return Alert.alert("Sin empresa", "No tienes una empresa activa asignada. Contacta al administrador.");
+      }
 
       const recetaId = Number(r.row.id);
       if (!recetaId) return;
@@ -1414,11 +1570,16 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
         setDeletingId(null);
       }
     },
-    [canEditRecetas, deletingId, fetchRecetas, fetchVenta, venta]
+    [canEditRecetas, deletingId, empresaActivaId, empresaReady, fetchRecetas, fetchVenta, venta]
   );
 
   const confirmDelete = useCallback(
     (r: RecetaItem) => {
+      if (Platform.OS === "web") {
+        const ok = window.confirm("Se eliminara la receta. ¿Seguro?");
+        if (ok) deleteReceta(r).catch(() => {});
+        return;
+      }
       Alert.alert("Eliminar receta", "Se eliminara la receta. ¿Seguro?", [
         { text: "Cancelar", style: "cancel" },
         { text: "Eliminar", style: "destructive", onPress: () => deleteReceta(r).catch(() => {}) },
@@ -2059,34 +2220,50 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                   : null}
 
               <View style={{ height: 10 }} />
-              {!canAnular && !isNuevo ? null : (
+              {!canAnular && !isNuevo ? null : canAnular ? (
+                <View style={{ flexDirection: "row", gap: 10 }}>
+                  <View style={{ flex: 1 }}>
+                    <AppButton
+                      title={anulando ? "Anulando..." : "Anular venta"}
+                      onPress={confirmAnular}
+                      disabled={
+                        anulando ||
+                        cancelandoAnulacion ||
+                        facturando ||
+                        !!uploadingPdfTipo ||
+                        (!facturaTipo1 && !facturaTipo2) ||
+                        !facturaDraftComplete
+                      }
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <AppButton
+                      title={cancelandoAnulacion ? "Cancelando..." : "Cancelar anulación"}
+                      variant="ghost"
+                      onPress={confirmCancelarAnulacion}
+                      disabled={cancelandoAnulacion || anulando}
+                    />
+                  </View>
+                </View>
+              ) : (
                 <AppButton
-                  title={
-                    canAnular
-                      ? (anulando ? "Anulando..." : "Anular venta")
-                      : facturando
-                        ? "Facturando..."
-                        : "Facturar"
-                  }
-                  onPress={canAnular ? confirmAnular : onFacturar}
+                  title={facturando ? "Facturando..." : "Facturar"}
+                  onPress={onFacturar}
                   disabled={
-                    canAnular
-                      ? (
-                          anulando ||
-                          facturando ||
-                          !!uploadingPdfTipo ||
-                          (!facturaTipo1 && !facturaTipo2) ||
-                          !facturaDraftComplete
-                        )
-                      : (
-                          facturando ||
-                          !!uploadingPdfTipo ||
-                          (!facturaTipo1 && !facturaTipo2) ||
-                          !facturaDraftComplete
-                        )
+                    facturando ||
+                    !!uploadingPdfTipo ||
+                    (!facturaTipo1 && !facturaTipo2) ||
+                    !facturaDraftComplete
                   }
                 />
               )}
+              {canFacturar && !isNuevo && !canAnular && facturaTouched ? (
+                <AppButton
+                  title={facturando ? "Guardando..." : "Guardar facturas"}
+                  onPress={onFacturar}
+                  disabled={facturando || !!uploadingPdfTipo || !facturaDraftComplete}
+                />
+              ) : null}
               </>
             ) : (
               <>
@@ -2333,7 +2510,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
           backdropOpacity={isDark ? 0.6 : 0.4}
         >
           <Text style={[styles.sectionTitle, { color: C.text }]}>Razón</Text>
-          <Text style={[styles.sub, { color: C.sub }]}>{solAccion ? `Solicitud: ${solAccion}` : ""}</Text>
+          <Text style={[styles.sub, { color: C.sub, marginBottom: 10 }]}>{solAccion ? `Solicitud: ${solAccion}` : ""}</Text>
           <TextInput
             value={solNota}
             onChangeText={setSolNota}

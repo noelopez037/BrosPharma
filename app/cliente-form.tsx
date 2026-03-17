@@ -17,6 +17,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../lib/supabase";
 import { useRole } from "../lib/useRole";
+import { useEmpresaActiva } from "../lib/useEmpresaActiva";
 import { AppButton } from "../components/ui/app-button";
 import { KeyboardAwareModal } from "../components/ui/keyboard-aware-modal";
 import { DoneAccessory } from "../components/ui/done-accessory";
@@ -72,6 +73,7 @@ export default function ClienteForm() {
   const [saving, setSaving] = useState(false);
 
   const { role, uid, isReady, refreshRole } = useRole();
+  const { empresaActivaId, isReady: empresaReady } = useEmpresaActiva();
   const roleUp = String(role ?? "").trim().toUpperCase() as Role;
   const isAdmin = isReady && roleUp === "ADMIN";
   const isVendedor = isReady && roleUp === "VENTAS";
@@ -135,11 +137,12 @@ export default function ClienteForm() {
   }, [isAdmin]);
 
   const loadCliente = useCallback(async () => {
-    if (!isEditing || !editingId) return;
+    if (!isEditing || !editingId || !empresaActivaId) return;
 
     const { data, error } = await supabase
       .from("clientes")
       .select("id,nombre,nit,telefono,direccion,activo,vendedor_id")
+      .eq("empresa_id", empresaActivaId)
       .eq("id", editingId)
       .maybeSingle();
 
@@ -153,7 +156,7 @@ export default function ClienteForm() {
     setDireccion(String(c.direccion ?? ""));
     setActivo(!!c.activo);
     setVendedorId(c.vendedor_id ?? null);
-  }, [editingId, isEditing]);
+  }, [editingId, isEditing, empresaActivaId]);
 
   useEffect(() => {
     if (!isReady) return;
@@ -191,6 +194,8 @@ export default function ClienteForm() {
   const onSave = useCallback(async () => {
     if (!canEdit) return;
     if (saving) return;
+    if (!empresaReady) return;
+    if (!empresaActivaId) return Alert.alert("Sin empresa", "No tienes empresa activa.");
 
     const cleanNombre = nombre.trim();
     const cleanTel = telefono.trim();
@@ -213,6 +218,7 @@ export default function ClienteForm() {
         const { data, error } = await supabase
           .from("clientes")
           .insert({
+            empresa_id: empresaActivaId,
             nombre: cleanNombre,
             nit: nitSave,
             telefono: cleanTel,
@@ -245,7 +251,7 @@ export default function ClienteForm() {
       if (isAdmin) payload.vendedor_id = vendedorId ?? null;
       if (isVendedor && uid) payload.vendedor_id = uid;
 
-      const { error } = await supabase.from("clientes").update(payload).eq("id", editingId);
+      const { error } = await supabase.from("clientes").update(payload).eq("empresa_id", empresaActivaId).eq("id", editingId);
       if (error) throw error;
 
       Alert.alert("Listo", "Cliente actualizado");
@@ -260,7 +266,7 @@ export default function ClienteForm() {
     } finally {
       setSaving(false);
     }
-  }, [activo, canEdit, direccion, editingId, isAdmin, isEditing, isVendedor, nit, nombre, saving, telefono, uid, vendedorId]);
+  }, [activo, canEdit, direccion, editingId, empresaActivaId, empresaReady, isAdmin, isEditing, isVendedor, nit, nombre, saving, telefono, uid, vendedorId]);
 
   const title = isEditing ? "Editar cliente" : "Nuevo cliente";
 

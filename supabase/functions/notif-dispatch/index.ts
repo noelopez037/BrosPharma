@@ -295,24 +295,26 @@ async function fetchExpoTokensForUsersDedupeDevice(ctx: SupabaseCtx, userIds: st
   return Array.from(new Set(Array.from(pickedByDevice.values())));
 }
 
-async function fetchAdminUserIds(ctx: SupabaseCtx): Promise<string[]> {
+async function fetchAdminUserIds(ctx: SupabaseCtx, empresaId: number): Promise<string[]> {
   const out: string[] = [];
   const pageSize = 1000;
   let offset = 0;
 
   for (;;) {
     const qs = new URLSearchParams();
-    qs.set("select", "id");
-    qs.append("role", "eq.ADMIN");
+    qs.set("select", "user_id");
+    qs.append("rol_empresa", "eq.ADMIN");
+    qs.append("empresa_id", `eq.${empresaId}`);
+    qs.append("estado", "eq.ACTIVO");
     qs.set("limit", String(pageSize));
     qs.set("offset", String(offset));
 
-    const res = await sbFetch(ctx, `/rest/v1/profiles?${qs.toString()}`, { method: "GET" });
-    const rows = await sbJson<Array<{ id?: unknown }>>(res);
+    const res = await sbFetch(ctx, `/rest/v1/empresa_usuarios?${qs.toString()}`, { method: "GET" });
+    const rows = await sbJson<Array<{ user_id?: unknown }>>(res);
     if (!Array.isArray(rows) || rows.length === 0) break;
 
     for (const r of rows) {
-      const id = typeof r?.id === "string" ? r.id.trim() : "";
+      const id = typeof r?.user_id === "string" ? r.user_id.trim() : "";
       if (id) out.push(id);
     }
 
@@ -362,10 +364,17 @@ async function fetchUserIdsByRoles(ctx: SupabaseCtx, roles: string[]): Promise<s
 }
 
 function coerceVentaId(row: OutboxRow): string {
+  // 1. Columna directa venta_id (esquema actual de notif_outbox)
+  const direct = (row as { venta_id?: unknown })?.venta_id;
+  if (typeof direct === "number" && Number.isFinite(direct)) return String(Math.trunc(direct));
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+
+  // 2. ref_id (esquema legacy)
   const ref = (row as { ref_id?: unknown })?.ref_id;
   if (typeof ref === "number" && Number.isFinite(ref)) return String(Math.trunc(ref));
   if (typeof ref === "string" && ref.trim()) return ref.trim();
 
+  // 3. payload.venta_id
   const payload = (row as { payload?: unknown })?.payload;
   const p = (payload && typeof payload === "object") ? (payload as JsonRecord) : {};
   const v = p.venta_id;
@@ -390,39 +399,35 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return json({ ok: true });
   if (req.method !== "POST") return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405);
 
-  const jwt = getBearer(req);
-  if (!jwt) return json({ ok: false, error: "NO_AUTH" }, 401);
+  // Llamadas internas desde DB trigger: autenticar solo con dispatch secret
+  const secret = getEnv("DISPATCH_SECRET");
+  const gotSecret = req.headers.get("x-dispatch-secret")?.trim() ?? "";
+  const internalCall = secret && gotSecret === secret && req.headers.get("authorization") === "Bearer internal-dispatch";
 
-  const verified = await validateJwt(jwt);
-  if (!verified.ok) {
-    return json({ ok: false, error: verified.error }, verified.status);
+  if (!internalCall) {
+    const jwt = getBearer(req);
+    if (!jwt) return json({ ok: false, error: "NO_AUTH" }, 401);
+
+    const verified = await validateJwt(jwt);
+    if (!verified.ok) {
+      return json({ ok: false, error: verified.error }, verified.status);
+    }
   }
-  const uid = verified.userId;
 
   const url = getEnv("SUPABASE_URL");
   const serviceKey = getEnv("SUPABASE_SERVICE_ROLE_KEY");
   if (!url || !serviceKey) return json({ ok: false, error: "MISSING_SUPABASE_ENV" }, 500);
   const ctx: SupabaseCtx = { url, serviceKey };
 
-  let role: string | null = null;
-  try {
-    role = await fetchUserRole(ctx, uid);
-  } catch (e) {
-    console.warn("[notif-dispatch] fetchUserRole_failed", safeErrorMessage(e));
-  }
-  if (role) {
-    console.log("[notif-dispatch] role", role);
-  }
-
-  const secret = getEnv("DISPATCH_SECRET");
-  if (secret) {
-    const got = req.headers.get("x-dispatch-secret")?.trim() ?? "";
-    if (got !== secret) return json({ ok: false, error: "UNAUTHORIZED" }, 401);
-  }
-
-  const body = (await req.json().catch(() => ({}))) as { limit?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { limit?: unknown; empresa_id?: unknown };
   const limitRaw = typeof body.limit === "number" ? body.limit : undefined;
   const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, Math.trunc(limitRaw!))) : 20;
+
+  const empresaIdRaw = body.empresa_id;
+  const empresaId = typeof empresaIdRaw === "number" && Number.isFinite(empresaIdRaw) && empresaIdRaw > 0
+    ? Math.trunc(empresaIdRaw)
+    : null;
+  if (!empresaId) return json({ ok: false, error: "MISSING_EMPRESA_ID" }, 400);
 
   const result = {
     claimed: 0,
@@ -432,7 +437,7 @@ Deno.serve(async (req: Request) => {
 
   let rows: OutboxRow[] = [];
   try {
-    const claimed = await sbRpc<OutboxRow[]>(ctx, "rpc_notif_outbox_claim", { p_limit: limit });
+    const claimed = await sbRpc<OutboxRow[]>(ctx, "rpc_notif_outbox_claim", { p_empresa_id: empresaId, p_limit: limit });
     rows = (Array.isArray(claimed) ? claimed : []) as OutboxRow[];
   } catch (e) {
     return json({ ok: false, error: `CLAIM_FAILED: ${safeErrorMessage(e)}` }, 500);
@@ -445,11 +450,12 @@ Deno.serve(async (req: Request) => {
   let cachedAdminUserIds: string[] | null = null;
   let cachedAdminTokens: string[] | null = null;
   let cachedCompraRolesTokens: string[] | null = null;
+  let cachedFacturacionTokens: string[] | null = null;
 
   const getTokensForVentaNuevos = async (): Promise<string[]> => {
     if (cachedTokens) return cachedTokens;
 
-    const dest = await sbRpc<Array<{ user_id: string; role: string }>>(ctx, "rpc_notif_destinatarios_venta_nuevos", {});
+    const dest = await sbRpc<Array<{ user_id: string; role: string }>>(ctx, "rpc_notif_destinatarios_venta_nuevos", { p_empresa_id: empresaId });
     cachedDestinatarios = (Array.isArray(dest) ? dest : []) as Array<{ user_id: string; role: string }>;
 
     const userIds = cachedDestinatarios.map((d) => d.user_id).filter((x) => typeof x === "string" && x.length > 0);
@@ -462,11 +468,36 @@ Deno.serve(async (req: Request) => {
   const getTokensForAdmins = async (): Promise<string[]> => {
     if (cachedAdminTokens) return cachedAdminTokens;
 
-    cachedAdminUserIds = await fetchAdminUserIds(ctx);
+    cachedAdminUserIds = await fetchAdminUserIds(ctx, empresaId);
     cachedAdminTokens = await fetchExpoTokensForUsersDedupeDevice(ctx, cachedAdminUserIds);
 
     console.log("[notif-dispatch] admins", "users", cachedAdminUserIds.length, "tokens", cachedAdminTokens.length);
     return cachedAdminTokens;
+  };
+
+  const getTokensForFacturacion = async (): Promise<string[]> => {
+    if (cachedFacturacionTokens) return cachedFacturacionTokens;
+
+    const out: string[] = [];
+    const qs = new URLSearchParams();
+    qs.set("select", "user_id");
+    qs.append("rol_empresa", "eq.FACTURACION");
+    qs.append("empresa_id", `eq.${empresaId}`);
+    qs.append("estado", "eq.ACTIVO");
+    qs.set("limit", "1000");
+
+    const res = await sbFetch(ctx, `/rest/v1/empresa_usuarios?${qs.toString()}`, { method: "GET" });
+    const rows = await sbJson<Array<{ user_id?: unknown }>>(res);
+    if (Array.isArray(rows)) {
+      for (const r of rows) {
+        const id = typeof r?.user_id === "string" ? r.user_id.trim() : "";
+        if (id) out.push(id);
+      }
+    }
+
+    cachedFacturacionTokens = await fetchExpoTokensForUsersDedupeDevice(ctx, Array.from(new Set(out)));
+    console.log("[notif-dispatch] facturacion", "users", out.length, "tokens", cachedFacturacionTokens.length);
+    return cachedFacturacionTokens;
   };
 
   const getTokensForCompraLineaIngresada = async (): Promise<string[]> => {
@@ -542,6 +573,7 @@ Deno.serve(async (req: Request) => {
         const body = clienteNombre ? `La factura para ${clienteNombre} está lista.` : "La factura está lista.";
 
         const dest = await sbRpc<Array<{ user_id: string; role: string }>>(ctx, "rpc_notif_destinatarios_venta_facturada", {
+          p_empresa_id: empresaId,
           p_venta_id: rpcBigintArg(ventaId),
         });
         const destinatarios = (Array.isArray(dest) ? dest : []) as Array<{ user_id: string; role: string }>;
@@ -631,6 +663,41 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
+      if (type === "VENTA_ANULACION_REQUERIDA") {
+        const ventaId = coerceVentaId(row);
+        const tokens = await getTokensForFacturacion();
+        console.log("[notif-dispatch] dispatch", type, "outbox", id, "tokens", tokens.length);
+
+        if (tokens.length > 0) {
+          const p = (payload && typeof payload === "object") ? (payload as JsonRecord) : {};
+          const clienteNombre = typeof p.cliente_nombre === "string" ? p.cliente_nombre.trim() : "";
+          const target = clienteNombre || `Venta #${ventaId}`;
+
+          const data: Record<string, unknown> = {
+            kind: "VENTA_ANULACION_REQUERIDA",
+            to: "/(drawer)/(tabs)/ventas",
+            venta_id: ventaId,
+          };
+          if (clienteNombre) data.cliente_nombre = clienteNombre;
+
+          const messages: ExpoPushMessage[] = tokens.map((to) => ({
+            to,
+            title: "Anulación requerida",
+            body: `Anular venta: ${target}`,
+            sound: "default",
+            badge: 1,
+            data,
+          }));
+
+          const sendRes = await expoSend(messages);
+          if (!sendRes.ok) throw new Error(sendRes.error);
+        }
+
+        await sbRpc(ctx, "rpc_notif_outbox_mark_processed", { p_id: id });
+        result.processed++;
+        continue;
+      }
+
       if (type === "COMPRA_LINEA_INGRESADA") {
         const tokens = await getTokensForCompraLineaIngresada();
         console.log("[notif-dispatch] dispatch", type, "outbox", id, "tokens", tokens.length);
@@ -664,6 +731,128 @@ Deno.serve(async (req: Request) => {
 
           const sendRes = await expoSend(messages);
           if (!sendRes.ok) throw new Error(sendRes.error);
+        }
+
+        await sbRpc(ctx, "rpc_notif_outbox_mark_processed", { p_id: id });
+        result.processed++;
+        continue;
+      }
+
+      if (type === "PAGO_REPORTADO_ADMIN") {
+        const tokens = await getTokensForAdmins();
+        console.log("[notif-dispatch] dispatch", type, "outbox", id, "tokens", tokens.length);
+
+        const p = (payload && typeof payload === "object") ? (payload as JsonRecord) : {};
+        const ventaId = String(p.venta_id ?? "").trim() || String((row as any).venta_id ?? "").trim();
+        const monto = p.monto != null ? Number(p.monto).toFixed(2) : null;
+        const metodo = typeof p.metodo === "string" ? p.metodo.trim() : "";
+        const body = [
+          `Pago reportado para venta #${ventaId}`,
+          monto ? `Q ${monto}` : null,
+          metodo || null,
+        ].filter(Boolean).join(" · ");
+
+        if (tokens.length > 0) {
+          const data: Record<string, unknown> = {
+            kind: "PAGO_REPORTADO_ADMIN",
+            to: "/(drawer)/ventas-solicitudes",
+            venta_id: ventaId,
+          };
+          if (p.pago_reportado_id != null) data.pago_reportado_id = p.pago_reportado_id;
+
+          const messages: ExpoPushMessage[] = tokens.map((to) => ({
+            to,
+            title: "Pago pendiente de aprobación",
+            body,
+            sound: "default",
+            badge: 1,
+            data,
+          }));
+
+          const sendRes = await expoSend(messages);
+          if (!sendRes.ok) throw new Error(sendRes.error);
+        }
+
+        await sbRpc(ctx, "rpc_notif_outbox_mark_processed", { p_id: id });
+        result.processed++;
+        continue;
+      }
+
+      if (type === "COMPRA_PAGO_APLICADO") {
+        const tokens = await getTokensForAdmins();
+        console.log("[notif-dispatch] dispatch", type, "outbox", id, "tokens", tokens.length);
+
+        const p = (payload && typeof payload === "object") ? (payload as JsonRecord) : {};
+        const compraId = String(p.compra_id ?? "").trim();
+        const monto = p.monto != null ? Number(p.monto).toFixed(2) : null;
+        const metodo = typeof p.metodo === "string" && p.metodo.trim() ? p.metodo.trim() : null;
+        const proveedor = typeof p.proveedor === "string" && p.proveedor.trim() ? p.proveedor.trim() : null;
+
+        const bodyParts = [
+          proveedor || `Compra #${compraId}`,
+          monto ? `Q ${monto}` : null,
+          metodo,
+        ].filter(Boolean);
+
+        if (tokens.length > 0) {
+          const data: Record<string, unknown> = {
+            kind: "COMPRA_PAGO_APLICADO",
+            to: "/(drawer)/compras",
+            compra_id: compraId,
+          };
+
+          const messages: ExpoPushMessage[] = tokens.map((to) => ({
+            to,
+            title: "Pago de compra registrado",
+            body: bodyParts.join(" · "),
+            sound: "default",
+            badge: 1,
+            data,
+          }));
+
+          const sendRes = await expoSend(messages);
+          if (!sendRes.ok) throw new Error(sendRes.error);
+        }
+
+        await sbRpc(ctx, "rpc_notif_outbox_mark_processed", { p_id: id });
+        result.processed++;
+        continue;
+      }
+
+      if (type === "VENTA_SOLICITUD_RESUELTA") {
+        const ventaId = coerceVentaId(row);
+        const p = (payload && typeof payload === "object") ? (payload as JsonRecord) : {};
+        const vendedorId = typeof p.vendedor_id === "string" ? p.vendedor_id.trim() : "";
+        const decision = String(p.decision ?? "").trim().toUpperCase();
+        const accionUp = String(p.accion ?? "").trim().toUpperCase();
+        const clienteNombre = typeof p.cliente_nombre === "string" ? p.cliente_nombre.trim() : "";
+
+        if (vendedorId) {
+          const tokens = await fetchExpoTokensForUsersDedupeDevice(ctx, [vendedorId]);
+          console.log("[notif-dispatch] dispatch", type, "outbox", id, "vendedor", vendedorId, "tokens", tokens.length);
+
+          if (tokens.length > 0) {
+            const target = clienteNombre || `Venta #${ventaId}`;
+            const body = accionUp === "EDICION" ? `Tu solicitud de edición fue aprobada: ${target}`
+              : accionUp === "ANULACION" ? `Tu solicitud de anulación fue aprobada: ${target}`
+              : accionUp === "REFACTURACION" ? `Tu solicitud de refacturación fue aprobada: ${target}`
+              : `Tu solicitud fue aprobada: ${target}`;
+
+            const data: Record<string, unknown> = {
+              kind: "VENTA_SOLICITUD_RESUELTA",
+              to: "/(drawer)/(tabs)/ventas",
+              venta_id: ventaId,
+              decision,
+              accion: accionUp,
+            };
+            if (clienteNombre) data.cliente_nombre = clienteNombre;
+
+            const messages: ExpoPushMessage[] = tokens.map((to) => ({
+              to, title: "Solicitud aprobada", body, sound: "default", badge: 1, data,
+            }));
+            const sendRes = await expoSend(messages);
+            if (!sendRes.ok) throw new Error(sendRes.error);
+          }
         }
 
         await sbRpc(ctx, "rpc_notif_outbox_mark_processed", { p_id: id });

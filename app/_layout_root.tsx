@@ -3,6 +3,8 @@ import { ActivityIndicator, Linking, View } from "react-native";
 import { usePathname, useRouter, useSegments } from "expo-router";
 
 import { supabase } from "../lib/supabase";
+import { disablePushForThisDevice } from "../lib/pushNotifications";
+import { isRecentResume, emitAppResumed } from "../lib/resumeEvents";
 
 // URL pendiente de deep link para reset password
 export let pendingResetUrl: string | null = null;
@@ -45,10 +47,10 @@ export default function RootLayout({ children }: { children?: ReactNode }) {
 
     const restoreSession = async () => {
       try {
-        // Timeout de 3 segundos para getSession
+        // Timeout extendido para dar tiempo al refresh de red en cold-start
         const sessionPromise = supabase.auth.getSession();
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Session timeout")), 2000),
+          setTimeout(() => reject(new Error("Session timeout")), 8000),
         );
 
         const {
@@ -107,8 +109,39 @@ export default function RootLayout({ children }: { children?: ReactNode }) {
 
       if (resetRouteRef.current) return;
 
-      if (session) replaceIfNeeded("/(drawer)/(tabs)");
-      else replaceIfNeeded("/login");
+      if (session) {
+        replaceIfNeeded("/(drawer)/(tabs)");
+        return;
+      }
+
+      if (event === "SIGNED_OUT") {
+        // SIGNED_OUT puede dispararse porque la red aún no está lista al volver del
+        // background y el refresh del token falló. Si acabamos de volver del background
+        // reintentamos más veces (hasta 8s) para darle tiempo al refresh.
+        void (async () => {
+          const maxRetries = isRecentResume(15_000) ? 4 : 1;
+          for (let attempt = 0; attempt < maxRetries; attempt++) {
+            await new Promise((r) => setTimeout(r, 2000));
+            if (!mounted) return;
+            const { data } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
+            if (!mounted) return;
+            if (data.session) {
+              replaceIfNeeded("/(drawer)/(tabs)");
+              // Sesion recuperada tras SIGNED_OUT espurio — notificar pantallas
+              // para que recarguen datos con la sesion restaurada.
+              emitAppResumed();
+              return;
+            }
+          }
+          // Sesión realmente expirada — limpiar push token antes de ir al login.
+          // disablePushForThisDevice usa la RPC anon (no requiere sesión válida).
+          void disablePushForThisDevice().catch(() => {});
+          replaceIfNeeded("/login");
+        })();
+        return;
+      }
+
+      replaceIfNeeded("/login");
     });
 
     // Capturar deep links de reset antes de que reset-password esté montado
