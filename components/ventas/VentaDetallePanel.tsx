@@ -1378,6 +1378,11 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     anulacionRequerida &&
     normalizeUpper(venta?.estado) === "FACTURADO";
 
+  const canAnularDirecto =
+    roleUp === "ADMIN" &&
+    !anulada &&
+    isNuevo;
+
   const runAnular = useCallback(async () => {
     if (!venta) return;
     if (!canAnular) return;
@@ -1483,6 +1488,34 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       ]
     );
   }, [canAnular, runCancelarAnulacion, venta]);
+
+  const confirmAnularDirecto = useCallback(() => {
+    if (!venta || !canAnularDirecto) return;
+    const msg = `¿Anular la venta #${venta.id} de ${venta.cliente_nombre ?? "cliente"}? Esta acción no se puede deshacer.`;
+    if (Platform.OS === "web") {
+      if (!window.confirm(msg)) return;
+      supabase.rpc("rpc_venta_anular", { p_venta_id: Number(venta.id), p_nota: null, p_empresa_id: empresaActivaId })
+        .then(({ error }) => {
+          if (error) Alert.alert("Error", error.message);
+          else { fetchVenta(); fetchTags(); }
+        });
+      return;
+    }
+    Alert.alert("Anular venta", msg, [
+      { text: "No", style: "cancel" },
+      {
+        text: "Sí, anular",
+        style: "destructive",
+        onPress: () => {
+          supabase.rpc("rpc_venta_anular", { p_venta_id: Number(venta.id), p_nota: null, p_empresa_id: empresaActivaId })
+            .then(({ error }) => {
+              if (error) Alert.alert("Error", error.message);
+              else { fetchVenta(); fetchTags(); }
+            });
+        },
+      },
+    ]);
+  }, [canAnularDirecto, empresaActivaId, fetchTags, fetchVenta, venta]);
 
   const edicionAutorizada = useMemo(() => {
     return hasTag("EDICION_REQUERIDA") && normalizeUpper(venta?.estado) === "NUEVO";
@@ -2475,6 +2508,27 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                   />
                 </>
               )}
+            </View>
+          )}
+
+          {/* Anular venta NUEVO — solo ADMIN */}
+          {!canAnularDirecto || !venta ? null : (
+            <View style={[styles.card, { borderColor: alphaColor(C.danger, isDark ? 0.35 : 0.25) || C.border, backgroundColor: isDark ? "rgba(255,90,90,0.07)" : "rgba(220,0,0,0.04)" }]}>
+              <View style={styles.rowBetween}>
+                <Text style={[styles.sectionTitle, { color: C.danger }]}>Anular venta</Text>
+                <Text style={[styles.blockTitle, { color: C.sub }]}>NUEVO</Text>
+              </View>
+              <Text style={[styles.sub, { color: C.sub, marginTop: 4 }]}>
+                Esta venta aún no fue facturada. Como admin puedes anularla directamente.
+              </Text>
+              <View style={{ height: 10 }} />
+              <AppButton
+                title="Anular venta"
+                onPress={confirmAnularDirecto}
+                style={{ borderColor: C.danger, backgroundColor: isDark ? "rgba(255,90,90,0.15)" : "rgba(220,0,0,0.08)" }}
+                textStyle={{ color: C.danger }}
+                variant="outline"
+              />
             </View>
           )}
 
