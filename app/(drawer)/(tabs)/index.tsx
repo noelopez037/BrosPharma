@@ -92,13 +92,16 @@ type BodegaAlerta = {
   producto: string;
   marca: string;
   stock_disponible: number;
+  fecha_exp: string | null;
+  lote: string | null;
 };
 
 type BodegaData = {
   alertasCount: number;
-  alertas: BodegaAlerta[];
-  totalProductos: number;
+  criticos: BodegaAlerta[];
+  porVencer: BodegaAlerta[];
   productosCero: number;
+  porVencerCount: number;
 };
 
 type DashColors = {
@@ -863,27 +866,48 @@ export default function Inicio() {
   }, []);
 
   const loadBodega = useCallback(async (empresaId: number): Promise<BodegaData> => {
-    const [alertResult, totalResult] = await Promise.all([
-      supabase.rpc("rpc_report_inventario_alertas", { p_empresa_id: empresaId }),
-      supabase.from("vw_inventario_productos").select("id", { count: "exact", head: true }).eq("empresa_id", empresaId),
-    ]);
-    if (alertResult.error) throw alertResult.error;
+    const today = nowGt();
+    const in30 = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const todayStr = `${today.getUTCFullYear()}-${pad2(today.getUTCMonth() + 1)}-${pad2(today.getUTCDate())}`;
+    const in30Str = `${in30.getUTCFullYear()}-${pad2(in30.getUTCMonth() + 1)}-${pad2(in30.getUTCDate())}`;
 
-    const alertas: BodegaAlerta[] = ((alertResult.data ?? []) as any[]).map((r) => ({
+    const [stockResult, expResult] = await Promise.all([
+      supabase.rpc("rpc_report_inventario_alertas", { p_empresa_id: empresaId }),
+      supabase.rpc("rpc_report_inventario_alertas", {
+        p_empresa_id: empresaId,
+        p_exp_dias: 30,
+        p_stock_bajo: 99999,
+      }),
+    ]);
+    if (stockResult.error) throw stockResult.error;
+
+    const mapAlerta = (r: any): BodegaAlerta => ({
       tipo: String(r.tipo ?? ""),
       producto_id: r.producto_id ?? "",
       producto: String(r.producto ?? ""),
       marca: String(r.marca ?? ""),
       stock_disponible: Number(r.stock_disponible ?? 0),
-    }));
+      fecha_exp: r.fecha_exp ? String(r.fecha_exp).slice(0, 10) : null,
+      lote: r.lote ? String(r.lote) : null,
+    });
 
-    const productosCero = alertas.filter((a) => a.stock_disponible === 0).length;
+    const stockAlertas: BodegaAlerta[] = ((stockResult.data ?? []) as any[]).map(mapAlerta);
+    const criticos = stockAlertas.filter((a) => a.stock_disponible === 0).slice(0, 20);
+    const productosCero = stockAlertas.filter((a) => a.stock_disponible === 0).length;
+    const alertasCount = stockAlertas.length;
+
+    const expAlertas: BodegaAlerta[] = ((expResult.data ?? []) as any[])
+      .map(mapAlerta)
+      .filter((a) => a.fecha_exp && a.fecha_exp >= todayStr && a.fecha_exp <= in30Str)
+      .sort((a, b) => (a.fecha_exp ?? "").localeCompare(b.fecha_exp ?? ""))
+      .slice(0, 20);
 
     return {
-      alertasCount: alertas.length,
-      alertas: alertas.slice(0, 20),
-      totalProductos: Number(totalResult.count ?? 0),
+      alertasCount,
+      criticos,
+      porVencer: expAlertas,
       productosCero,
+      porVencerCount: expAlertas.length,
     };
   }, []);
 
@@ -1488,8 +1512,73 @@ export default function Inicio() {
   };
 
   const renderBodega = () => {
+    const d = bodegaData;
     return (
-      <View style={{ padding: 16, paddingBottom: 16 + insets.bottom }} />
+      <View style={{ padding: 16, paddingBottom: 16 + insets.bottom }}>
+        <View style={[s.kpiGrid, { marginTop: 4 }]}>
+          {renderKpi({
+            label: "Stock en 0",
+            value: d ? String(d.productosCero) : "—",
+            danger: !!(d && d.productosCero > 0),
+            style: { flexBasis: "31%" },
+          })}
+          {renderKpi({
+            label: "Total alertas",
+            value: d ? String(d.alertasCount) : "—",
+            danger: !!(d && d.alertasCount > 0),
+            style: { flexBasis: "31%" },
+          })}
+          {renderKpi({
+            label: "Vencen en 30d",
+            value: d ? String(d.porVencerCount) : "—",
+            danger: !!(d && d.porVencerCount > 0),
+            style: { flexBasis: "31%" },
+          })}
+        </View>
+
+        <ListCard title="Productos en stock 0" colors={C}>
+          {(d?.criticos ?? []).length ? (
+            (d?.criticos ?? []).map((a, idx) => (
+              <View key={`crit-${a.producto_id}-${idx}`} style={[s.rowLink, { borderTopColor: C.border }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.rowTitle, { color: C.text }]} numberOfLines={1}>{a.producto}</Text>
+                  <Text style={[s.rowSub, { color: C.sub }]} numberOfLines={1}>{a.marca}</Text>
+                </View>
+                <View style={[s.overduePill]}>
+                  <Text style={s.overduePillText}>CRÍTICO</Text>
+                </View>
+              </View>
+            ))
+          ) : (
+            <Text style={[s.empty, { color: C.sub }]}>{d ? "Sin productos en 0 ✓" : "—"}</Text>
+          )}
+        </ListCard>
+
+        <ListCard title="Próximos a vencer (30 días)" colors={C}>
+          {(d?.porVencer ?? []).length ? (
+            (d?.porVencer ?? []).map((a, idx) => (
+              <View key={`exp-${a.producto_id}-${idx}`} style={[s.rowLink, { borderTopColor: C.border }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.rowTitle, { color: C.text }]} numberOfLines={1}>{a.producto}</Text>
+                  <Text style={[s.rowSub, { color: C.sub }]} numberOfLines={1}>
+                    {a.marca}{a.lote ? ` · Lote ${a.lote}` : ""}
+                  </Text>
+                </View>
+                <View style={{ alignItems: "flex-end", gap: 4 }}>
+                  <Text style={[s.rowSub, { color: C.sub }]}>{a.fecha_exp ?? "—"}</Text>
+                  <View style={s.warnPill}>
+                    <Text style={s.warnPillText}>
+                      {a.fecha_exp ? `${Math.max(0, dayDiffFromToday(a.fecha_exp))}d` : "—"}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            ))
+          ) : (
+            <Text style={[s.empty, { color: C.sub }]}>{d ? "Sin vencimientos próximos ✓" : "—"}</Text>
+          )}
+        </ListCard>
+      </View>
     );
   };
 
