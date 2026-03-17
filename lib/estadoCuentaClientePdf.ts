@@ -541,24 +541,16 @@ export async function generarEstadoCuentaClientePdf(payload: EstadoCuentaCliente
 
   if (Platform.OS === "web") {
     if (typeof document !== "undefined") {
-      const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const win = window.open(url, "_blank", "noopener,noreferrer");
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
-
-      if (!win) {
-        // Popup blocked — fallback via hidden iframe
-        const iframe = document.createElement("iframe");
-        iframe.style.display = "none";
-        document.body.appendChild(iframe);
-        iframe.contentDocument!.open();
-        iframe.contentDocument!.write(html);
-        iframe.contentDocument!.close();
-        iframe.onload = () => {
-          iframe.contentWindow!.print();
-          document.body.removeChild(iframe);
-        };
-      }
+      const iframe = document.createElement("iframe");
+      iframe.style.display = "none";
+      document.body.appendChild(iframe);
+      iframe.contentDocument!.open();
+      iframe.contentDocument!.write(html);
+      iframe.contentDocument!.close();
+      iframe.onload = () => {
+        iframe.contentWindow!.print();
+        document.body.removeChild(iframe);
+      };
     }
 
     return { uri: null };

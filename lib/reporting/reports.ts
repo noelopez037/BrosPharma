@@ -149,8 +149,9 @@ export const REPORTS = [
       { key: "unidades", label: "Unidades", kind: "int", align: "right" },
       { key: "monto", label: "Monto", kind: "money", align: "right" },
     ],
-    fetchRows: async (f: VentasMensualFilters) => {
+    fetchRows: async (f: VentasMensualFilters, empresa_id?: number | null) => {
       const args: any = {
+        p_empresa_id: empresa_id,
         p_end_date: f.end_date,
         p_months: f.months,
       };
@@ -190,8 +191,9 @@ export const REPORTS = [
       { key: "unidades", label: "Unidades", kind: "int", align: "right" },
       { key: "monto", label: "Monto", kind: "money", align: "right" },
     ],
-    fetchRows: async (f: TopProductosFilters) => {
+    fetchRows: async (f: TopProductosFilters, empresa_id?: number | null) => {
       const args: any = {
+        p_empresa_id: empresa_id,
         p_end_date: f.end_date,
         p_months: f.months,
         p_limit: f.limit,
@@ -246,8 +248,9 @@ export const REPORTS = [
         },
       },
     ],
-    fetchRows: async (f: ProductoPromFilters) => {
+    fetchRows: async (f: ProductoPromFilters, empresa_id?: number | null) => {
       const args: any = {
+        p_empresa_id: empresa_id,
         p_producto_id: f.producto_id,
         p_end_date: f.end_date,
         p_months: f.months,
@@ -297,8 +300,8 @@ export const REPORTS = [
       { key: "vencidas_count", label: "Vencidas", kind: "int", align: "right" },
       { key: "saldo_vencido", label: "Saldo vencido", kind: "money", align: "right" },
     ],
-    fetchRows: async (f: ComprasMensualFilters) => {
-      const args: any = { p_end_date: f.end_date, p_months: f.months };
+    fetchRows: async (f: ComprasMensualFilters, empresa_id?: number | null) => {
+      const args: any = { p_empresa_id: empresa_id, p_end_date: f.end_date, p_months: f.months };
       if (f.proveedor_id) args.p_proveedor_id = f.proveedor_id;
       const { data, error } = await supabase.rpc("rpc_report_compras_mensual_12m", args);
       if (error) throw error;
@@ -329,8 +332,8 @@ export const REPORTS = [
       { key: "pagos_count", label: "Pagos", kind: "int", align: "right" },
       { key: "monto", label: "Monto", kind: "money", align: "right" },
     ],
-    fetchRows: async (f: PagosProvMensualFilters) => {
-      const args: any = { p_end_date: f.end_date, p_months: f.months };
+    fetchRows: async (f: PagosProvMensualFilters, empresa_id?: number | null) => {
+      const args: any = { p_empresa_id: empresa_id, p_end_date: f.end_date, p_months: f.months };
       if (f.proveedor_id) args.p_proveedor_id = f.proveedor_id;
       const { data, error } = await supabase.rpc("rpc_report_pagos_proveedores_mensual_12m", args);
       if (error) throw error;
@@ -362,8 +365,9 @@ export const REPORTS = [
         value: (r: InventarioAlertaRow) => r.fecha_exp ?? r.fecha_exp_proxima ?? null,
       },
     ],
-    fetchRows: async (f: InventarioAlertasFilters) => {
+    fetchRows: async (f: InventarioAlertasFilters, empresa_id?: number | null) => {
       const args: any = {
+        p_empresa_id: empresa_id,
         p_stock_bajo: f.stock_bajo,
         p_exp_dias: f.exp_dias,
         p_incluir_inactivos: !!f.incluir_inactivos,
@@ -399,8 +403,9 @@ export const REPORTS = [
       { key: "salida", label: "Salida", kind: "int", align: "right" },
       { key: "saldo", label: "Saldo", kind: "int", align: "right" },
     ],
-    fetchRows: async (f: KardexFilters) => {
+    fetchRows: async (f: KardexFilters, empresa_id?: number | null) => {
       const args: any = {
+        p_empresa_id: empresa_id,
         p_producto_id: f.producto_id,
         p_desde: f.desde,
         p_hasta: f.hasta,

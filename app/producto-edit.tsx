@@ -32,6 +32,7 @@ import { KeyboardAwareModal } from "../components/ui/keyboard-aware-modal";
 import { DoneAccessory } from "../components/ui/done-accessory";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
 import { goBackSafe } from "../lib/goBackSafe";
+import { useEmpresaActiva } from "../lib/useEmpresaActiva";
 import { useRole } from "../lib/useRole";
 
 type Marca = { id: number; nombre: string };
@@ -85,6 +86,7 @@ export default function ProductoEdit() {
   const [isAdmin, setIsAdmin] = useState(false);
 
   const { refreshRole } = useRole();
+  const { empresaActivaId } = useEmpresaActiva();
 
   const [nombre, setNombre] = useState("");
 
@@ -115,15 +117,17 @@ export default function ProductoEdit() {
   }, [marcaQuery, marcas]);
 
   const loadMarcas = useCallback(async () => {
+    if (!empresaActivaId) return;
     const { data, error } = await supabase
       .from("marcas")
       .select("id,nombre")
+      .eq("empresa_id", empresaActivaId)
       .eq("activo", true)
       .order("nombre", { ascending: true });
 
     if (error) throw error;
     setMarcas((data ?? []) as Marca[]);
-  }, []);
+  }, [empresaActivaId]);
 
   useEffect(() => {
     const seq = ++reqSeq.current;
@@ -154,15 +158,19 @@ export default function ProductoEdit() {
             return;
           }
 
+          if (!empresaActivaId) { setLoading(false); return; }
+
           const prodP = supabase
             .from("productos")
             .select("id,nombre,marca_id,requiere_receta,tiene_iva,activo")
+            .eq("empresa_id", empresaActivaId)
             .eq("id", productoId)
             .single();
 
           const ovP = supabase
             .from("producto_precio_override")
             .select("precio_compra_override,motivo")
+            .eq("empresa_id", empresaActivaId)
             .eq("producto_id", productoId)
             .maybeSingle();
 
@@ -220,7 +228,7 @@ export default function ProductoEdit() {
     try {
       const { data, error } = await supabase
         .from("marcas")
-        .insert({ nombre: nm, activo: true })
+        .insert({ empresa_id: empresaActivaId, nombre: nm, activo: true })
         .select("id,nombre")
         .single();
 
@@ -252,6 +260,7 @@ export default function ProductoEdit() {
           tiene_iva: tieneIva,
           activo,
         })
+        .eq("empresa_id", empresaActivaId)
         .eq("id", productoId);
 
       if (e1) throw e1;
@@ -266,6 +275,7 @@ export default function ProductoEdit() {
         } = await supabase.auth.getSession();
 
         const { error: e2 } = await supabase.from("producto_precio_override").upsert({
+          empresa_id: empresaActivaId,
           producto_id: productoId,
           precio_compra_override: n,
           motivo: motivo.trim() || null,
@@ -275,7 +285,7 @@ export default function ProductoEdit() {
 
         if (e2) throw e2;
       } else {
-        await supabase.from("producto_precio_override").delete().eq("producto_id", productoId);
+        await supabase.from("producto_precio_override").delete().eq("empresa_id", empresaActivaId).eq("producto_id", productoId);
       }
 
       Alert.alert("Listo", "Producto actualizado");

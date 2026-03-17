@@ -19,11 +19,11 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import ImageViewer from "react-native-image-zoom-viewer";
+import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { alphaColor } from "../../lib/ui";
@@ -31,6 +31,7 @@ import { AppButton } from "../ui/app-button";
 import { DoneAccessory } from "../ui/done-accessory";
 import { goBackSafe } from "../../lib/goBackSafe";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
+import { CompraNuevaModal } from "./CompraNuevaModal";
 
 const BUCKET_COMPROBANTES = "comprobantes";
 
@@ -84,11 +85,15 @@ type PickedImage = {
 type CompraDetallePanelProps = {
   compraId: number;
   embedded?: boolean;
+  onRefresh?: () => void;
+  onDeleted?: () => void;
 };
 
 type CompraDetallePanelContentProps = {
   embedded: boolean;
   compraIdProp: number;
+  onRefresh?: () => void;
+  onDeleted?: () => void;
 };
 
 function fmtDate(iso: string | null | undefined) {
@@ -122,11 +127,11 @@ function extFromMime(mime: string) {
   return "jpg";
 }
 
-function makeComprobantePath(compraId: number, mimeType: string) {
+function makeComprobantePath(empresaId: number, compraId: number, mimeType: string) {
   const stamp = Date.now();
   const rnd = Math.random().toString(16).slice(2);
   const ext = extFromMime(mimeType);
-  return `compras/${compraId}/${stamp}-${rnd}.${ext}`;
+  return `${empresaId}/compras/${compraId}/${stamp}-${rnd}.${ext}`;
 }
 
 function normalizeComprobanteRef(raw: string) {
@@ -236,6 +241,15 @@ function base64ToUint8Array(base64: string) {
 }
 
 async function uriToBytes(uri: string) {
+  if (Platform.OS === "web") {
+    const res = await fetch(uri);
+    const buf = await res.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    if (!bytes.byteLength || bytes.byteLength < 16) {
+      throw new Error("El archivo seleccionado está vacío o no se pudo leer.");
+    }
+    return bytes;
+  }
   const b64 = await FileSystem.readAsStringAsync(uri, {
     encoding: FileSystem.EncodingType.Base64,
   });
@@ -246,9 +260,9 @@ async function uriToBytes(uri: string) {
   return bytes;
 }
 
-export function CompraDetallePanel({ compraId, embedded = false }: CompraDetallePanelProps) {
+export function CompraDetallePanel({ compraId, embedded = false, onRefresh, onDeleted }: CompraDetallePanelProps) {
   if (embedded) {
-    return <CompraDetallePanelContent embedded compraIdProp={compraId} />;
+    return <CompraDetallePanelContent embedded compraIdProp={compraId} onRefresh={onRefresh} onDeleted={onDeleted} />;
   }
   return <CompraDetallePanelWithParams fallbackCompraId={compraId} />;
 }
@@ -260,12 +274,13 @@ function CompraDetallePanelWithParams({ fallbackCompraId }: { fallbackCompraId: 
   return <CompraDetallePanelContent embedded={false} compraIdProp={resolvedId} />;
 }
 
-function CompraDetallePanelContent({ embedded, compraIdProp }: CompraDetallePanelContentProps) {
+function CompraDetallePanelContent({ embedded, compraIdProp, onRefresh, onDeleted }: CompraDetallePanelContentProps) {
   const DONE_ID = "doneAccessory";
   const insets = useSafeAreaInsets();
   const compraId = compraIdProp;
 
   const { colors } = useTheme();
+  const { empresaActivaId, isReady: empresaReady } = useEmpresaActiva();
 
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
@@ -301,6 +316,8 @@ function CompraDetallePanelContent({ embedded, compraIdProp }: CompraDetallePane
   const [thumbByPath, setThumbByPath] = useState<Record<string, string>>({});
   const thumbByPathRef = useRef<Record<string, string>>({});
   const [deleting, setDeleting] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   const [pagoModal, setPagoModal] = useState(false);
   const [pagoMonto, setPagoMonto] = useState("");
@@ -311,6 +328,8 @@ function CompraDetallePanelContent({ embedded, compraIdProp }: CompraDetallePane
   const [pagoComentario, setPagoComentario] = useState("");
   const [pagoImg, setPagoImg] = useState<PickedImage | null>(null);
   const [savingPago, setSavingPago] = useState(false);
+  const [pagoError, setPagoError] = useState<string | null>(null);
+  const [deletingPagoId, setDeletingPagoId] = useState<number | null>(null);
 
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerUrl, setViewerUrl] = useState<string | null>(null);
@@ -394,6 +413,7 @@ function CompraDetallePanelContent({ embedded, compraIdProp }: CompraDetallePane
 
   const fetchAll = useCallback(async () => {
     if (!Number.isFinite(compraId) || compraId <= 0) return;
+    if (!empresaActivaId) return;
 
     setLoading(true);
     try {
@@ -402,6 +422,7 @@ function CompraDetallePanelContent({ embedded, compraIdProp }: CompraDetallePane
         .select(
           "id,fecha,numero_factura,tipo_pago,fecha_vencimiento,estado,monto_total,saldo_pendiente,comentarios,proveedor_id,proveedores(nombre)"
         )
+        .eq("empresa_id", empresaActivaId)
         .eq("id", compraId)
         .maybeSingle();
 
@@ -427,6 +448,7 @@ function CompraDetallePanelContent({ embedded, compraIdProp }: CompraDetallePane
         .select(
           "id,compra_id,producto_id,lote_id,cantidad,precio_compra_unit,subtotal,productos(nombre,image_path,marca_id,marcas(nombre)),producto_lotes(lote,fecha_exp)"
         )
+        .eq("empresa_id", empresaActivaId)
         .eq("compra_id", compraId)
         .order("id", { ascending: true });
 
@@ -460,6 +482,7 @@ function CompraDetallePanelContent({ embedded, compraIdProp }: CompraDetallePane
         const { data: srows, error: se } = await supabase
           .from("stock_lotes")
           .select("lote_id,stock_total,stock_reservado")
+          .eq("empresa_id", empresaActivaId)
           .in("lote_id", loteIds);
 
         if (se) throw se;
@@ -484,6 +507,7 @@ function CompraDetallePanelContent({ embedded, compraIdProp }: CompraDetallePane
       const { data: p, error: pe } = await supabase
         .from("compras_pagos")
         .select("id,compra_id,fecha,monto,metodo,referencia,comprobante_path,comentario")
+        .eq("empresa_id", empresaActivaId)
         .eq("compra_id", compraId)
         .order("fecha", { ascending: false });
 
@@ -497,7 +521,7 @@ function CompraDetallePanelContent({ embedded, compraIdProp }: CompraDetallePane
     } finally {
       setLoading(false);
     }
-  }, [compraId]);
+  }, [compraId, empresaActivaId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -505,38 +529,46 @@ function CompraDetallePanelContent({ embedded, compraIdProp }: CompraDetallePane
     }, [fetchAll])
   );
 
-  const eliminarCompra = async () => {
+  const doEliminarCompra = async () => {
+    if (!compra) return;
+    setDeleting(true);
+    try {
+      const { error } = await supabase.rpc("rpc_compra_eliminar_compra", {
+        p_compra_id: compra.id,
+      });
+      if (error) throw error;
+
+      onDeleted?.();
+      if (embedded) {
+        Alert.alert("Listo", "Compra eliminada");
+      } else {
+        Alert.alert("Listo", "Compra eliminada", [
+          { text: "OK", onPress: () => goBackSafe("/compras") },
+        ]);
+      }
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "No se pudo eliminar");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const eliminarCompra = () => {
     if (!compra) return;
     if (deleting) return;
 
-    Alert.alert("Eliminar compra", "Esto eliminará la compra y sus líneas. ¿Seguro?", [
-      { text: "Cancelar", style: "cancel" },
-      {
-        text: "Eliminar",
-        style: "destructive",
-        onPress: async () => {
-          setDeleting(true);
-          try {
-            const { error } = await supabase.rpc("rpc_compra_eliminar_compra", {
-              p_compra_id: compra.id,
-            });
-            if (error) throw error;
-
-            if (embedded) {
-              Alert.alert("Listo", "Compra eliminada");
-            } else {
-              Alert.alert("Listo", "Compra eliminada", [
-                { text: "OK", onPress: () => goBackSafe("/compras") },
-              ]);
-            }
-          } catch (e: any) {
-            Alert.alert("Error", e?.message ?? "No se pudo eliminar");
-          } finally {
-            setDeleting(false);
-          }
-        },
-      },
-    ]);
+    if (Platform.OS === "web") {
+      setConfirmDeleteOpen(true);
+    } else {
+      Alert.alert(
+        "Eliminar compra",
+        "⚠️ Esto revertirá el stock. Si el inventario ya fue consumido podrían quedar cantidades negativas. ¿Deseas continuar?",
+        [
+          { text: "Cancelar", style: "cancel" },
+          { text: "Eliminar", style: "destructive", onPress: doEliminarCompra },
+        ]
+      );
+    }
   };
 
   const abrirPagoModal = () => {
@@ -545,6 +577,7 @@ function CompraDetallePanelContent({ embedded, compraIdProp }: CompraDetallePane
     setPagoReferencia("");
     setPagoComentario("");
     setPagoImg(null);
+    setPagoError(null);
     setPagoModal(true);
   };
 
@@ -577,7 +610,7 @@ function CompraDetallePanelContent({ embedded, compraIdProp }: CompraDetallePane
   ): Promise<string | null> => {
     if (!pagoImg?.uri) return null;
 
-    const path = makeComprobantePath(compraIdLocal, pagoImg.mimeType);
+    const path = makeComprobantePath(empresaActivaId!, compraIdLocal, pagoImg.mimeType);
     const bytes = await uriToBytes(pagoImg.uri);
 
     const { error } = await supabase.storage
@@ -593,19 +626,23 @@ function CompraDetallePanelContent({ embedded, compraIdProp }: CompraDetallePane
   };
 
   const guardarPago = async () => {
-    if (!compra) return;
-    if (savingPago) return;
+    if (!compra || savingPago) return;
+    if (!empresaActivaId) {
+      setPagoError("Sin empresa activa. Contacta al administrador.");
+      return;
+    }
 
     const monto = safeNumber(pagoMonto);
     if (!(monto > 0)) {
-      Alert.alert("Monto inválido", "Ingresa un monto mayor a 0.");
+      setPagoError("Ingresa un monto mayor a 0.");
       return;
     }
     if (normalizeUpper(compra.tipo_pago) !== "CREDITO") {
-      Alert.alert("No aplica", "Solo compras a crédito admiten pagos.");
+      setPagoError("Solo compras a crédito admiten pagos.");
       return;
     }
 
+    setPagoError(null);
     setSavingPago(true);
     try {
       const comprobantePath = await subirComprobanteSiExiste(compra.id);
@@ -614,9 +651,9 @@ function CompraDetallePanelContent({ embedded, compraIdProp }: CompraDetallePane
         p_compra_id: compra.id,
         p_monto: monto,
         p_metodo: pagoMetodo,
-        p_referencia: pagoReferencia ? pagoReferencia : null,
+        p_referencia: pagoReferencia || null,
         p_comprobante_path: comprobantePath,
-        p_comentario: pagoComentario ? pagoComentario : null,
+        p_comentario: pagoComentario || null,
       });
 
       if (error) throw error;
@@ -626,12 +663,27 @@ function CompraDetallePanelContent({ embedded, compraIdProp }: CompraDetallePane
       setPagoReferencia("");
       setPagoComentario("");
       setPagoImg(null);
-
       await fetchAll();
+      if (onRefresh) onRefresh();
     } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "No se pudo aplicar el pago");
+      setPagoError(e?.message ?? "No se pudo aplicar el pago.");
     } finally {
       setSavingPago(false);
+    }
+  };
+
+  const eliminarPago = async (pagoId: number) => {
+    if (deletingPagoId) return;
+    setDeletingPagoId(pagoId);
+    try {
+      const { error } = await supabase.rpc("rpc_compra_eliminar_pago", { p_pago_id: pagoId });
+      if (error) throw error;
+      await fetchAll();
+      if (onRefresh) onRefresh();
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "No se pudo eliminar el pago.");
+    } finally {
+      setDeletingPagoId(null);
     }
   };
 
@@ -975,9 +1027,29 @@ function CompraDetallePanelContent({ embedded, compraIdProp }: CompraDetallePane
                             <Text style={[styles.payTitle, { color: C.text }]} numberOfLines={1}>
                               {fmtDate(p.fecha)} · {p.metodo ?? "—"}
                             </Text>
-                            <Text style={[styles.payAmount, { color: C.text }]}>
-                              {fmtQ(p.monto)}
-                            </Text>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                              <Text style={[styles.payAmount, { color: C.text }]}>
+                                {fmtQ(p.monto)}
+                              </Text>
+                              <Pressable
+                                onPress={() => {
+                                  if (Platform.OS === "web") {
+                                    if (window.confirm("¿Eliminar este pago?")) eliminarPago(p.id);
+                                  } else {
+                                    Alert.alert("Eliminar pago", `¿Eliminar pago de ${fmtQ(p.monto)}?`, [
+                                      { text: "Cancelar", style: "cancel" },
+                                      { text: "Eliminar", style: "destructive", onPress: () => eliminarPago(p.id) },
+                                    ]);
+                                  }
+                                }}
+                                disabled={deletingPagoId === p.id}
+                                style={({ pressed }) => ({ opacity: pressed || deletingPagoId === p.id ? 0.4 : 1, padding: 4 })}
+                              >
+                                <Text style={{ color: "#e53e3e", fontSize: 13, fontWeight: "700" }}>
+                                  {deletingPagoId === p.id ? "..." : "✕"}
+                                </Text>
+                              </Pressable>
+                            </View>
                           </View>
 
                           {!!p.referencia ? (
@@ -1087,12 +1159,16 @@ function CompraDetallePanelContent({ embedded, compraIdProp }: CompraDetallePane
           >
             <AppButton
               title="Editar"
-              onPress={() =>
-                router.push({
-                  pathname: "/compra-nueva",
-                  params: { editId: String(compra.id) },
-                })
-              }
+              onPress={() => {
+                if (Platform.OS === "web") {
+                  setEditModalOpen(true);
+                } else {
+                  router.push({
+                    pathname: "/compra-nueva",
+                    params: { editId: String(compra.id) },
+                  });
+                }
+              }}
               variant="primary"
               androidRipple={Platform.OS === "android" ? { color: "rgba(255,255,255,0.18)" } : undefined}
               style={{ flex: 1, minHeight: 48, backgroundColor: C.primary, borderColor: C.primary } as any}
@@ -1117,28 +1193,33 @@ function CompraDetallePanelContent({ embedded, compraIdProp }: CompraDetallePane
             animationType="fade"
             onRequestClose={() => setPagoModal(false)}
           >
-            <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-              <View style={[styles.modalBg, { backgroundColor: C.overlay }]}>
-                <KeyboardAvoidingView
-                  behavior={Platform.OS === "ios" ? "padding" : "height"}
-                  style={{ width: "100%" }}
-                  keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
+            <View
+              style={
+                Platform.OS === "web"
+                  ? [styles.modalBgWeb, { backgroundColor: C.overlay }]
+                  : [styles.modalBg, { backgroundColor: C.overlay }]
+              }
+            >
+              <Pressable style={StyleSheet.absoluteFill} onPress={Keyboard.dismiss} />
+              <KeyboardAvoidingView
+                behavior={Platform.OS === "ios" ? "padding" : "height"}
+                style={{ width: "100%", maxWidth: Platform.OS === "web" ? 480 : undefined }}
+                keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
+              >
+                <ScrollView
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="on-drag"
+                  contentContainerStyle={{ paddingBottom: 12 }}
+                  showsVerticalScrollIndicator={false}
+                  automaticallyAdjustKeyboardInsets
                 >
-                  <ScrollView
-                    keyboardShouldPersistTaps="handled"
-                    keyboardDismissMode="on-drag"
-                    contentContainerStyle={{ paddingBottom: 12 }}
-                    showsVerticalScrollIndicator={false}
-                    automaticallyAdjustKeyboardInsets
+                  <View
+                    style={[
+                      styles.modalCard,
+                      styles.shadowCard,
+                      { backgroundColor: C.card, borderColor: C.border },
+                    ]}
                   >
-                    <TouchableWithoutFeedback onPress={() => { }} accessible={false}>
-                      <View
-                        style={[
-                          styles.modalCard,
-                          styles.shadowCard,
-                          { backgroundColor: C.card, borderColor: C.border },
-                        ]}
-                      >
                         <Text style={[styles.modalTitle, { color: C.text }]}>Aplicar pago</Text>
                         <Text style={[styles.modalSub, { color: C.sub }]}>
                           Saldo: {fmtQ(compra?.saldo_pendiente)}
@@ -1215,40 +1296,46 @@ function CompraDetallePanelContent({ embedded, compraIdProp }: CompraDetallePane
                           onSubmitEditing={Keyboard.dismiss}
                         />
 
-                        <View style={{ marginTop: 12 }}>
-                          <View style={styles.rowBetween}>
-                            <Text style={[styles.inputLabel, { color: C.sub }]}>Comprobante (imagen)</Text>
-                            <Pressable
-                              onPress={() => {
-                                Keyboard.dismiss();
-                                pickComprobante();
-                              }}
-                              style={({ pressed }) => [
-                                styles.linkBtnSmall,
-                                { borderColor: C.border, backgroundColor: C.mutedBg },
-                                pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
-                              ]}
-                            >
-                              <Text style={[styles.linkBtnTextSmall, { color: C.text }]}>
-                                {pagoImg?.uri ? "Cambiar" : "Agregar"}
-                              </Text>
-                            </Pressable>
-                          </View>
-
-                          {pagoImg?.uri ? (
-                            <View style={[styles.previewWrap, { borderColor: C.border, backgroundColor: C.mutedBg }]}>
-                              <ExpoImage
-                                source={{ uri: pagoImg.uri }}
-                                style={styles.previewImg}
-                                contentFit="cover"
-                                cachePolicy="disk"
-                              />
-                              <Text style={{ color: C.sub, fontWeight: "700", fontSize: 12, marginTop: 8 }}>
-                                Se subirá junto con el pago
-                              </Text>
-                            </View>
-                          ) : null}
+                        <View style={{ marginTop: 14 }}>
+                          <Text style={[styles.inputLabel, { color: C.sub, marginBottom: 8 }]}>Comprobante (opcional)</Text>
+                          <Pressable
+                            onPress={() => {
+                              Keyboard.dismiss();
+                              pickComprobante();
+                            }}
+                            style={({ pressed }) => [
+                              styles.uploadZone,
+                              { borderColor: C.border, backgroundColor: C.mutedBg },
+                              pressed ? { opacity: 0.75 } : null,
+                            ]}
+                          >
+                            {pagoImg?.uri ? (
+                              <>
+                                <ExpoImage
+                                  source={{ uri: pagoImg.uri }}
+                                  style={styles.previewImg}
+                                  contentFit="cover"
+                                  cachePolicy="disk"
+                                />
+                                <View style={styles.uploadZoneOverlay}>
+                                  <Text style={styles.uploadZoneOverlayText}>Cambiar imagen</Text>
+                                </View>
+                              </>
+                            ) : (
+                              <>
+                                <Text style={{ fontSize: 28, marginBottom: 6 }}>📎</Text>
+                                <Text style={[styles.uploadZoneLabel, { color: C.text }]}>Agregar comprobante</Text>
+                                <Text style={[styles.uploadZoneSub, { color: C.sub }]}>JPG, PNG o PDF</Text>
+                              </>
+                            )}
+                          </Pressable>
                         </View>
+
+                        {pagoError ? (
+                          <Text style={{ color: "#e53e3e", fontSize: 13, marginTop: 10, textAlign: "center" }}>
+                            {pagoError}
+                          </Text>
+                        ) : null}
 
                         <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
                           <AppButton
@@ -1273,12 +1360,10 @@ function CompraDetallePanelContent({ embedded, compraIdProp }: CompraDetallePane
                             style={{ flex: 1, minHeight: 48, backgroundColor: C.primary, borderColor: C.primary } as any}
                           />
                         </View>
-                      </View>
-                    </TouchableWithoutFeedback>
-                  </ScrollView>
-                </KeyboardAvoidingView>
-              </View>
-            </TouchableWithoutFeedback>
+                  </View>
+                </ScrollView>
+              </KeyboardAvoidingView>
+            </View>
           </Modal>
         ) : null}
 
@@ -1334,6 +1419,70 @@ function CompraDetallePanelContent({ embedded, compraIdProp }: CompraDetallePane
         ) : null}
 
         <DoneAccessory nativeID={DONE_ID} />
+
+        {Platform.OS === "web" && confirmDeleteOpen ? (
+          <Modal transparent visible animationType="fade" onRequestClose={() => setConfirmDeleteOpen(false)}>
+            <View
+              style={{
+                position: "fixed" as any,
+                top: 0, left: 0, right: 0, bottom: 0,
+                alignItems: "center", justifyContent: "center",
+                zIndex: 99999,
+                backgroundColor: "rgba(0,0,0,0.5)",
+              }}
+            >
+              <View style={{ width: 420, maxWidth: "90%" as any, borderRadius: 16, padding: 24, backgroundColor: C.card, borderWidth: 1, borderColor: C.border }}>
+                <Text style={{ fontSize: 17, fontWeight: "700", color: C.text, marginBottom: 10 }}>
+                  ¿Eliminar esta compra?
+                </Text>
+                <Text style={{ fontSize: 14, color: C.warn, fontWeight: "600", marginBottom: 8 }}>
+                  ⚠️ Advertencia
+                </Text>
+                <Text style={{ fontSize: 14, color: C.sub, lineHeight: 20, marginBottom: 20 }}>
+                  Esta acción revertirá el stock ingresado por esta compra. Si los productos ya fueron vendidos o consumidos, el inventario podría quedar en cantidades negativas.{"\n\n"}¿Deseas continuar?
+                </Text>
+                <View style={{ flexDirection: "row", gap: 10 }}>
+                  <Pressable
+                    onPress={() => setConfirmDeleteOpen(false)}
+                    style={({ pressed }) => ({
+                      flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: "center" as any,
+                      backgroundColor: C.mutedBg, opacity: pressed ? 0.7 : 1,
+                    })}
+                  >
+                    <Text style={{ fontWeight: "700", color: C.text }}>Cancelar</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => { setConfirmDeleteOpen(false); doEliminarCompra(); }}
+                    disabled={deleting}
+                    style={({ pressed }) => ({
+                      flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: "center" as any,
+                      backgroundColor: C.dangerBg, opacity: pressed || deleting ? 0.7 : 1,
+                    })}
+                  >
+                    <Text style={{ fontWeight: "700", color: C.danger }}>
+                      {deleting ? "Eliminando..." : "Eliminar"}
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          </Modal>
+        ) : null}
+
+        {Platform.OS === "web" && compra ? (
+          <CompraNuevaModal
+            visible={editModalOpen}
+            onClose={() => setEditModalOpen(false)}
+            onDone={() => {
+              setEditModalOpen(false);
+              fetchAll();
+              onRefresh?.();
+            }}
+            isDark={isDark}
+            colors={{ card: C.card, text: C.text, border: C.border, sub: C.sub }}
+            editId={String(compra.id)}
+          />
+        ) : null}
       </SafeAreaView>
     </>
   );
@@ -1456,6 +1605,14 @@ const styles = StyleSheet.create({
   receiptThumbText: { fontSize: 11, fontWeight: "800", letterSpacing: 0.2 },
 
   modalBg: { flex: 1, alignItems: "center", justifyContent: "center", padding: 18 },
+  modalBgWeb: {
+    position: "fixed" as any,
+    top: 0, left: 0, right: 0, bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 18,
+    zIndex: 9999,
+  },
   modalCard: {
     width: "100%",
     borderWidth: StyleSheet.hairlineWidth,
@@ -1499,6 +1656,29 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   previewImg: { width: "100%", height: 160, borderRadius: 10 },
+
+  uploadZone: {
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderRadius: 14,
+    paddingVertical: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    minHeight: 100,
+  },
+  uploadZoneLabel: { fontSize: 14, fontWeight: "700" },
+  uploadZoneSub: { fontSize: 12, fontWeight: "600", marginTop: 3 },
+  uploadZoneOverlay: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    paddingVertical: 8,
+    alignItems: "center",
+  },
+  uploadZoneOverlayText: { color: "#fff", fontWeight: "700", fontSize: 13 },
 
   viewerBg: { flex: 1 },
   viewerCard: { flex: 1 },

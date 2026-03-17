@@ -35,9 +35,9 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCompraDraft } from "../lib/compraDraft";
-import { dispatchNotifs } from "../lib/notif-dispatch";
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
+import { useEmpresaActiva } from "../lib/useEmpresaActiva";
 import { alphaColor } from "../lib/ui";
 import { goBackSafe } from "../lib/goBackSafe";
 import { AppButton } from "../components/ui/app-button";
@@ -126,6 +126,7 @@ export default function CompraNuevaScreen() {
     reset,
   } = useCompraDraft();
 
+  const { empresaActivaId, isReady: empresaReady } = useEmpresaActiva();
   const { proveedor, numeroFactura, tipoPago, comentarios, fechaVenc, lineas } = draft;
 
   // Mantener referencia al draft actual (para evitar estados stale en timers)
@@ -206,11 +207,14 @@ export default function CompraNuevaScreen() {
       setLoadingEdit(true);
 
       try {
+        if (!empresaActivaId) { setLoadingEdit(false); return; }
+
         const { data: c, error: e1 } = await supabase
           .from("compras")
           .select(
             "id,proveedor_id,numero_factura,tipo_pago,fecha_vencimiento,comentarios,proveedores(nombre)"
           )
+          .eq("empresa_id", empresaActivaId)
           .eq("id", Number(idToLoad))
           .maybeSingle();
 
@@ -224,6 +228,7 @@ export default function CompraNuevaScreen() {
           .select(
             "id,cantidad,precio_compra_unit,producto_id, productos(nombre,image_path,marca_id,marcas(nombre)), producto_lotes(lote,fecha_exp)"
           )
+          .eq("empresa_id", empresaActivaId)
           .eq("compra_id", Number(idToLoad))
           .order("id", { ascending: true });
 
@@ -270,6 +275,7 @@ export default function CompraNuevaScreen() {
       }
     },
     [
+      empresaActivaId,
       hydrateWhenReady,
       reset,
       setProveedor,
@@ -402,7 +408,7 @@ export default function CompraNuevaScreen() {
       updateLinea(lineKey, { image_uri: asset.uri });
 
       const ext = extFromUri(asset.uri);
-      const path = `compras/${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`;
+      const path = `${empresaActivaId}/compras/imagenes/${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`;
       const ab = await uriToArrayBuffer(asset.uri);
 
       const contentType =
@@ -433,10 +439,12 @@ export default function CompraNuevaScreen() {
       .filter((id): id is number => id != null);
 
     if (!ids.length) return [];
+    if (!empresaActivaId) return [];
 
     const { data } = await supabase
       .from("producto_precio_override")
       .select("producto_id, precio_compra_override")
+      .eq("empresa_id", empresaActivaId)
       .in("producto_id", ids);
 
     const overrideMap = new Map<number, number | null>();
@@ -466,6 +474,8 @@ export default function CompraNuevaScreen() {
   // ================== GUARDAR (RPC)
   const guardar = async () => {
     if (saving || loadingEdit) return;
+    if (!empresaReady) return;
+    if (!empresaActivaId) return Alert.alert("Sin empresa", "No tienes una empresa activa asignada. Contacta al administrador.");
 
     const factura = numeroFactura.trim();
     if (!proveedor?.id) return Alert.alert("Falta proveedor", "Selecciona un proveedor");
@@ -527,14 +537,11 @@ export default function CompraNuevaScreen() {
       if (isEdit && editId) {
         const { error } = await supabase.rpc("rpc_compra_reemplazar", {
           p_compra_id: Number(editId),
+          p_empresa_id: empresaActivaId,
           p_compra,
           p_detalles: detalles,
         });
         if (error) throw error;
-
-        void dispatchNotifs(20).catch((e: any) =>
-          __DEV__ ? console.warn("[notif] dispatch failed", e?.message ?? e) : undefined
-        );
 
         Alert.alert(
           "Listo",
@@ -550,14 +557,11 @@ export default function CompraNuevaScreen() {
         );
       } else {
         const { error } = await supabase.rpc("rpc_crear_compra", {
+          p_empresa_id: empresaActivaId,
           p_compra,
           p_detalles: detalles,
         });
         if (error) throw error;
-
-        void dispatchNotifs(20).catch((e: any) =>
-          __DEV__ ? console.warn("[notif] dispatch failed", e?.message ?? e) : undefined
-        );
 
         Alert.alert(
           "Listo",

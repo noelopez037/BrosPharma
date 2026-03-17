@@ -16,6 +16,7 @@ import { AppButton } from "../ui/app-button";
 import { generarEstadoCuentaClientePdf } from "../../lib/estadoCuentaClientePdf";
 import { supabase } from "../../lib/supabase";
 import { useRole } from "../../lib/useRole";
+import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 
@@ -38,12 +39,16 @@ type ClienteDetallePanelProps = {
   clienteId: number;
   readOnly?: boolean;
   embedded?: boolean;
+  onEditWeb?: (id: number) => void;
+  onDeleted?: () => void;
 };
 
 type ClienteDetallePanelContentProps = {
   embedded: boolean;
   clienteIdProp: number;
   readOnly: boolean;
+  onEditWeb?: (id: number) => void;
+  onDeleted?: () => void;
 };
 
 function normalizeUpper(v: any) {
@@ -59,9 +64,11 @@ export function ClienteDetallePanel({
   clienteId,
   readOnly = false,
   embedded = false,
+  onEditWeb,
+  onDeleted,
 }: ClienteDetallePanelProps) {
   if (embedded) {
-    return <ClienteDetallePanelContent embedded clienteIdProp={clienteId} readOnly={readOnly} />;
+    return <ClienteDetallePanelContent embedded clienteIdProp={clienteId} readOnly={readOnly} onEditWeb={onEditWeb} onDeleted={onDeleted} />;
   }
   return <ClienteDetallePanelWithParams fallbackClienteId={clienteId} />;
 }
@@ -78,6 +85,8 @@ function ClienteDetallePanelContent({
   embedded,
   clienteIdProp,
   readOnly,
+  onEditWeb,
+  onDeleted,
 }: ClienteDetallePanelContentProps) {
   const { colors } = useTheme();
   const s = useMemo(() => styles(colors), [colors]);
@@ -100,6 +109,7 @@ function ClienteDetallePanelContent({
   }, []);
 
   const { role, isReady, refreshRole } = useRole();
+  const { empresaActivaId } = useEmpresaActiva();
   const roleUp = String(role ?? "").trim().toUpperCase() as Role;
   const canEdit = isReady && roleUp === "ADMIN" && !readOnly;
   const canDelete = isReady && roleUp === "ADMIN" && !readOnly;
@@ -115,17 +125,19 @@ function ClienteDetallePanelContent({
       return;
     }
 
+    if (!empresaActivaId) return;
     const { data, error } = await supabase
       .from("clientes")
       .select(
         "id,nombre,nit,telefono,direccion,activo,vendedor_id,vendedor:profiles!clientes_vendedor_id_fkey(id,full_name,role)"
       )
+      .eq("empresa_id", empresaActivaId)
       .eq("id", clienteId)
       .maybeSingle();
 
     if (error) throw error;
     setRow((data ?? null) as any);
-  }, [clienteId]);
+  }, [clienteId, empresaActivaId]);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -154,40 +166,56 @@ function ClienteDetallePanelContent({
   const onDelete = useCallback(() => {
     if (!canDelete || !row) return;
 
-    Alert.alert(
-      "Eliminar cliente",
-      `Se eliminará definitivamente "${row.nombre}". ¿Continuar?`,
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Eliminar",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              const { error } = await supabase.from("clientes").delete().eq("id", row.id);
-              if (error) throw error;
-              if (embedded) {
-                Alert.alert("Listo", "Cliente eliminado");
-                loadAll().catch(() => {});
-              } else {
-                Alert.alert("Listo", "Cliente eliminado");
-                goBackSafe();
-              }
-            } catch (e: any) {
-              Alert.alert("Error", e?.message ?? "No se pudo eliminar");
-            }
-          },
-        },
-      ]
-    );
-  }, [canDelete, row, embedded, goBackSafe, loadAll]);
+    const doDelete = async () => {
+      try {
+        const { error } = await supabase.from("clientes").delete().eq("empresa_id", empresaActivaId).eq("id", row.id);
+        if (error) throw error;
+        if (Platform.OS === "web") {
+          if (embedded) {
+            onDeleted?.();
+          } else {
+            goBackSafe();
+          }
+        } else {
+          if (embedded) {
+            Alert.alert("Listo", "Cliente eliminado");
+            onDeleted?.();
+          } else {
+            Alert.alert("Listo", "Cliente eliminado");
+            goBackSafe();
+          }
+        }
+      } catch (e: any) {
+        if (Platform.OS === "web") {
+          window.alert(e?.message ?? "No se pudo eliminar");
+        } else {
+          Alert.alert("Error", e?.message ?? "No se pudo eliminar");
+        }
+      }
+    };
+
+    if (Platform.OS === "web") {
+      if (window.confirm(`Se eliminará definitivamente "${row.nombre}". ¿Continuar?`)) {
+        void doDelete();
+      }
+    } else {
+      Alert.alert(
+        "Eliminar cliente",
+        `Se eliminará definitivamente "${row.nombre}". ¿Continuar?`,
+        [
+          { text: "Cancelar", style: "cancel" },
+          { text: "Eliminar", style: "destructive", onPress: () => void doDelete() },
+        ]
+      );
+    }
+  }, [canDelete, row, embedded, goBackSafe, onDeleted, empresaActivaId]);
 
   const onGenerarEstadoCuentaPdf = useCallback(async () => {
     if (!canGenerarEstadoCuentaPdf) return;
     if (!row || pdfLoading) return;
     setPdfLoading(true);
     try {
-      const { data, error } = await supabase.rpc("rpc_estado_cuenta_cliente_pdf", { p_cliente_id: row.id });
+      const { data, error } = await supabase.rpc("rpc_estado_cuenta_cliente_pdf", { p_empresa_id: empresaActivaId, p_cliente_id: row.id });
       if (error) throw error;
       if (!data || typeof data !== "object") throw new Error("Respuesta invalida del RPC");
 
@@ -200,7 +228,7 @@ function ClienteDetallePanelContent({
     } finally {
       setPdfLoading(false);
     }
-  }, [canGenerarEstadoCuentaPdf, row, pdfLoading]);
+  }, [canGenerarEstadoCuentaPdf, empresaActivaId, row, pdfLoading]);
 
   const vendedorNombre = (row?.vendedor?.full_name ?? "").trim();
   const vendedorRole = normalizeUpper(row?.vendedor?.role);
@@ -254,12 +282,16 @@ function ClienteDetallePanelContent({
             {canEdit ? (
               <AppButton
                 title="Editar"
-                onPress={() =>
-                  router.push({
-                    pathname: "/cliente-form" as any,
-                    params: { id: String(row.id) },
-                  })
-                }
+                onPress={() => {
+                  if (embedded && Platform.OS === "web" && onEditWeb) {
+                    onEditWeb(row.id);
+                  } else {
+                    router.push({
+                      pathname: "/cliente-form" as any,
+                      params: { id: String(row.id) },
+                    });
+                  }
+                }}
               />
             ) : null}
 

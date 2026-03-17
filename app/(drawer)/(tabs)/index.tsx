@@ -1,5 +1,6 @@
+import Svg, { Path, Circle, Defs, LinearGradient, Stop, Text as SvgText } from "react-native-svg";
 import { useFocusEffect, useTheme } from "@react-navigation/native";
-import { router } from "expo-router";
+import { Redirect, router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
@@ -16,7 +17,8 @@ import { supabase } from "../../../lib/supabase";
 import { useThemePref } from "../../../lib/themePreference";
 import { alphaColor } from "../../../lib/ui";
 import { useRole } from "../../../lib/useRole";
-import { onAppResumed } from "../../../lib/resumeEvents";
+import { useEmpresaActiva } from "../../../lib/useEmpresaActiva";
+import { useResumeLoad } from "../../../lib/useResumeLoad";
 import { FB_DARK_DANGER } from "../../../src/theme/headerColors";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -38,6 +40,22 @@ type VentaMini = {
   vendedor_id: string | null;
 };
 
+type CxcVencidaRow = {
+  venta_id: number;
+  cliente_nombre: string | null;
+  saldo: number;
+  diasVencida: number;
+  vendedor_codigo: string | null;
+};
+
+type CxcPorVencerRow = {
+  venta_id: number;
+  cliente_nombre: string | null;
+  saldo: number;
+  diasRestantes: number;
+  vendedor_codigo: string | null;
+};
+
 type AdminData = {
   solicitudes: number;
   recetasPendMes: number;
@@ -47,6 +65,8 @@ type AdminData = {
   ventasMesTotal: number;
   ventasMesPorVendedor: VendedorMesTotal[];
   tendencia12m: number[];
+  cxcVencidas: CxcVencidaRow[];
+  cxcPorVencer: CxcPorVencerRow[];
 };
 
 type VentasData = {
@@ -55,6 +75,9 @@ type VentasData = {
   recetasPendMes: number;
   recetasPendList: VentaMini[];
   ventasMes: number[];
+  cxcSaldo: number;
+  cxcVencidas: CxcVencidaRow[];
+  cxcPorVencer: CxcPorVencerRow[];
 };
 
 type FacturadorData = {
@@ -112,14 +135,10 @@ function fmtDateLong(): string {
 }
 
 function buildGreeting(name: string, role: string, ventasHoy?: number): string {
-  const h = nowGt().getUTCHours();
-  const base = h >= 5 && h < 12 ? "Buenos días" : h >= 12 && h < 18 ? "Buenas tardes" : "Buenas noches";
   if (role === "VENTAS") {
-    if (typeof ventasHoy === "number" && ventasHoy > 0)
-      return name ? `¡Vamos ${name}!` : "¡A seguir vendiendo!";
-    return name ? `¡Hoy es un buen día, ${name}!` : "¡Hoy es un buen día!";
+    return name ? `Hola ${name}!` : "¡Hola!";
   }
-  return name ? `${base}, ${name}` : base;
+  return name ? `Hola ${name}` : "Hola";
 }
 
 function fmtQ(n: any) {
@@ -140,6 +159,15 @@ function safeNumber(n: any) {
 
 function normalizeUpper(v: any) {
   return String(v ?? "").trim().toUpperCase();
+}
+
+function dayDiffFromToday(isoYmd: string) {
+  const due = new Date(`${String(isoYmd).slice(0, 10)}T12:00:00`);
+  const now = new Date();
+  const today = new Date(
+    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}T12:00:00`
+  );
+  return Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
 
 function pickName(p: any) {
@@ -305,6 +333,24 @@ function Bars({
 
 // ─── MiniLine ─────────────────────────────────────────────────────────────────
 
+// Genera path SVG con curva cardinal suave
+function smoothPath(pts: { x: number; y: number }[], tension = 0.4): string {
+  if (pts.length < 2) return "";
+  let d = `M ${pts[0].x} ${pts[0].y}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(0, i - 1)];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[Math.min(pts.length - 1, i + 2)];
+    const cp1x = p1.x + ((p2.x - p0.x) * tension) / 2;
+    const cp1y = p1.y + ((p2.y - p0.y) * tension) / 2;
+    const cp2x = p2.x - ((p3.x - p1.x) * tension) / 2;
+    const cp2y = p2.y - ((p3.y - p1.y) * tension) / 2;
+    d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
+  }
+  return d;
+}
+
 function MiniLine({
   values,
   labels,
@@ -314,9 +360,11 @@ function MiniLine({
   labels?: string[];
   colors: DashColors;
 }) {
-  const [w, setW] = useState(0);
-  const H = 140;
-  const PAD = 14;
+  const [chartW, setChartW] = useState(0);
+  const H = 180;
+  const PAD_X = 12;
+  const PAD_TOP = 16;
+  const PAD_BOTTOM = 36; // espacio para etiquetas dentro del SVG
 
   const defaultLabels = useMemo(
     () => ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"],
@@ -324,23 +372,39 @@ function MiniLine({
   );
   const monthLabels = labels ?? defaultLabels;
 
-  const pts = useMemo(() => {
-    const n = values.length;
-    const max = Math.max(1, ...values.map((v) => Number(v) || 0));
-    const ww = Math.max(0, w);
-    if (n < 2 || ww <= 10) return [] as { x: number; y: number; i: number }[];
-    const innerW = Math.max(1, ww - PAD * 2);
-    const innerH = Math.max(1, H - PAD * 2);
-    return values.map((vv, i) => {
-      const v = Number(vv) || 0;
-      const x = PAD + (innerW * i) / (n - 1);
-      const y = PAD + (1 - v / max) * innerH;
-      return { x, y, i };
-    });
-  }, [values, w]);
-
   const maxV = useMemo(() => Math.max(0, ...values.map((v) => Number(v) || 0)), [values]);
   const allZero = maxV === 0;
+
+  const pts = useMemo(() => {
+    if (allZero || chartW <= 0 || values.length < 2) return [];
+    const n = values.length;
+    const innerW = chartW - PAD_X * 2;
+    const innerH = H - PAD_TOP - PAD_BOTTOM;
+    return values.map((v, i) => ({
+      x: PAD_X + (innerW * i) / (n - 1),
+      y: PAD_TOP + (1 - (Number(v) || 0) / maxV) * innerH,
+    }));
+  }, [values, chartW, maxV, allZero]);
+
+  const linePath = useMemo(() => smoothPath(pts), [pts]);
+  const areaPath = useMemo(() => {
+    if (!pts.length) return "";
+    const bottom = H - PAD_BOTTOM;
+    return `${linePath} L ${pts[pts.length - 1].x} ${bottom} L ${pts[0].x} ${bottom} Z`;
+  }, [linePath, pts]);
+
+  if (allZero) {
+    return (
+      <View
+        style={[
+          s.lineChart,
+          { borderColor: colors.border, backgroundColor: colors.chipBg, justifyContent: "center", alignItems: "center" },
+        ]}
+      >
+        <Text style={[s.lineMeta, { color: colors.sub }]}>Sin datos este período</Text>
+      </View>
+    );
+  }
 
   return (
     <View>
@@ -348,73 +412,57 @@ function MiniLine({
         <Text style={[s.lineMeta, { color: colors.sub }]}>Máx: {fmtQ(maxV)}</Text>
       </View>
 
-      {allZero ? (
-        <View
-          style={[
-            s.lineChart,
-            { borderColor: colors.border, backgroundColor: colors.chipBg, justifyContent: "center", alignItems: "center" },
-          ]}
-        >
-          <Text style={[s.lineMeta, { color: colors.sub }]}>Sin datos este período</Text>
-        </View>
-      ) : (
-        <View
-          style={[s.lineChart, { borderColor: colors.border, backgroundColor: colors.chipBg }]}
-          onLayout={(ev) => {
-            const next = Math.round(ev.nativeEvent.layout.width);
-            if (next !== w) setW(next);
-          }}
-        >
-          {pts.length >= 2
-            ? pts.slice(0, -1).map((p, idx) => {
-                const q = pts[idx + 1];
-                const dx = q.x - p.x;
-                const dy = q.y - p.y;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                const ang = (Math.atan2(dy, dx) * 180) / Math.PI;
-                const xm = (p.x + q.x) / 2;
-                const ym = (p.y + q.y) / 2;
-                return (
-                  <View
-                    key={`seg-${idx}`}
-                    style={[
-                      s.lineSeg,
-                      {
-                        left: xm - dist / 2,
-                        top: ym - 1,
-                        width: dist,
-                        backgroundColor: colors.tint,
-                        transform: [{ rotateZ: `${ang}deg` }],
-                      },
-                    ]}
-                  />
-                );
-              })
-            : null}
-          {pts.length
-            ? pts.map((p) => (
-                <View
-                  key={`pt-${p.i}`}
-                  style={[
-                    s.lineDot,
-                    { left: p.x - 3, top: p.y - 3, backgroundColor: colors.card, borderColor: colors.tint },
-                  ]}
-                />
-              ))
-            : null}
-        </View>
-      )}
-
-      <View style={s.lineLabelsRow}>
-        {monthLabels.map((m, i) => (
-          <View key={`ml-${i}`} style={s.lineLabelBox}>
-            <View style={s.lineLabelRot}>
-              <Text style={[s.lineLabelText, { color: colors.sub }]} numberOfLines={1}>
-                {m}
-              </Text>
-            </View>
-          </View>
-        ))}
+      <View
+        style={[s.lineChart, { borderColor: colors.border, backgroundColor: colors.chipBg }]}
+        onLayout={(e) => setChartW(Math.round(e.nativeEvent.layout.width))}
+      >
+        {chartW > 0 && pts.length >= 2 && (
+          <Svg width={chartW} height={H}>
+            <Defs>
+              <LinearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0%" stopColor={colors.tint} stopOpacity={0.3} />
+                <Stop offset="100%" stopColor={colors.tint} stopOpacity={0.0} />
+              </LinearGradient>
+            </Defs>
+            {/* Area fill */}
+            <Path d={areaPath} fill="url(#areaGrad)" />
+            {/* Line */}
+            <Path
+              d={linePath}
+              stroke={colors.tint}
+              strokeWidth={2.5}
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            {/* Dots */}
+            {pts.map((p, i) => (
+              <Circle
+                key={i}
+                cx={p.x}
+                cy={p.y}
+                r={3.5}
+                fill={colors.card}
+                stroke={colors.tint}
+                strokeWidth={2}
+              />
+            ))}
+            {/* Month labels alineadas con cada punto */}
+            {pts.map((p, i) => (
+              <SvgText
+                key={`lbl-${i}`}
+                x={p.x}
+                y={H - 8}
+                textAnchor="middle"
+                fontSize={10}
+                fontWeight="600"
+                fill={colors.sub}
+              >
+                {monthLabels[i] ?? ""}
+              </SvgText>
+            ))}
+          </Svg>
+        )}
       </View>
     </View>
   );
@@ -463,6 +511,7 @@ export default function Inicio() {
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
   const { role, uid, isReady: roleChecked, refreshRole } = useRole();
+  const { empresaActivaId } = useEmpresaActiva();
 
   const CACHE_TTL_MS = 60_000;
 
@@ -512,6 +561,10 @@ export default function Inicio() {
     () => ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"],
     []
   );
+  const monthFull = useMemo(
+    () => ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"],
+    []
+  );
 
   // Last 12 months labels rolling from current month (oldest → newest)
   const last12Labels = useMemo(() => {
@@ -551,10 +604,11 @@ export default function Inicio() {
 
   // ─── Data loaders ──────────────────────────────────────────────────────────
 
-  const loadAdmin = useCallback(async (): Promise<AdminData> => {
-    const [dash, tend] = await Promise.all([
-      supabase.rpc("rpc_dashboard_admin"),
-      supabase.rpc("rpc_report_ventas_mensual_12m"),
+  const loadAdmin = useCallback(async (empresaId: number): Promise<AdminData> => {
+    const [dash, tend, cxcResp] = await Promise.all([
+      supabase.rpc("rpc_dashboard_admin", { p_empresa_id: empresaId }),
+      supabase.rpc("rpc_report_ventas_mensual_12m", { p_empresa_id: empresaId }),
+      supabase.rpc("rpc_cxc_ventas", { p_empresa_id: empresaId }),
     ]);
     if (dash.error) throw dash.error;
     const d = dash.data as any;
@@ -563,6 +617,41 @@ export default function Inicio() {
       String(a?.mes ?? "").localeCompare(String(b?.mes ?? ""))
     );
     const tendencia12m = Array.from({ length: 12 }, (_, i) => Number(tendRows[i]?.monto ?? 0));
+
+    const cxcRows = (cxcResp.data ?? []) as any[];
+
+    const cxcVencidas: CxcVencidaRow[] = cxcRows
+      .filter((r) => {
+        const saldo = Number(r.saldo ?? 0);
+        if (saldo <= 0) return false;
+        if (!r.fecha_vencimiento) return false;
+        return dayDiffFromToday(r.fecha_vencimiento) <= -30;
+      })
+      .map((r) => ({
+        venta_id: Number(r.venta_id),
+        cliente_nombre: r.cliente_nombre ?? null,
+        saldo: Number(r.saldo ?? 0),
+        diasVencida: Math.abs(dayDiffFromToday(r.fecha_vencimiento)),
+        vendedor_codigo: r.vendedor_codigo ?? null,
+      }))
+      .sort((a, b) => b.diasVencida - a.diasVencida);
+
+    const cxcPorVencer: CxcPorVencerRow[] = cxcRows
+      .filter((r) => {
+        const saldo = Number(r.saldo ?? 0);
+        if (saldo <= 0) return false;
+        if (!r.fecha_vencimiento) return false;
+        const diff = dayDiffFromToday(r.fecha_vencimiento);
+        return diff >= 0 && diff <= 7;
+      })
+      .map((r) => ({
+        venta_id: Number(r.venta_id),
+        cliente_nombre: r.cliente_nombre ?? null,
+        saldo: Number(r.saldo ?? 0),
+        diasRestantes: dayDiffFromToday(r.fecha_vencimiento),
+        vendedor_codigo: r.vendedor_codigo ?? null,
+      }))
+      .sort((a, b) => a.diasRestantes - b.diasRestantes);
 
     return {
       solicitudes: Number(d.solicitudes ?? 0),
@@ -578,76 +667,168 @@ export default function Inicio() {
         monto: Number(r.monto ?? 0),
       })),
       tendencia12m,
+      cxcVencidas,
+      cxcPorVencer,
     };
   }, []);
 
-  const loadVentas = useCallback(async (userId: string): Promise<VentasData> => {
-    const { data, error } = await supabase.rpc("rpc_dashboard_ventas", { p_vendedor_id: userId });
-    if (error) throw error;
-    const d = data as any;
+  const loadVentas = useCallback(async (userId: string, empresaId: number): Promise<VentasData> => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const inicioAno = new Date(year, 0, 1).toISOString();
+    const finAno = new Date(year + 1, 0, 1).toISOString();
+    const hoyStr = now.toISOString().split("T")[0];
 
-    const rawSource: unknown = d.ventas_por_mes ?? d.ventas_mes ?? null;
-    const parsed: unknown =
-      typeof rawSource === "string"
-        ? (() => { try { return JSON.parse(rawSource); } catch { return null; } })()
-        : rawSource;
+    // 1. Ventas del año para calcular misVentasHoy y el gráfico de 12 meses
+    const { data: ventasAno, error: v1Err } = await supabase
+      .from("ventas")
+      .select("id, fecha")
+      .eq("empresa_id", empresaId)
+      .eq("vendedor_id", userId)
+      .not("estado", "eq", "ANULADO")
+      .gte("fecha", inicioAno)
+      .lt("fecha", finAno);
+    if (v1Err) throw v1Err;
 
-    const ventasMes = (() => {
-      const out = new Array<number>(12).fill(0);
-      if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === "number") {
-        for (let i = 0; i < 12; i++) out[i] = Number(parsed[i] ?? 0);
-        return out;
-      }
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        const rows = parsed as any[];
-        const getMes = (r: any) => Number(r?.mes ?? r?.m ?? r?.month ?? NaN);
-        const mesValues = rows.map(getMes).filter((n) => Number.isFinite(n));
-        const nowMonth = new Date().getMonth() + 1;
-        const is0Based =
-          mesValues.some((n) => n === 0) ||
-          (Math.max(...mesValues) === nowMonth - 1 && !mesValues.includes(nowMonth));
-        for (const r of rows) {
-          let m = getMes(r);
-          if (!Number.isFinite(m)) continue;
-          if (is0Based) m += 1;
-          if (m < 1 || m > 12) continue;
-          out[m - 1] = Number(r?.monto ?? r?.total ?? 0);
+    const misVentasHoy = (ventasAno ?? []).filter(
+      (v: any) => String(v.fecha ?? "").slice(0, 10) === hoyStr
+    ).length;
+
+    const ventasIds = (ventasAno ?? []).map((v: any) => Number(v.id));
+
+    // 2. Detalle de ventas para sumar por mes (gráfico)
+    const ventasMes = new Array<number>(12).fill(0);
+    if (ventasIds.length > 0) {
+      const { data: detalles } = await supabase
+        .from("ventas_detalle")
+        .select("venta_id, subtotal")
+        .eq("empresa_id", empresaId)
+        .in("venta_id", ventasIds);
+
+      const fechaMap: Record<number, string> = {};
+      (ventasAno ?? []).forEach((v: any) => {
+        fechaMap[Number(v.id)] = String(v.fecha ?? "");
+      });
+
+      (detalles ?? []).forEach((d: any) => {
+        const fecha = fechaMap[Number(d.venta_id)];
+        if (!fecha) return;
+        const m = new Date(fecha).getMonth(); // 0-indexed
+        if (m >= 0 && m < 12) ventasMes[m] += Number(d.subtotal ?? 0);
+      });
+    }
+
+    // 3. Clientes activos de este vendedor
+    const { count: clientesCount } = await supabase
+      .from("clientes")
+      .select("id", { count: "exact", head: true })
+      .eq("empresa_id", empresaId)
+      .eq("vendedor_id", userId)
+      .eq("activo", true);
+
+    // 4. CxC saldo pendiente de mis clientes
+    const { data: misClientes } = await supabase
+      .from("clientes")
+      .select("id")
+      .eq("empresa_id", empresaId)
+      .eq("vendedor_id", userId)
+      .eq("activo", true);
+
+    const misClientesIds = (misClientes ?? []).map((c: any) => Number(c.id));
+    let cxcSaldo = 0;
+
+    if (misClientesIds.length > 0) {
+      const { data: ventasCxC } = await supabase
+        .from("ventas")
+        .select("id")
+        .eq("empresa_id", empresaId)
+        .in("cliente_id", misClientesIds)
+        .not("estado", "eq", "ANULADO");
+
+      const ventasCxCIds = (ventasCxC ?? []).map((v: any) => Number(v.id));
+
+      if (ventasCxCIds.length > 0) {
+        const { data: facturas } = await supabase
+          .from("ventas_facturas")
+          .select("id, monto_total")
+          .eq("empresa_id", empresaId)
+          .in("venta_id", ventasCxCIds);
+
+        const facturasIds = (facturas ?? []).map((f: any) => Number(f.id));
+        let pagados = 0;
+
+        if (facturasIds.length > 0) {
+          const { data: pagos } = await supabase
+            .from("ventas_pagos")
+            .select("factura_id, monto")
+            .eq("empresa_id", empresaId)
+            .in("factura_id", facturasIds);
+          pagados = (pagos ?? []).reduce(
+            (acc: number, p: any) => acc + Number(p.monto ?? 0), 0
+          );
         }
-        return out;
-      }
-      return out;
-    })();
 
-    const { year, month } = gtYearMonth();
-    const { data: recRows } = await supabase.rpc("rpc_ventas_receta_pendiente_por_mes", {
-      p_year: year,
-      p_month: month,
-    });
-    const recList = ((recRows ?? []) as any[])
-      .filter((r) => String(r?.vendedor_id ?? "") === userId && r?.requiere_receta && !r?.receta_cargada)
-      .sort((a, b) => String(b?.fecha ?? "").localeCompare(String(a?.fecha ?? "")))
-      .slice(0, 5)
+        const totalFacturado = (facturas ?? []).reduce(
+          (acc: number, f: any) => acc + Number(f.monto_total ?? 0), 0
+        );
+        cxcSaldo = Math.max(0, totalFacturado - pagados);
+      }
+    }
+
+    // 5. CxC vencidas y por vencer de mis clientes
+    const cxcResp = await supabase.rpc("rpc_cxc_ventas", { p_empresa_id: empresaId });
+    const cxcRows = (cxcResp.data ?? []) as any[];
+
+    const cxcVencidas: CxcVencidaRow[] = cxcRows
+      .filter((r) => {
+        const saldo = Number(r.saldo ?? 0);
+        if (saldo <= 0) return false;
+        if (!r.fecha_vencimiento) return false;
+        return dayDiffFromToday(r.fecha_vencimiento) <= -30;
+      })
       .map((r) => ({
-        id: Number(r?.id ?? 0),
-        fecha: r?.fecha ?? null,
-        cliente_nombre: r?.cliente_nombre ?? null,
-        vendedor_codigo: r?.vendedor_codigo ?? null,
-        vendedor_id: r?.vendedor_id ?? null,
-      }));
+        venta_id: Number(r.venta_id),
+        cliente_nombre: r.cliente_nombre ?? null,
+        saldo: Number(r.saldo ?? 0),
+        diasVencida: Math.abs(dayDiffFromToday(r.fecha_vencimiento)),
+        vendedor_codigo: r.vendedor_codigo ?? null,
+      }))
+      .sort((a, b) => b.diasVencida - a.diasVencida);
+
+    const cxcPorVencer: CxcPorVencerRow[] = cxcRows
+      .filter((r) => {
+        const saldo = Number(r.saldo ?? 0);
+        if (saldo <= 0) return false;
+        if (!r.fecha_vencimiento) return false;
+        const diff = dayDiffFromToday(r.fecha_vencimiento);
+        return diff >= 0 && diff <= 7;
+      })
+      .map((r) => ({
+        venta_id: Number(r.venta_id),
+        cliente_nombre: r.cliente_nombre ?? null,
+        saldo: Number(r.saldo ?? 0),
+        diasRestantes: dayDiffFromToday(r.fecha_vencimiento),
+        vendedor_codigo: r.vendedor_codigo ?? null,
+      }))
+      .sort((a, b) => a.diasRestantes - b.diasRestantes);
 
     return {
-      misVentasHoy: Number(d.ventas_hoy ?? 0),
-      misClientesCount: Number(d.clientes_activos ?? 0),
-      recetasPendMes: Number(d.recetas_pendientes_mes ?? 0),
-      recetasPendList: recList,
+      misVentasHoy,
+      misClientesCount: clientesCount ?? 0,
+      recetasPendMes: 0,
+      recetasPendList: [],
       ventasMes,
+      cxcSaldo,
+      cxcVencidas,
+      cxcPorVencer,
     };
   }, []);
 
-  const loadFacturador = useCallback(async (): Promise<FacturadorData> => {
+  const loadFacturador = useCallback(async (empresaId: number): Promise<FacturadorData> => {
     const { data: pendData, error } = await supabase
       .from("ventas")
       .select("id,fecha,cliente_nombre,vendedor_id,vendedor_codigo")
+      .eq("empresa_id", empresaId)
       .eq("estado", "NUEVO")
       .order("fecha", { ascending: true })
       .limit(15);
@@ -661,6 +842,7 @@ export default function Inicio() {
     const { count: facturadosHoy } = await supabase
       .from("ventas")
       .select("id", { count: "exact", head: true })
+      .eq("empresa_id", empresaId)
       .eq("estado", "FACTURADO")
       .gte("fecha", todayStr)
       .lt("fecha", tmrStr);
@@ -680,10 +862,10 @@ export default function Inicio() {
     };
   }, []);
 
-  const loadBodega = useCallback(async (): Promise<BodegaData> => {
+  const loadBodega = useCallback(async (empresaId: number): Promise<BodegaData> => {
     const [alertResult, totalResult] = await Promise.all([
-      supabase.rpc("rpc_report_inventario_alertas"),
-      supabase.from("vw_inventario_productos").select("id", { count: "exact", head: true }),
+      supabase.rpc("rpc_report_inventario_alertas", { p_empresa_id: empresaId }),
+      supabase.from("vw_inventario_productos").select("id", { count: "exact", head: true }).eq("empresa_id", empresaId),
     ]);
     if (alertResult.error) throw alertResult.error;
 
@@ -747,7 +929,8 @@ export default function Inicio() {
         }
 
         if (r === "ADMIN") {
-          const data = await loadAdmin();
+          if (!empresaActivaId) throw new Error("Sin empresa activa");
+          const data = await loadAdmin(empresaActivaId);
           if (seq !== loadSeqRef.current) return;
           setAdminData(data);
           cacheRef.current = { role: r, ts: Date.now(), data };
@@ -756,7 +939,8 @@ export default function Inicio() {
 
         if (r === "VENTAS") {
           if (!id) throw new Error("Usuario no autenticado");
-          const data = await loadVentas(id);
+          if (!empresaActivaId) throw new Error("Sin empresa activa");
+          const data = await loadVentas(id, empresaActivaId);
           if (seq !== loadSeqRef.current) return;
           setVentasData(data);
           cacheRef.current = { role: r, ts: Date.now(), data };
@@ -764,7 +948,8 @@ export default function Inicio() {
         }
 
         if (r === "FACTURACION") {
-          const data = await loadFacturador();
+          if (!empresaActivaId) throw new Error("Sin empresa activa");
+          const data = await loadFacturador(empresaActivaId);
           if (seq !== loadSeqRef.current) return;
           setFactData(data);
           cacheRef.current = { role: r, ts: Date.now(), data };
@@ -772,7 +957,8 @@ export default function Inicio() {
         }
 
         if (r === "BODEGA") {
-          const data = await loadBodega();
+          if (!empresaActivaId) throw new Error("Sin empresa activa");
+          const data = await loadBodega(empresaActivaId);
           if (seq !== loadSeqRef.current) return;
           setBodegaData(data);
           cacheRef.current = { role: r, ts: Date.now(), data };
@@ -783,12 +969,12 @@ export default function Inicio() {
         setErrorMsg(String(e?.message ?? "No se pudo cargar Inicio"));
       }
     },
-    [clearOtherRoleData, loadAdmin, loadBodega, loadFacturador, loadVentas, role, uid]
+    [clearOtherRoleData, loadAdmin, loadBodega, loadFacturador, loadVentas, role, uid, empresaActivaId]
   );
 
   // ─── Focus effect ─────────────────────────────────────────────────────────
 
-  useEffect(() => onAppResumed(() => { void loadAll({}); }), [loadAll]);
+  useResumeLoad(empresaActivaId, () => { void loadAll({}); });
 
   useFocusEffect(
     useCallback(() => {
@@ -856,6 +1042,8 @@ export default function Inicio() {
     hint?: string;
     danger?: boolean;
     onPress?: () => void;
+    style?: object;
+    valueSize?: number;
   }) => {
     const clickable = !!props.onPress;
     const valColor = props.danger ? C.danger : C.text;
@@ -867,13 +1055,17 @@ export default function Inicio() {
         style={({ pressed }) => [
           s.kpi,
           { borderColor: C.border, backgroundColor: C.card },
+          props.style ?? null,
           pressed && clickable ? { opacity: 0.85 } : null,
         ]}
       >
-        <Text style={[s.kpiLabel, { color: C.sub }]} numberOfLines={1}>
+        <Text style={[s.kpiLabel, { color: C.sub }]}>
           {props.label}
         </Text>
-        <Text style={[s.kpiValue, { color: valColor }]} numberOfLines={1}>
+        <Text
+          style={[s.kpiValue, { color: valColor }, props.valueSize ? { fontSize: props.valueSize } : null]}
+          numberOfLines={1}
+        >
           {props.value}
         </Text>
         {props.hint ? (
@@ -918,53 +1110,56 @@ export default function Inicio() {
 
   const renderAdmin = () => {
     const d = adminData;
-    const mon = monthAbbr[Math.max(0, Math.min(11, currentMonth - 1))];
+    const mon = monthFull[Math.max(0, Math.min(11, currentMonth - 1))];
     return (
       <View style={{ paddingBottom: 16 + insets.bottom }}>
-        {d && d.recetasPendMes > 0 ? (
+        {d && d.cxcPorVencer.length > 0 ? (
           <Pressable
-            onPress={() => router.push("/(drawer)/recetas-pendientes" as any)}
-            style={[s.alertBanner]}
+            onPress={() => router.push("/(drawer)/cxc" as any)}
+            style={[s.alertBanner, { backgroundColor: "#f59e0b" }]}
           >
             <Text style={s.alertBannerText}>
-              ⚠️  {d.recetasPendMes} receta{d.recetasPendMes !== 1 ? "s" : ""} pendiente{d.recetasPendMes !== 1 ? "s" : ""} este mes
+              ⚠️  {d.cxcPorVencer.length} cuenta{d.cxcPorVencer.length !== 1 ? "s" : ""} vence{d.cxcPorVencer.length !== 1 ? "n" : ""} esta semana
+            </Text>
+            <Text style={s.alertBannerChevron}>›</Text>
+          </Pressable>
+        ) : null}
+
+        {d && d.cxcVencidas.length > 0 ? (
+          <Pressable
+            onPress={() => router.push("/(drawer)/cxc" as any)}
+            style={[s.alertBanner, { backgroundColor: "#ef4444" }]}
+          >
+            <Text style={s.alertBannerText}>
+              🔴  {d.cxcVencidas.length} cuenta{d.cxcVencidas.length !== 1 ? "s" : ""} vencida{d.cxcVencidas.length !== 1 ? "s" : ""} +30 días — urge cobrar
             </Text>
             <Text style={s.alertBannerChevron}>›</Text>
           </Pressable>
         ) : null}
 
         <View style={{ padding: 16 }}>
-          <HeroCard
-            bg="#0f2d6e"
-            accent="#3b82f6"
-            kicker="VENTAS DEL MES"
-            bigNum={d ? fmtQ(d.ventasMesTotal) : "—"}
-            sub={d ? `${d.ventasHoyTotal} venta${d.ventasHoyTotal !== 1 ? "s" : ""} hoy` : "Cargando..."}
-          />
-
           <View style={[s.kpiGrid, { marginTop: 12 }]}>
             {renderKpi({
-              label: "Solicitudes",
-              value: d ? String(d.solicitudes) : "—",
-              hint: "Pendientes",
-              onPress: () => router.push("/(drawer)/ventas-solicitudes" as any),
-            })}
-            {renderKpi({
-              label: "Recetas",
-              value: d ? String(d.recetasPendMes) : "—",
-              hint: "Pendientes del mes",
-              onPress: () => router.push("/(drawer)/recetas-pendientes" as any),
+              label: `Ventas ${mon}`,
+              value: d ? fmtQ(d.ventasMesTotal) : "—",
+              hint: "Global del mes",
+              style: { flexBasis: "31%" },
+              valueSize: 14,
             })}
             {renderKpi({
               label: "CxC Total",
               value: d ? fmtQ(d.cxcSaldoTotal) : "—",
               onPress: () => router.push("/cxc" as any),
+              style: { flexBasis: "31%" },
+              valueSize: 14,
             })}
             {renderKpi({
               label: "CxC Vencido",
               value: d ? fmtQ(d.cxcSaldoVencido) : "—",
               danger: !!(d && d.cxcSaldoVencido > 0),
               onPress: () => router.push("/cxc" as any),
+              style: { flexBasis: "31%" },
+              valueSize: 14,
             })}
           </View>
 
@@ -993,6 +1188,92 @@ export default function Inicio() {
               <Text style={[s.empty, { color: C.sub }]}>{d ? "Sin ventas este mes" : "—"}</Text>
             )}
           </ListCard>
+
+          <ListCard
+            title="Cuentas que se vencen esta semana"
+            colors={C}
+          >
+            {(d?.cxcPorVencer ?? []).length ? (
+              (d?.cxcPorVencer ?? []).slice(0, 10).map((v) => (
+                <Pressable
+                  key={`cxcpv-${v.venta_id}`}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/cxc-venta-detalle",
+                      params: { ventaId: String(v.venta_id) },
+                    } as any)
+                  }
+                  style={({ pressed }) => [
+                    s.rowLink,
+                    { borderTopColor: C.border },
+                    pressed ? { opacity: 0.85 } : null,
+                  ]}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={[s.rowTitle, { color: C.text }]} numberOfLines={1}>
+                      {v.cliente_nombre ?? "—"}
+                    </Text>
+                    <Text style={[s.rowSub, { color: C.sub }]} numberOfLines={1}>
+                      {v.vendedor_codigo ?? "—"} · {v.diasRestantes === 0 ? "Vence hoy" : `Vence en ${v.diasRestantes}d`}
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: "flex-end", gap: 4 }}>
+                    <Text style={[s.rowTitle, { color: C.text, fontSize: 14 }]} numberOfLines={1}>
+                      {fmtQ(v.saldo)}
+                    </Text>
+                    <View style={s.warnPill}>
+                      <Text style={s.warnPillText}>{v.diasRestantes === 0 ? "HOY" : `${v.diasRestantes}d`}</Text>
+                    </View>
+                  </View>
+                </Pressable>
+              ))
+            ) : (
+              <Text style={[s.empty, { color: C.sub }]}>{d ? "Sin cuentas por vencer ✓" : "—"}</Text>
+            )}
+          </ListCard>
+
+          <ListCard
+            title="Cuentas vencidas +30 días"
+            colors={C}
+          >
+            {(d?.cxcVencidas ?? []).length ? (
+              (d?.cxcVencidas ?? []).slice(0, 10).map((v) => (
+                <Pressable
+                  key={`cxcv-${v.venta_id}`}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/cxc-venta-detalle",
+                      params: { ventaId: String(v.venta_id) },
+                    } as any)
+                  }
+                  style={({ pressed }) => [
+                    s.rowLink,
+                    { borderTopColor: C.border },
+                    pressed ? { opacity: 0.85 } : null,
+                  ]}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={[s.rowTitle, { color: C.text }]} numberOfLines={1}>
+                      {v.cliente_nombre ?? "—"}
+                    </Text>
+                    <Text style={[s.rowSub, { color: C.sub }]} numberOfLines={1}>
+                      {v.vendedor_codigo ?? "—"} · Vencida hace {v.diasVencida}d
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: "flex-end", gap: 4 }}>
+                    <Text style={[s.rowTitle, { color: C.danger, fontSize: 14 }]} numberOfLines={1}>
+                      {fmtQ(v.saldo)}
+                    </Text>
+                    <View style={[s.overduePill]}>
+                      <Text style={s.overduePillText}>{v.diasVencida}d</Text>
+                    </View>
+                  </View>
+                </Pressable>
+              ))
+            ) : (
+              <Text style={[s.empty, { color: C.sub }]}>{d ? "Sin cuentas vencidas ✓" : "—"}</Text>
+            )}
+          </ListCard>
         </View>
       </View>
     );
@@ -1000,42 +1281,55 @@ export default function Inicio() {
 
   const renderVentas = () => {
     const d = ventasData;
-    const mon = monthAbbr[Math.max(0, Math.min(11, currentMonth - 1))];
+    const monFull = monthFull[Math.max(0, Math.min(11, currentMonth - 1))];
     return (
-      <View style={{ padding: 16, paddingBottom: 16 + insets.bottom }}>
-        <HeroCard
-          bg="#0f2d6e"
-          accent="#6366f1"
-          kicker="MIS VENTAS HOY"
-          bigNum={d ? String(d.misVentasHoy) : "—"}
-          sub={
-            d
-              ? `${d.misClientesCount} cliente${d.misClientesCount !== 1 ? "s" : ""} activos`
-              : "Cargando..."
-          }
-        />
+      <View style={{ paddingBottom: 16 + insets.bottom }}>
+        {d && d.cxcPorVencer.length > 0 ? (
+          <Pressable
+            onPress={() => router.push("/(drawer)/cxc" as any)}
+            style={[s.alertBanner, { backgroundColor: "#f59e0b" }]}
+          >
+            <Text style={s.alertBannerText}>
+              ⚠️  {d.cxcPorVencer.length} cuenta{d.cxcPorVencer.length !== 1 ? "s" : ""} vence{d.cxcPorVencer.length !== 1 ? "n" : ""} esta semana
+            </Text>
+            <Text style={s.alertBannerChevron}>›</Text>
+          </Pressable>
+        ) : null}
 
-        <View style={[s.kpiGrid, { marginTop: 12 }]}>
+        {d && d.cxcVencidas.length > 0 ? (
+          <Pressable
+            onPress={() => router.push("/(drawer)/cxc" as any)}
+            style={[s.alertBanner, { backgroundColor: "#ef4444" }]}
+          >
+            <Text style={s.alertBannerText}>
+              🔴  {d.cxcVencidas.length} cuenta{d.cxcVencidas.length !== 1 ? "s" : ""} vencida{d.cxcVencidas.length !== 1 ? "s" : ""} +30 días — urge cobrar
+            </Text>
+            <Text style={s.alertBannerChevron}>›</Text>
+          </Pressable>
+        ) : null}
+
+        <View style={{ padding: 16 }}>
+        <View style={[s.kpiGrid, { marginTop: 4 }]}>
           {renderKpi({
             label: "Clientes activos",
             value: d ? String(d.misClientesCount) : "—",
             onPress: () => router.push("/clientes" as any),
+            style: { flexBasis: "31%" },
+            valueSize: 14,
           })}
           {renderKpi({
-            label: "Recetas pendientes",
-            value: d ? String(d.recetasPendMes) : "—",
-            hint: "del mes",
-            onPress: () => router.push("/(drawer)/recetas-pendientes" as any),
-          })}
-          {renderKpi({
-            label: `Ventas ${mon}`,
-            value: d ? String(safeNumber(d.ventasMes[currentMonth - 1])) : "—",
+            label: `Ventas ${monFull}`,
+            value: d ? fmtQ(d.ventasMes[currentMonth - 1]) : "—",
             onPress: () => router.push("/ventas" as any),
+            style: { flexBasis: "31%" },
+            valueSize: 14,
           })}
           {renderKpi({
-            label: "Ir a ventas",
-            value: "Abrir →",
-            onPress: () => router.push("/ventas" as any),
+            label: "CxC pendiente",
+            value: d ? fmtQ(d.cxcSaldo) : "—",
+            onPress: () => router.push("/(drawer)/cxc" as any),
+            style: { flexBasis: "31%" },
+            valueSize: 14,
           })}
         </View>
 
@@ -1048,27 +1342,91 @@ export default function Inicio() {
         </ListCard>
 
         <ListCard
-          title="Recetas pendientes"
-          action={{ label: "Ver todas", onPress: () => router.push("/(drawer)/recetas-pendientes" as any) }}
+          title="Cuentas que se vencen esta semana"
           colors={C}
         >
-          {(d?.recetasPendList ?? []).length ? (
-            (d?.recetasPendList ?? []).map((v) =>
-              renderRowLink({
-                k: `rec-${v.id}`,
-                title: v.cliente_nombre ?? "—",
-                sub: `Fecha: ${fmtDate(v.fecha)}`,
-                onPress: () =>
+          {(d?.cxcPorVencer ?? []).length ? (
+            (d?.cxcPorVencer ?? []).slice(0, 10).map((v) => (
+              <Pressable
+                key={`cxcpv-${v.venta_id}`}
+                onPress={() =>
                   router.push({
-                    pathname: "/venta-detalle",
-                    params: { ventaId: String(v.id) },
-                  } as any),
-              })
-            )
+                    pathname: "/cxc-venta-detalle",
+                    params: { ventaId: String(v.venta_id) },
+                  } as any)
+                }
+                style={({ pressed }) => [
+                  s.rowLink,
+                  { borderTopColor: C.border },
+                  pressed ? { opacity: 0.85 } : null,
+                ]}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.rowTitle, { color: C.text }]} numberOfLines={1}>
+                    {v.cliente_nombre ?? "—"}
+                  </Text>
+                  <Text style={[s.rowSub, { color: C.sub }]} numberOfLines={1}>
+                    {v.diasRestantes === 0 ? "Vence hoy" : `Vence en ${v.diasRestantes}d`}
+                  </Text>
+                </View>
+                <View style={{ alignItems: "flex-end", gap: 4 }}>
+                  <Text style={[s.rowTitle, { color: C.text, fontSize: 14 }]} numberOfLines={1}>
+                    {fmtQ(v.saldo)}
+                  </Text>
+                  <View style={s.warnPill}>
+                    <Text style={s.warnPillText}>{v.diasRestantes === 0 ? "HOY" : `${v.diasRestantes}d`}</Text>
+                  </View>
+                </View>
+              </Pressable>
+            ))
           ) : (
-            <Text style={[s.empty, { color: C.sub }]}>Sin recetas pendientes ✓</Text>
+            <Text style={[s.empty, { color: C.sub }]}>{d ? "Sin cuentas por vencer ✓" : "—"}</Text>
           )}
         </ListCard>
+
+        <ListCard
+          title="Cuentas vencidas +30 días"
+          colors={C}
+        >
+          {(d?.cxcVencidas ?? []).length ? (
+            (d?.cxcVencidas ?? []).slice(0, 10).map((v) => (
+              <Pressable
+                key={`cxcv-${v.venta_id}`}
+                onPress={() =>
+                  router.push({
+                    pathname: "/cxc-venta-detalle",
+                    params: { ventaId: String(v.venta_id) },
+                  } as any)
+                }
+                style={({ pressed }) => [
+                  s.rowLink,
+                  { borderTopColor: C.border },
+                  pressed ? { opacity: 0.85 } : null,
+                ]}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.rowTitle, { color: C.text }]} numberOfLines={1}>
+                    {v.cliente_nombre ?? "—"}
+                  </Text>
+                  <Text style={[s.rowSub, { color: C.sub }]} numberOfLines={1}>
+                    Vencida hace {v.diasVencida}d
+                  </Text>
+                </View>
+                <View style={{ alignItems: "flex-end", gap: 4 }}>
+                  <Text style={[s.rowTitle, { color: C.danger, fontSize: 14 }]} numberOfLines={1}>
+                    {fmtQ(v.saldo)}
+                  </Text>
+                  <View style={s.overduePill}>
+                    <Text style={s.overduePillText}>{v.diasVencida}d</Text>
+                  </View>
+                </View>
+              </Pressable>
+            ))
+          ) : (
+            <Text style={[s.empty, { color: C.sub }]}>{d ? "Sin cuentas vencidas ✓" : "—"}</Text>
+          )}
+        </ListCard>
+        </View>
       </View>
     );
   };
@@ -1306,6 +1664,10 @@ export default function Inicio() {
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
+  if (roleChecked && role === "FACTURACION") {
+    return <Redirect href="/(drawer)/(tabs)/ventas" />;
+  }
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: C.bg }} edges={["bottom"]}>
       <ScrollView
@@ -1431,7 +1793,7 @@ const s = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
-  cardTitle: { fontSize: 16, fontWeight: "900" },
+  cardTitle: { fontSize: 13, fontWeight: "900" },
   cardAction: { fontSize: 13, fontWeight: "900" },
   empty: { marginTop: 10, fontSize: 13, fontWeight: "700" },
 
@@ -1470,33 +1832,35 @@ const s = StyleSheet.create({
   lineMeta: { fontSize: 12, fontWeight: "800" },
   lineChart: {
     marginTop: 10,
-    height: 140,
     borderRadius: 14,
     borderWidth: 1,
     overflow: "hidden",
-    position: "relative",
   },
-  lineSeg: { position: "absolute", height: 2, borderRadius: 2 },
-  lineDot: { position: "absolute", width: 6, height: 6, borderRadius: 3, borderWidth: 2 },
-  lineLabelsRow: {
-    marginTop: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 2,
-  },
-  lineLabelBox: { flex: 1, alignItems: "center", justifyContent: "center", height: 38 },
-  lineLabelRot: {
-    width: 36,
-    alignItems: "center",
-    justifyContent: "center",
-    transform: [{ rotateZ: "-90deg" }],
-  },
-  lineLabelText: { fontSize: 10, fontWeight: "900", textAlign: "center" },
+  lineLabelText: { fontSize: 10, fontWeight: "600", textAlign: "center" },
 
   noticeCard: { borderWidth: 1, borderRadius: 16, padding: 16 },
   noticeTitle: { fontSize: 15, fontWeight: "900" },
   noticeSub: { marginTop: 6, fontSize: 13, fontWeight: "700" },
   retryBtn: { marginTop: 12, borderRadius: 10, padding: 12, alignItems: "center" },
   retryBtnText: { color: "#fff", fontSize: 14, fontWeight: "900" },
+
+  overduePill: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderColor: "#ef4444",
+    backgroundColor: "rgba(239,68,68,0.12)",
+  },
+  overduePillText: { fontSize: 11, fontWeight: "900", color: "#ef4444" },
+
+  warnPill: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderColor: "#f59e0b",
+    backgroundColor: "rgba(245,158,11,0.12)",
+  },
+  warnPillText: { fontSize: 11, fontWeight: "900", color: "#b45309" },
 });

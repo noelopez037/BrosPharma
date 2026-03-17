@@ -21,11 +21,12 @@ import { VentasSolicitudesDetallePanel } from "../../components/ventas/VentasSol
 import { navigateToVentaFromNotif } from "../../lib/notifNavigation";
 import { emitSolicitudesChanged } from "../../lib/solicitudesEvents";
 import { supabase } from "../../lib/supabase";
+import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useThemePref } from "../../lib/themePreference";
 import { alphaColor } from "../../lib/ui";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useRole } from "../../lib/useRole";
-import { onAppResumed } from "../../lib/resumeEvents";
+import { useResumeLoad } from "../../lib/useResumeLoad";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
 type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "";
@@ -142,6 +143,7 @@ export default function VentasSolicitudesScreen() {
   }, []);
 
   const { role, isReady, refreshRole } = useRole();
+  const { empresaActivaId } = useEmpresaActiva();
 
   const roleUp = normalizeUpper(role) as Role;
   const canResolve = isReady && roleUp === "ADMIN";
@@ -151,8 +153,13 @@ export default function VentasSolicitudesScreen() {
   const [vendedoresById, setVendedoresById] = useState<Record<string, { codigo: string | null; nombre: string | null }>>({});
   const [initialLoading, setInitialLoading] = useState(true);
   const [actingVentaId, setActingVentaId] = useState<number | null>(null);
+  const [actingPagoId, setActingPagoId] = useState<number | null>(null);
   const [webConfirm, setWebConfirm] = useState<{
     ventaId: number;
+    decision: "APROBAR" | "RECHAZAR";
+  } | null>(null);
+  const [webConfirmPago, setWebConfirmPago] = useState<{
+    pagoId: number;
     decision: "APROBAR" | "RECHAZAR";
   } | null>(null);
   const [pagosPendientesRaw, setPagosPendientesRaw] = useState<PagoReportadoRow[]>([]);
@@ -162,29 +169,33 @@ export default function VentasSolicitudesScreen() {
   >({});
 
   const fetchSolicitudes = useCallback(async () => {
+    if (!empresaActivaId) return;
     const { data, error } = await supabase
       .from("vw_ventas_solicitudes_pendientes_admin")
       .select(
         "venta_id,fecha,estado,cliente_nombre,vendedor_id,solicitud_tag,solicitud_accion,solicitud_nota,solicitud_at,solicitud_by"
       )
+      .eq("empresa_id", empresaActivaId)
       .order("solicitud_at", { ascending: false })
       .limit(300);
     if (error) throw error;
     setRowsRaw((data ?? []) as any);
-  }, []);
+  }, [empresaActivaId]);
 
   const fetchPagosPendientes = useCallback(async () => {
+    if (!empresaActivaId) return;
     const { data, error } = await supabase
       .from("ventas_pagos_reportados")
       .select(
         "id,venta_id,factura_id,fecha_reportado,created_at,monto,metodo,referencia,comentario,comprobante_path,created_by,estado"
       )
+      .eq("empresa_id", empresaActivaId)
       .eq("estado", "PENDIENTE")
       .order("created_at", { ascending: false })
       .limit(300);
     if (error) throw error;
     setPagosPendientesRaw((data ?? []) as any);
-  }, []);
+  }, [empresaActivaId]);
 
   const reloadAll = useCallback(async () => {
     if (!isReady || roleUp !== "ADMIN") return;
@@ -209,7 +220,7 @@ export default function VentasSolicitudesScreen() {
     }, [refreshRole, reloadAll])
   );
 
-  useEffect(() => onAppResumed(() => { void reloadAll(); }), [reloadAll]);
+  useResumeLoad(empresaActivaId, () => { void reloadAll(); });
 
   // Stable derived IDs for pagos — only changes when the actual set of venta_ids changes
   const ventaIdsPagos = useMemo(
@@ -233,9 +244,11 @@ export default function VentasSolicitudesScreen() {
     let alive = true;
     (async () => {
       try {
+        if (!empresaActivaId) { if (alive) setVentasInfoById({}); return; }
         const { data, error } = await supabase
           .from("vw_cxc_ventas")
           .select("venta_id,cliente_nombre,vendedor_id,vendedor_codigo")
+          .eq("empresa_id", empresaActivaId)
           .in("venta_id", ventaIds);
         if (error) throw error;
         const map: Record<
@@ -257,7 +270,7 @@ export default function VentasSolicitudesScreen() {
       }
     })();
     return () => { alive = false; };
-  }, [ventaIdsPagos]);
+  }, [ventaIdsPagos, empresaActivaId]);
 
   useEffect(() => {
     const ids = Array.from(
@@ -328,7 +341,7 @@ export default function VentasSolicitudesScreen() {
         setActingVentaId(null);
       }
     },
-    [canResolve, fetchSolicitudes, rowsRaw]
+    [canResolve, empresaActivaId, fetchSolicitudes, rowsRaw]
   );
 
   const confirmResolve = useCallback(
@@ -357,6 +370,57 @@ export default function VentasSolicitudesScreen() {
     [canResolve, resolve]
   );
 
+
+  const resolvePago = useCallback(
+    async (pagoId: number, decision: "APROBAR" | "RECHAZAR") => {
+      if (!canResolve) return;
+      setActingPagoId(pagoId);
+      try {
+        if (decision === "APROBAR") {
+          const { error } = await supabase.rpc("rpc_venta_aprobar_pago_reportado", {
+            p_pago_reportado_id: pagoId,
+          });
+          if (error) throw error;
+        } else {
+          const { error } = await supabase.rpc("rpc_venta_rechazar_pago_reportado", {
+            p_pago_reportado_id: pagoId,
+            p_nota_admin: "Rechazado por admin",
+          });
+          if (error) throw error;
+        }
+        await fetchPagosPendientes();
+      } catch (e: any) {
+        Alert.alert("Error", e?.message ?? "No se pudo actualizar el pago reportado");
+      } finally {
+        setActingPagoId(null);
+      }
+    },
+    [canResolve, fetchPagosPendientes]
+  );
+
+  const confirmResolvePago = useCallback(
+    (pagoId: number, decision: "APROBAR" | "RECHAZAR") => {
+      if (!canResolve) return;
+      if (Platform.OS === "web") {
+        setWebConfirmPago({ pagoId, decision });
+        return;
+      }
+      const title = decision === "APROBAR" ? "Aprobar pago" : "Rechazar pago";
+      const msg =
+        decision === "APROBAR"
+          ? "El pago sera registrado en la venta."
+          : "El pago sera rechazado sin registrarse.";
+      Alert.alert(title, msg, [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: decision === "APROBAR" ? "Aprobar" : "Rechazar",
+          style: decision === "RECHAZAR" ? "destructive" : "default",
+          onPress: () => { resolvePago(pagoId, decision).catch(() => {}); },
+        },
+      ]);
+    },
+    [canResolve, resolvePago]
+  );
 
   // Unified + sorted list
   const unifiedItems = useMemo<UnifiedItem[]>(() => {
@@ -497,6 +561,7 @@ export default function VentasSolicitudesScreen() {
         const ventaKey = String(p.venta_id ?? "").trim();
         const ventaInfo = ventaKey ? ventasInfoById[ventaKey] : undefined;
         const clienteNombre = ventaInfo?.cliente_nombre ?? "Cliente";
+        const isActingPago = actingPagoId === Number(p.id);
         const vendedorDisplay = (() => {
           if (ventaInfo?.vendedor_codigo) return String(ventaInfo.vendedor_codigo).trim();
           const vendedorId = ventaInfo?.vendedor_id ? String(ventaInfo.vendedor_id).trim() : "";
@@ -565,6 +630,32 @@ export default function VentasSolicitudesScreen() {
                   {p.comentario}
                 </Text>
               ) : null}
+
+              {!canResolve ? null : (
+                <View
+                  style={styles.btnRow}
+                  onStartShouldSetResponder={() => true}
+                  {...(Platform.OS === "web"
+                    ? { onClick: (e: any) => e?.stopPropagation?.() }
+                    : {})}
+                >
+                  <AppButton
+                    title={isActingPago ? "..." : "Aprobar"}
+                    size="sm"
+                    onPress={() => confirmResolvePago(Number(p.id), "APROBAR")}
+                    disabled={isActingPago}
+                  />
+                  <View style={{ width: 10 }} />
+                  <AppButton
+                    title={isActingPago ? "..." : "Rechazar"}
+                    size="sm"
+                    variant="danger"
+                    style={{ backgroundColor: "#F02849", borderColor: "#F02849" } as any}
+                    onPress={() => confirmResolvePago(Number(p.id), "RECHAZAR")}
+                    disabled={isActingPago}
+                  />
+                </View>
+              )}
             </Pressable>
           </View>
         );
@@ -572,8 +663,8 @@ export default function VentasSolicitudesScreen() {
     },
     [
       C, colors.primary, canSplit, selectedVentaId,
-      actingVentaId, vendedoresById, ventasInfoById,
-      canResolve, confirmResolve,
+      actingVentaId, actingPagoId, vendedoresById, ventasInfoById,
+      canResolve, confirmResolve, confirmResolvePago,
     ]
   );
 
@@ -663,6 +754,24 @@ export default function VentasSolicitudesScreen() {
               if (pending) resolve(pending.ventaId, pending.decision).catch(() => {});
             }}
             onCancel={() => setWebConfirm(null)}
+          />
+
+          <ConfirmModal
+            visible={webConfirmPago !== null}
+            title={webConfirmPago?.decision === "APROBAR" ? "Aprobar pago" : "Rechazar pago"}
+            message={
+              webConfirmPago?.decision === "APROBAR"
+                ? "El pago sera registrado en la venta."
+                : "El pago sera rechazado sin registrarse."
+            }
+            confirmText={webConfirmPago?.decision === "APROBAR" ? "Aprobar" : "Rechazar"}
+            confirmVariant={webConfirmPago?.decision === "RECHAZAR" ? "danger" : "primary"}
+            onConfirm={() => {
+              const pending = webConfirmPago;
+              setWebConfirmPago(null);
+              if (pending) resolvePago(pending.pagoId, pending.decision).catch(() => {});
+            }}
+            onCancel={() => setWebConfirmPago(null)}
           />
         </SafeAreaView>
       </RoleGate>

@@ -34,8 +34,9 @@ import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { AppButton } from "../../components/ui/app-button";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
+import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useRole } from "../../lib/useRole";
-import { onAppResumed } from "../../lib/resumeEvents";
+import { useResumeLoad } from "../../lib/useResumeLoad";
 import { CompraDetallePanel } from "../../components/compras/CompraDetallePanel";
 import { CompraNuevaModal } from "../../components/compras/CompraNuevaModal";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
@@ -270,6 +271,7 @@ export default function ComprasScreen() {
   }, [rowsRaw.length]);
 
   const { role, refreshRole } = useRole();
+  const { empresaActivaId } = useEmpresaActiva();
   const roleUp = normalizeUpper(role);
   const canManage = roleUp === "ADMIN" || roleUp === "BODEGA";
 
@@ -286,6 +288,7 @@ export default function ComprasScreen() {
   const [provOpen, setProvOpen] = useState(false);
 
   const [fProveedorId, setFProveedorId] = useState<number | null>(null);
+  const [fProveedorQ, setFProveedorQ] = useState("");
   const [fDesde, setFDesde] = useState<Date | null>(null);
   const [fHasta, setFHasta] = useState<Date | null>(null);
   const [fPago, setFPago] = useState<PayFilter>("ALL");
@@ -314,12 +317,14 @@ export default function ComprasScreen() {
 
   // proveedores
   useEffect(() => {
+    if (!empresaActivaId) return;
     let alive = true;
     (async () => {
       try {
         const { data, error } = await supabase
           .from("proveedores")
           .select("id,nombre")
+          .eq("empresa_id", empresaActivaId)
           .eq("activo", true)
           .order("nombre", { ascending: true });
 
@@ -332,18 +337,20 @@ export default function ComprasScreen() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [empresaActivaId]);
 
   const fetchCompras = useCallback(async () => {
     // ─── Protección contra race conditions ──────────────────────────────────
     requestSeqRef.current += 1;
     const mySeq = requestSeqRef.current;
 
+    if (!empresaActivaId) return;
     let req = supabase
       .from("compras")
       .select(
         "id,fecha,proveedor,proveedor_id,numero_factura,tipo_pago,fecha_vencimiento,monto_total,saldo_pendiente,estado"
       )
+      .eq("empresa_id", empresaActivaId)
       .order("fecha", { ascending: false });
 
     if (dq) req = req.or(`proveedor.ilike.%${dq}%,numero_factura.ilike.%${dq}%`);
@@ -364,7 +371,7 @@ export default function ComprasScreen() {
     }
     setErrorMsg(null);
     setRowsRaw((data ?? []) as CompraRow[]);
-  }, [dq, fProveedorId, fDesde, fHasta]);
+  }, [dq, fProveedorId, fDesde, fHasta, empresaActivaId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -388,7 +395,7 @@ export default function ComprasScreen() {
     }, [fetchCompras])
   );
 
-  useEffect(() => onAppResumed(() => { void fetchCompras(); }), [fetchCompras]);
+  useResumeLoad(empresaActivaId, () => { void fetchCompras(); });
 
   // filtro client-side: estado pago (porque depende de cálculo)
   const rows = useMemo(() => {
@@ -473,6 +480,12 @@ export default function ComprasScreen() {
     return p?.nombre ?? "Todos";
   }, [fProveedorId, proveedores]);
 
+  const filteredProveedores = useMemo(() => {
+    const q = fProveedorQ.trim().toLowerCase();
+    if (!q) return [];
+    return proveedores.filter((p) => p.nombre.toLowerCase().includes(q));
+  }, [proveedores, fProveedorQ]);
+
   const openDesdePicker = () => {
     setProvOpen(false);
 
@@ -534,59 +547,48 @@ export default function ComprasScreen() {
       />
 
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
-        <View style={{ paddingHorizontal: 12, paddingTop: 12, backgroundColor: colors.background }}>
-          <View style={s.topRow}>
-            <View style={s.searchWrap}>
-              <TextInput
-                value={q}
-                onChangeText={setQ}
-                placeholder="Buscar por proveedor o factura..."
-                placeholderTextColor={colors.text + "66"}
-                style={s.searchInput}
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="search"
-              />
-              {q.trim().length > 0 ? (
-                <Pressable
-                  onPress={() => setQ("")}
-                  hitSlop={10}
-                  accessibilityRole="button"
-                  accessibilityLabel="Borrar búsqueda"
-                  style={s.clearBtn}
-                >
-                  <Text style={s.clearTxt}>×</Text>
-                </Pressable>
-              ) : null}
-            </View>
-
-            <Pressable
-              onPress={() => setFiltersOpen(true)}
-              style={({ pressed }) => [
-                s.filterBtn,
-                { borderColor: hasActiveFilters ? FB_DARK_DANGER : colors.border },
-                pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
-              ]}
-            >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <Text style={[s.filterTxt, { color: hasActiveFilters ? FB_DARK_DANGER : colors.text }]}>Filtros</Text>
-                {hasActiveFilters ? (
-                  <View style={[s.filterDot, { backgroundColor: FB_DARK_DANGER }]} />
-                ) : null}
-              </View>
-            </Pressable>
-          </View>
-
-          {initialLoading ? (
-            <View style={{ paddingVertical: 10 }}>
-              <Text style={[s.empty, { paddingTop: 0 }]}>Cargando...</Text>
-            </View>
-          ) : null}
-        </View>
-
         {canSplit ? (
           <View style={s.splitWrap}>
             <View style={[s.splitListPane, { borderRightColor: colors.border }]}>
+              <View style={[s.stickyTop, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+                <View style={s.topRow}>
+                  <View style={s.searchWrap}>
+                    <TextInput
+                      value={q}
+                      onChangeText={setQ}
+                      placeholder="Buscar por proveedor o factura..."
+                      placeholderTextColor={colors.text + "66"}
+                      style={s.searchInput}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      returnKeyType="search"
+                    />
+                    {q.trim().length > 0 ? (
+                      <Pressable onPress={() => setQ("")} hitSlop={10} accessibilityRole="button" accessibilityLabel="Borrar búsqueda" style={s.clearBtn}>
+                        <Text style={s.clearTxt}>×</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                  <Pressable
+                    onPress={() => setFiltersOpen(true)}
+                    style={({ pressed }) => [
+                      s.filterBtn,
+                      { borderColor: hasActiveFilters ? FB_DARK_DANGER : colors.border },
+                      pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
+                    ]}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <Text style={[s.filterTxt, { color: hasActiveFilters ? FB_DARK_DANGER : colors.text }]}>Filtros</Text>
+                      {hasActiveFilters ? <View style={[s.filterDot, { backgroundColor: FB_DARK_DANGER }]} /> : null}
+                    </View>
+                  </Pressable>
+                </View>
+                {initialLoading ? (
+                  <View style={{ paddingVertical: 10 }}>
+                    <Text style={[s.empty, { paddingTop: 0 }]}>Cargando...</Text>
+                  </View>
+                ) : null}
+              </View>
               <SectionList<CompraRow, CompraSection>
                 style={{ flex: 1, backgroundColor: colors.background }}
                 sections={sections}
@@ -615,10 +617,23 @@ export default function ComprasScreen() {
                   ) : null
                 }
               />
+              {canManage ? (
+                <Pressable
+                  style={[s.fab, { backgroundColor: fabBg, bottom: 18 + bottomRail }]}
+                  onPress={() => setNuevaCompraOpen(true)}
+                >
+                  <Text style={s.fabText}>＋</Text>
+                </Pressable>
+              ) : null}
             </View>
             <View style={s.splitDetailPane}>
               {selectedCompraId ? (
-                <CompraDetallePanel compraId={selectedCompraId} embedded />
+                <CompraDetallePanel
+                  compraId={selectedCompraId}
+                  embedded
+                  onRefresh={() => fetchCompras().catch(() => {})}
+                  onDeleted={() => { setSelectedCompraId(null); fetchCompras().catch(() => {}); }}
+                />
               ) : (
                 <View style={[s.splitPlaceholder, { borderColor: colors.border }]}>
                   <Text style={[s.splitPlaceholderText, { color: M.sub }]}>
@@ -629,37 +644,78 @@ export default function ComprasScreen() {
             </View>
           </View>
         ) : (
-          <SectionList<CompraRow, CompraSection>
-            style={{ backgroundColor: colors.background }}
-            sections={sections}
-            keyExtractor={(it: CompraRow) => String(it.id)}
-            renderItem={renderItem}
-            renderSectionHeader={renderSectionHeader}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-            automaticallyAdjustKeyboardInsets
-            stickySectionHeadersEnabled={true}
-            initialNumToRender={12}
-            maxToRenderPerBatch={12}
-            windowSize={7}
-            updateCellsBatchingPeriod={50}
-            contentContainerStyle={{
-              paddingHorizontal: 12,
-              paddingTop: 12,
-              paddingBottom: 16 + bottomRail,
-            }}
-            ListHeaderComponent={<View style={{ height: 0 }} />}
-            ListEmptyComponent={
-              !initialLoading ? (
-                <View style={s.center}>
-                  <Text style={s.empty}>{errorMsg ?? "Sin compras"}</Text>
+          <>
+            <View style={{ paddingHorizontal: 12, paddingTop: 12, backgroundColor: colors.background }}>
+              <View style={s.topRow}>
+                <View style={s.searchWrap}>
+                  <TextInput
+                    value={q}
+                    onChangeText={setQ}
+                    placeholder="Buscar por proveedor o factura..."
+                    placeholderTextColor={colors.text + "66"}
+                    style={s.searchInput}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="search"
+                  />
+                  {q.trim().length > 0 ? (
+                    <Pressable onPress={() => setQ("")} hitSlop={10} accessibilityRole="button" accessibilityLabel="Borrar búsqueda" style={s.clearBtn}>
+                      <Text style={s.clearTxt}>×</Text>
+                    </Pressable>
+                  ) : null}
                 </View>
-              ) : null
-            }
-          />
+                <Pressable
+                  onPress={() => setFiltersOpen(true)}
+                  style={({ pressed }) => [
+                    s.filterBtn,
+                    { borderColor: hasActiveFilters ? FB_DARK_DANGER : colors.border },
+                    pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
+                  ]}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Text style={[s.filterTxt, { color: hasActiveFilters ? FB_DARK_DANGER : colors.text }]}>Filtros</Text>
+                    {hasActiveFilters ? <View style={[s.filterDot, { backgroundColor: FB_DARK_DANGER }]} /> : null}
+                  </View>
+                </Pressable>
+              </View>
+              {initialLoading ? (
+                <View style={{ paddingVertical: 10 }}>
+                  <Text style={[s.empty, { paddingTop: 0 }]}>Cargando...</Text>
+                </View>
+              ) : null}
+            </View>
+            <SectionList<CompraRow, CompraSection>
+              style={{ backgroundColor: colors.background }}
+              sections={sections}
+              keyExtractor={(it: CompraRow) => String(it.id)}
+              renderItem={renderItem}
+              renderSectionHeader={renderSectionHeader}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              automaticallyAdjustKeyboardInsets
+              stickySectionHeadersEnabled={true}
+              initialNumToRender={12}
+              maxToRenderPerBatch={12}
+              windowSize={7}
+              updateCellsBatchingPeriod={50}
+              contentContainerStyle={{
+                paddingHorizontal: 12,
+                paddingTop: 12,
+                paddingBottom: 16 + bottomRail,
+              }}
+              ListHeaderComponent={<View style={{ height: 0 }} />}
+              ListEmptyComponent={
+                !initialLoading ? (
+                  <View style={s.center}>
+                    <Text style={s.empty}>{errorMsg ?? "Sin compras"}</Text>
+                  </View>
+                ) : null
+              }
+            />
+          </>
         )}
 
-        {canManage ? (
+        {canManage && !canSplit ? (
           <Pressable
             style={[s.fab, { backgroundColor: fabBg, bottom: 18 + bottomRail }]}
             onPress={() => {
@@ -756,26 +812,34 @@ export default function ComprasScreen() {
 
               {provOpen ? (
                 <View style={[s.dropdownPanel, { borderColor: M.border, backgroundColor: M.fieldBg }]}>
-                  <ScrollView style={{ maxHeight: 180 }} keyboardShouldPersistTaps="handled">
+                  <ScrollView style={{ maxHeight: 220 }} keyboardShouldPersistTaps="handled">
+                    <View style={{ paddingHorizontal: 12, paddingVertical: 8 }}>
+                      <TextInput
+                        value={fProveedorQ}
+                        onChangeText={setFProveedorQ}
+                        placeholder="Buscar proveedor..."
+                        placeholderTextColor={isDark ? "rgba(245,245,247,0.6)" : "rgba(0,0,0,0.5)"}
+                        style={[
+                          { borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, color: M.text, borderColor: M.border },
+                          Platform.OS === "web" ? { outlineWidth: 0 } as any : null,
+                        ]}
+                        autoCapitalize="none"
+                        returnKeyType="search"
+                      />
+                    </View>
                     <DDRow
                       label="Todos"
                       selected={!fProveedorId}
-                      onPress={() => {
-                        setFProveedorId(null);
-                        setProvOpen(false);
-                      }}
+                      onPress={() => { setFProveedorId(null); setProvOpen(false); setFProveedorQ(""); }}
                       isDark={isDark}
                       M={M}
                     />
-                    {proveedores.map((p) => (
+                    {filteredProveedores.map((p) => (
                       <DDRow
                         key={String(p.id)}
                         label={p.nombre}
                         selected={fProveedorId === p.id}
-                        onPress={() => {
-                          setFProveedorId(p.id);
-                          setProvOpen(false);
-                        }}
+                        onPress={() => { setFProveedorId(p.id); setProvOpen(false); setFProveedorQ(""); }}
                         isDark={isDark}
                         M={M}
                       />
@@ -1014,6 +1078,14 @@ function Chip({
 const styles = (colors: any) =>
   StyleSheet.create({
     topRow: { flexDirection: "row", gap: 10, alignItems: "center", marginBottom: 10 },
+    stickyTop: {
+      paddingHorizontal: 12,
+      paddingTop: 12,
+      paddingBottom: 10,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      zIndex: 50,
+      ...(Platform.OS === "android" ? { elevation: 50 } : null),
+    },
 
     searchWrap: {
       flex: 1,

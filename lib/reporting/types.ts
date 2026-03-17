@@ -25,5 +25,5 @@ export type ReportDefinition<Filters extends Record<string, any>, Row> = {
   requires?: (filters: Filters) => string | null;
   buildSubtitle?: (filters: Filters) => string;
   buildFileNameStem?: (filters: Filters) => string;
-  fetchRows: (filters: Filters) => Promise<ReportFetchResult<Row>>;
+  fetchRows: (filters: Filters, empresa_id?: number | null) => Promise<ReportFetchResult<Row>>;
 };

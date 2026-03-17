@@ -14,6 +14,7 @@ import { fmtDateYmd } from "@/lib/reporting/share";
 import { supabase } from "@/lib/supabase";
 import { useGoHomeOnBack } from "@/lib/useGoHomeOnBack";
 import { useRole } from "@/lib/useRole";
+import { useEmpresaActiva } from "@/lib/useEmpresaActiva";
 
 type AuditLogRow = {
   registrado: string;
@@ -77,6 +78,58 @@ type BajoMovimientoExportRow = {
   valor_inventario: number | null;
 };
 
+// Returned by rpc_report_cxc_por_factura — one row per factura
+type CxcPorFacturaRow = {
+  venta_id: number;
+  fecha: string | null;
+  fecha_vencimiento: string | null;
+  cliente_nombre: string | null;
+  vendedor_codigo: string | null;
+  numero_factura: string | null;
+  monto_total: number | string | null;
+  pagado: number | string | null;
+  saldo: number | string | null;
+  estado: string | null;
+};
+
+type CxcReportExportRow = {
+  fecha: string;
+  fecha_vencimiento: string;
+  cliente_nombre: string;
+  numero_factura: string;
+  vendedor: string;
+  monto_total: number | null;
+  pagado: number | null;
+  saldo: number | null;
+  estado_pago: string;
+  estado_venta: string;
+};
+
+type CxpRow = {
+  id: number;
+  fecha: string | null;
+  proveedor: string | null;
+  numero_factura: string | null;
+  tipo_pago: string | null;
+  fecha_vencimiento: string | null;
+  monto_total: number | string | null;
+  saldo_pendiente: number | string | null;
+  estado: string | null;
+};
+
+type CxpExportRow = {
+  fecha: string;
+  fecha_vencimiento: string;
+  proveedor: string;
+  numero_factura: string;
+  tipo_pago: string;
+  monto_total: number | null;
+  pagado: number | null;
+  saldo: number | null;
+  estado_pago: string;
+  estado_compra: string;
+};
+
 type FooterState = {
   error: string | null;
   warning: string | null;
@@ -85,6 +138,16 @@ type FooterState = {
 
 const MAX_ROWS = 5000;
 const MIN_DIAS_OPTIONS = [7, 15, 30, 60];
+const CXC_ESTADO_OPTIONS: { value: "ALL" | "PENDIENTE" | "VENCIDA"; label: string }[] = [
+  { value: "ALL", label: "Todas" },
+  { value: "PENDIENTE", label: "Pendientes" },
+  { value: "VENCIDA", label: "Vencidas" },
+];
+const CXP_ESTADO_OPTIONS: { value: "ALL" | "PENDIENTE" | "VENCIDA"; label: string }[] = [
+  { value: "ALL", label: "Todas" },
+  { value: "PENDIENTE", label: "Pendientes" },
+  { value: "VENCIDA", label: "Vencidas" },
+];
 
 function makeEmptyStatus(): FooterState {
   return { error: null, warning: null, info: null };
@@ -185,6 +248,7 @@ export default function ReportesScreen() {
   useGoHomeOnBack(true, "/(drawer)/(tabs)");
 
   const { refreshRole } = useRole();
+  const { empresaActivaId } = useEmpresaActiva();
   useFocusEffect(
     useCallback(() => {
       void refreshRole("focus:reportes");
@@ -202,6 +266,14 @@ export default function ReportesScreen() {
   const [auditStatus, setAuditStatus] = useState<FooterState>(() => makeEmptyStatus());
   const [utilidadStatus, setUtilidadStatus] = useState<FooterState>(() => makeEmptyStatus());
   const [bajoMovimientoStatus, setBajoMovimientoStatus] = useState<FooterState>(() => makeEmptyStatus());
+  const [generatingCxc, setGeneratingCxc] = useState(false);
+  const [cxcStatus, setCxcStatus] = useState<FooterState>(() => makeEmptyStatus());
+  const [cxcEstado, setCxcEstado] = useState<"ALL" | "PENDIENTE" | "VENCIDA">("ALL");
+  const [cxcSummary, setCxcSummary] = useState<{ count: number; saldo: number } | null>(null);
+  const [generatingCxp, setGeneratingCxp] = useState(false);
+  const [cxpStatus, setCxpStatus] = useState<FooterState>(() => makeEmptyStatus());
+  const [cxpEstado, setCxpEstado] = useState<"ALL" | "PENDIENTE" | "VENCIDA">("ALL");
+  const [cxpSummary, setCxpSummary] = useState<{ count: number; saldo: number } | null>(null);
   const [utilidadGlobal, setUtilidadGlobal] = useState<UtilidadGlobalRow | null>(null);
   const [utilidadGlobalAttempted, setUtilidadGlobalAttempted] = useState(false);
 
@@ -270,11 +342,13 @@ export default function ReportesScreen() {
     const toIso = endOfDay(hasta).toISOString();
 
     try {
+      if (!empresaActivaId) return;
       const { data, error } = await supabase
         .from("vw_ventas_pagos_log")
         .select(
           "registrado,action,actor_nombre,cliente_nombre,monto,metodo,referencia,comentario,factura_numero"
         )
+        .eq("empresa_id", empresaActivaId)
         .gte("registrado", fromIso)
         .lte("registrado", toIso)
         .order("registrado", { ascending: false })
@@ -324,18 +398,16 @@ export default function ReportesScreen() {
           : null,
       });
     } catch (e: any) {
-      console.log("[reportes] error exportando auditoría", e);
+      if (__DEV__) console.log("[reportes] error exportando auditoría", e);
       if (isPostgrestError(e)) {
-        console.log("POSTGREST ERROR:", e);
         setAuditStatus({ error: `${e.code ?? ""} - ${e.message ?? ""}`, warning: null, info: null });
       } else {
-        console.log("UNKNOWN ERROR:", e);
         setAuditStatus({ error: e?.message ?? "Error desconocido", warning: null, info: null });
       }
     } finally {
       setGenerating(false);
     }
-  }, [desde, hasta, generating]);
+  }, [desde, hasta, generating, empresaActivaId]);
 
   const handleDownloadUtilidad = useCallback(async () => {
     if (generatingUtilidad) return;
@@ -346,9 +418,10 @@ export default function ReportesScreen() {
     const toIso = endOfDay(hasta).toISOString();
 
     try {
+      if (!empresaActivaId) return;
       const [productosResult, globalResult] = await Promise.all([
-        supabase.rpc("rpc_reporte_utilidad_productos_v3", { p_desde: fromIso, p_hasta: toIso }),
-        supabase.rpc("rpc_reporte_utilidad_global_v1", { p_desde: fromIso, p_hasta: toIso }),
+        supabase.rpc("rpc_reporte_utilidad_productos_v3", { p_empresa_id: empresaActivaId, p_desde: fromIso, p_hasta: toIso }),
+        supabase.rpc("rpc_reporte_utilidad_global_v1", { p_empresa_id: empresaActivaId, p_desde: fromIso, p_hasta: toIso }),
       ]);
 
       if (productosResult.error) throw productosResult.error;
@@ -435,18 +508,16 @@ export default function ReportesScreen() {
           : null,
       });
     } catch (e: any) {
-      console.log("[reportes] error exportando utilidad productos", e);
+      if (__DEV__) console.log("[reportes] error exportando utilidad productos", e);
       if (isPostgrestError(e)) {
-        console.log("POSTGREST ERROR:", e);
         setUtilidadStatus({ error: `${e.code ?? ""} - ${e.message ?? ""}`, warning: null, info: null });
       } else {
-        console.log("UNKNOWN ERROR:", e);
         setUtilidadStatus({ error: e?.message ?? "Error desconocido", warning: null, info: null });
       }
     } finally {
       setGeneratingUtilidad(false);
     }
-  }, [desde, hasta, generatingUtilidad]);
+  }, [desde, empresaActivaId, hasta, generatingUtilidad]);
 
   const handleDownloadBajoMovimiento = useCallback(async () => {
     if (generatingBajoMovimiento) return;
@@ -456,7 +527,9 @@ export default function ReportesScreen() {
     const toIso = endOfDay(hasta).toISOString();
 
     try {
+      if (!empresaActivaId) return;
       const { data, error } = await supabase.rpc("rpc_reporte_bajo_movimiento", {
+        p_empresa_id: empresaActivaId,
         p_hasta: toIso,
         p_min_dias: minDias,
       });
@@ -524,16 +597,14 @@ export default function ReportesScreen() {
           : null,
       });
     } catch (e: any) {
-      console.log("[reportes] error exportando bajo movimiento", e);
+      if (__DEV__) console.log("[reportes] error exportando bajo movimiento", e);
       if (isPostgrestError(e)) {
-        console.log("POSTGREST ERROR:", e);
         setBajoMovimientoStatus({
           error: `${e.code ?? ""} - ${e.message ?? ""}`,
           warning: null,
           info: null,
         });
       } else {
-        console.log("UNKNOWN ERROR:", e);
         setBajoMovimientoStatus({
           error: e?.message ?? "Error desconocido",
           warning: null,
@@ -543,7 +614,239 @@ export default function ReportesScreen() {
     } finally {
       setGeneratingBajoMovimiento(false);
     }
-  }, [desde, hasta, generatingBajoMovimiento, minDias]);
+  }, [desde, empresaActivaId, hasta, generatingBajoMovimiento, minDias]);
+
+  const handleDownloadCxc = useCallback(async () => {
+    if (generatingCxc) return;
+    setGeneratingCxc(true);
+    setCxcStatus(makeEmptyStatus());
+    setCxcSummary(null);
+
+    try {
+      if (!empresaActivaId) return;
+
+      const { data, error } = await supabase.rpc("rpc_report_cxc_por_factura", {
+        p_empresa_id: empresaActivaId,
+      });
+
+      if (error) throw error;
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const fromTime = startOfDay(desde).getTime();
+      const toTime = endOfDay(hasta).getTime();
+
+      let rows = (data ?? []) as CxcPorFacturaRow[];
+
+      // Filtrar por rango de fechas
+      rows = rows.filter((r) => {
+        if (!r.fecha) return false;
+        const t = new Date(r.fecha).getTime();
+        return t >= fromTime && t <= toTime;
+      });
+
+      // Filtrar por estado de pago
+      if (cxcEstado !== "ALL") {
+        rows = rows.filter((r) => {
+          const saldo = safeNumber(r.saldo) ?? 0;
+          if (saldo <= 0) return false; // ya pagada
+          if (cxcEstado === "VENCIDA") {
+            const vence = r.fecha_vencimiento ? new Date(r.fecha_vencimiento) : null;
+            return vence != null && vence.getTime() < today.getTime();
+          }
+          // PENDIENTE = saldo > 0 y no vencida
+          const vence = r.fecha_vencimiento ? new Date(r.fecha_vencimiento) : null;
+          return vence == null || vence.getTime() >= today.getTime();
+        });
+      }
+
+      if (rows.length === 0) {
+        setCxcStatus({ error: "No hay cuentas por cobrar en ese rango.", warning: null, info: null });
+        return;
+      }
+
+      const totalSaldo = rows.reduce((acc, r) => acc + (safeNumber(r.saldo) ?? 0), 0);
+      setCxcSummary({ count: rows.length, saldo: totalSaldo });
+
+      const truncated = rows.length > MAX_ROWS;
+      const trimmed = truncated ? rows.slice(0, MAX_ROWS) : rows;
+
+      const formatted: CxcReportExportRow[] = trimmed.map((r) => {
+        const saldo = safeNumber(r.saldo) ?? 0;
+        const vence = r.fecha_vencimiento ? new Date(r.fecha_vencimiento) : null;
+        let estadoPago = "PAGADA";
+        if (saldo > 0) {
+          estadoPago = vence && vence.getTime() < today.getTime() ? "VENCIDA" : "PENDIENTE";
+        }
+        return {
+          fecha: r.fecha ? fmtDateTime(r.fecha) : "",
+          fecha_vencimiento: r.fecha_vencimiento ? fmtDateTime(r.fecha_vencimiento) : "",
+          cliente_nombre: r.cliente_nombre ?? "",
+          numero_factura: r.numero_factura ?? "",
+          vendedor: r.vendedor_codigo ?? "",
+          monto_total: safeNumber(r.monto_total),
+          pagado: safeNumber(r.pagado),
+          saldo: safeNumber(r.saldo),
+          estado_pago: estadoPago,
+          estado_venta: r.estado ?? "",
+        };
+      });
+
+      const fileStem = `reporte_cxc_${fmtDateYmd(desde)}_${fmtDateYmd(hasta)}`;
+
+      await exportSimpleXlsx<CxcReportExportRow>({
+        title: "Cuentas por cobrar",
+        fileName: fileStem,
+        sheetName: "CxC",
+        columns: [
+          { key: "fecha",             header: "Fecha venta",    value: (r) => r.fecha },
+          { key: "fecha_vencimiento", header: "Fecha vence",    value: (r) => r.fecha_vencimiento },
+          { key: "cliente_nombre",    header: "Cliente",        value: (r) => r.cliente_nombre },
+          { key: "numero_factura",    header: "Factura",        value: (r) => r.numero_factura },
+          { key: "vendedor",          header: "Vendedor",       value: (r) => r.vendedor },
+          { key: "monto_total",       header: "Total factura",  value: (r) => r.monto_total ?? "" },
+          { key: "pagado",            header: "Pagado",         value: (r) => r.pagado ?? "" },
+          { key: "saldo",             header: "Saldo pendiente",value: (r) => r.saldo ?? "" },
+          { key: "estado_pago",       header: "Estado pago",    value: (r) => r.estado_pago },
+          { key: "estado_venta",      header: "Estado venta",   value: (r) => r.estado_venta },
+        ],
+        rows: formatted,
+      });
+
+      setCxcStatus({
+        error: null,
+        info: `Se exportaron ${trimmed.length} filas. Saldo total: Q ${totalSaldo.toFixed(2)}`,
+        warning: truncated
+          ? `Se limitó el resultado a ${MAX_ROWS} filas. Ajusta el rango si necesitas todo.`
+          : null,
+      });
+    } catch (e: any) {
+      if (__DEV__) console.log("[reportes] error exportando CxC", e);
+      if (isPostgrestError(e)) {
+        setCxcStatus({ error: `${e.code ?? ""} - ${e.message ?? ""}`, warning: null, info: null });
+      } else {
+        setCxcStatus({ error: e?.message ?? "Error desconocido", warning: null, info: null });
+      }
+    } finally {
+      setGeneratingCxc(false);
+    }
+  }, [generatingCxc, empresaActivaId, desde, hasta, cxcEstado]);
+
+  const handleDownloadCxp = useCallback(async () => {
+    if (generatingCxp) return;
+    setGeneratingCxp(true);
+    setCxpStatus(makeEmptyStatus());
+    setCxpSummary(null);
+
+    try {
+      if (!empresaActivaId) return;
+
+      const fromIso = startOfDay(desde).toISOString();
+      const toIso = endOfDay(hasta).toISOString();
+
+      const { data, error } = await supabase
+        .from("compras")
+        .select("id,fecha,proveedor,numero_factura,tipo_pago,fecha_vencimiento,monto_total,saldo_pendiente,estado")
+        .eq("empresa_id", empresaActivaId)
+        .gte("fecha", fromIso)
+        .lte("fecha", toIso)
+        .order("fecha", { ascending: false })
+        .limit(MAX_ROWS + 1);
+
+      if (error) throw error;
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      let rows = (data ?? []) as CxpRow[];
+
+      // Filtrar por estado de pago
+      if (cxpEstado !== "ALL") {
+        rows = rows.filter((r) => {
+          const saldo = safeNumber(r.saldo_pendiente) ?? 0;
+          if (saldo <= 0) return false;
+          if (cxpEstado === "VENCIDA") {
+            const vence = r.fecha_vencimiento ? new Date(r.fecha_vencimiento) : null;
+            return vence != null && vence.getTime() < today.getTime();
+          }
+          // PENDIENTE = saldo > 0 y no vencida
+          const vence = r.fecha_vencimiento ? new Date(r.fecha_vencimiento) : null;
+          return vence == null || vence.getTime() >= today.getTime();
+        });
+      }
+
+      if (rows.length === 0) {
+        setCxpStatus({ error: "No hay cuentas por pagar en ese rango.", warning: null, info: null });
+        return;
+      }
+
+      const totalSaldo = rows.reduce((acc, r) => acc + (safeNumber(r.saldo_pendiente) ?? 0), 0);
+      setCxpSummary({ count: rows.length, saldo: totalSaldo });
+
+      const truncated = rows.length > MAX_ROWS;
+      const trimmed = truncated ? rows.slice(0, MAX_ROWS) : rows;
+
+      const formatted: CxpExportRow[] = trimmed.map((r) => {
+        const saldo = safeNumber(r.saldo_pendiente) ?? 0;
+        const total = safeNumber(r.monto_total) ?? 0;
+        const vence = r.fecha_vencimiento ? new Date(r.fecha_vencimiento) : null;
+        let estadoPago = "PAGADA";
+        if (saldo > 0) {
+          estadoPago = vence && vence.getTime() < today.getTime() ? "VENCIDA" : "PENDIENTE";
+        }
+        return {
+          fecha: r.fecha ? fmtDateTime(r.fecha) : "",
+          fecha_vencimiento: r.fecha_vencimiento ? fmtDateTime(r.fecha_vencimiento) : "",
+          proveedor: r.proveedor ?? "",
+          numero_factura: r.numero_factura ?? "",
+          tipo_pago: r.tipo_pago ?? "",
+          monto_total: roundToTwoDecimals(total),
+          pagado: roundToTwoDecimals(total - saldo),
+          saldo: roundToTwoDecimals(saldo),
+          estado_pago: estadoPago,
+          estado_compra: r.estado ?? "",
+        };
+      });
+
+      const fileStem = `reporte_cxp_${fmtDateYmd(desde)}_${fmtDateYmd(hasta)}`;
+
+      await exportSimpleXlsx<CxpExportRow>({
+        title: "Cuentas por pagar",
+        fileName: fileStem,
+        sheetName: "CxP",
+        columns: [
+          { key: "fecha",             header: "Fecha compra",    value: (r) => r.fecha },
+          { key: "fecha_vencimiento", header: "Fecha vence",     value: (r) => r.fecha_vencimiento },
+          { key: "proveedor",         header: "Proveedor",       value: (r) => r.proveedor },
+          { key: "numero_factura",    header: "No. factura",     value: (r) => r.numero_factura },
+          { key: "tipo_pago",         header: "Tipo pago",       value: (r) => r.tipo_pago },
+          { key: "monto_total",       header: "Total compra",    value: (r) => r.monto_total ?? "" },
+          { key: "pagado",            header: "Pagado",          value: (r) => r.pagado ?? "" },
+          { key: "saldo",             header: "Saldo pendiente", value: (r) => r.saldo ?? "" },
+          { key: "estado_pago",       header: "Estado pago",     value: (r) => r.estado_pago },
+          { key: "estado_compra",     header: "Estado compra",   value: (r) => r.estado_compra },
+        ],
+        rows: formatted,
+      });
+
+      setCxpStatus({
+        error: null,
+        info: `Se exportaron ${trimmed.length} filas. Saldo total: Q ${totalSaldo.toFixed(2)}`,
+        warning: truncated
+          ? `Se limitó el resultado a ${MAX_ROWS} filas. Ajusta el rango si necesitas todo.`
+          : null,
+      });
+    } catch (e: any) {
+      if (__DEV__) console.log("[reportes] error exportando CxP", e);
+      if (isPostgrestError(e)) {
+        setCxpStatus({ error: `${e.code ?? ""} - ${e.message ?? ""}`, warning: null, info: null });
+      } else {
+        setCxpStatus({ error: e?.message ?? "Error desconocido", warning: null, info: null });
+      }
+    } finally {
+      setGeneratingCxp(false);
+    }
+  }, [generatingCxp, empresaActivaId, desde, hasta, cxpEstado]);
 
   const renderFooter = (status: FooterState) => (
     <>
@@ -559,6 +862,8 @@ export default function ReportesScreen() {
   const auditFooter = renderFooter(auditStatus);
   const utilidadFooter = renderFooter(utilidadStatus);
   const bajoMovimientoFooter = renderFooter(bajoMovimientoStatus);
+  const cxcFooter = renderFooter(cxcStatus);
+  const cxpFooter = renderFooter(cxpStatus);
 
   const DateRangeFields = () => (
     <View style={styles.rangeRow}>
@@ -665,6 +970,52 @@ export default function ReportesScreen() {
     </View>
   );
 
+  const CxpEstadoSelector = () => (
+    <View style={styles.minDiasBlock}>
+      <Text style={styles.label}>Filtrar por estado de pago</Text>
+      <View style={styles.minDiasRow}>
+        {CXP_ESTADO_OPTIONS.map((opt) => {
+          const selected = opt.value === cxpEstado;
+          return (
+            <Pressable
+              key={opt.value}
+              style={[styles.minDiasButton, selected && styles.minDiasButtonSelected]}
+              onPress={() => setCxpEstado(opt.value)}
+              accessibilityRole="button"
+            >
+              <Text style={[styles.minDiasButtonText, selected && styles.minDiasButtonTextSelected]}>
+                {opt.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+
+  const CxcEstadoSelector = () => (
+    <View style={styles.minDiasBlock}>
+      <Text style={styles.label}>Filtrar por estado de pago</Text>
+      <View style={styles.minDiasRow}>
+        {CXC_ESTADO_OPTIONS.map((opt) => {
+          const selected = opt.value === cxcEstado;
+          return (
+            <Pressable
+              key={opt.value}
+              style={[styles.minDiasButton, selected && styles.minDiasButtonSelected]}
+              onPress={() => setCxcEstado(opt.value)}
+              accessibilityRole="button"
+            >
+              <Text style={[styles.minDiasButtonText, selected && styles.minDiasButtonTextSelected]}>
+                {opt.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+
   const iosSelectedDate = activePicker ? (activePicker === "desde" ? desde : hasta) : null;
   const iosMarkedDates = iosSelectedDate
     ? {
@@ -695,64 +1046,129 @@ export default function ReportesScreen() {
             style={{ flex: 1 }}
           >
             <View style={styles.stack}>
-              <ReportCard
-                title="Auditoría pagos"
-                description="Descarga los movimientos de pagos registrados por los triggers de auditoría."
-                onExport={handleDownload}
-                loading={generating}
-                disabled={generating}
-                footer={auditFooter}
-                exportButtonVariant="excel"
-              >
-                <DateRangeFields />
-              </ReportCard>
-              <ReportCard
-                title="Utilidad por producto"
-                description="Descarga la utilidad, margen y participación por producto en el rango seleccionado."
-                onExport={handleDownloadUtilidad}
-                loading={generatingUtilidad}
-                disabled={generatingUtilidad}
-                footer={utilidadFooter}
-                exportButtonVariant="excel"
-              >
-                <DateRangeFields />
-                {utilidadGlobalAttempted ? (
-                  utilidadGlobal ? (
+              <View style={styles.cardWrapper}>
+                <ReportCard
+                  title="Auditoría pagos"
+                  description="Descarga los movimientos de pagos registrados por los triggers de auditoría."
+                  onExport={handleDownload}
+                  loading={generating}
+                  disabled={generating}
+                  footer={auditFooter}
+                  exportButtonVariant="excel"
+                  style={styles.cardFill}
+                >
+                  <DateRangeFields />
+                </ReportCard>
+              </View>
+              <View style={styles.cardWrapper}>
+                <ReportCard
+                  title="Utilidad por producto"
+                  description="Descarga la utilidad, margen y participación por producto en el rango seleccionado."
+                  onExport={handleDownloadUtilidad}
+                  loading={generatingUtilidad}
+                  disabled={generatingUtilidad}
+                  footer={utilidadFooter}
+                  exportButtonVariant="excel"
+                  style={styles.cardFill}
+                >
+                  <DateRangeFields />
+                  {utilidadGlobalAttempted ? (
+                    utilidadGlobal ? (
+                      <View style={styles.globalSummary}>
+                        <View style={styles.globalSummaryRow}>
+                          <Text style={styles.globalSummaryKey}>Ventas totales</Text>
+                          <Text style={styles.globalSummaryVal}>Q {(utilidadGlobal.total_ventas ?? 0).toFixed(2)}</Text>
+                        </View>
+                        <View style={styles.globalSummaryRow}>
+                          <Text style={styles.globalSummaryKey}>Costo total</Text>
+                          <Text style={styles.globalSummaryVal}>Q {(utilidadGlobal.costo_total ?? 0).toFixed(2)}</Text>
+                        </View>
+                        <View style={styles.globalSummaryRow}>
+                          <Text style={styles.globalSummaryKey}>Utilidad bruta</Text>
+                          <Text style={styles.globalSummaryVal}>Q {(utilidadGlobal.utilidad_bruta ?? 0).toFixed(2)}</Text>
+                        </View>
+                        <View style={styles.globalSummaryRow}>
+                          <Text style={styles.globalSummaryKey}>Margen</Text>
+                          <Text style={styles.globalSummaryVal}>{(utilidadGlobal.margen_pct ?? 0).toFixed(2)}%</Text>
+                        </View>
+                      </View>
+                    ) : (
+                      <Text style={styles.globalSummaryFallback}>Sin resumen disponible</Text>
+                    )
+                  ) : null}
+                </ReportCard>
+              </View>
+              <View style={styles.cardWrapper}>
+                <ReportCard
+                  title="Productos con bajo movimiento"
+                  description="Identifica productos con stock disponible y sin ventas recientes."
+                  onExport={handleDownloadBajoMovimiento}
+                  loading={generatingBajoMovimiento}
+                  disabled={generatingBajoMovimiento}
+                  footer={bajoMovimientoFooter}
+                  exportButtonVariant="excel"
+                  style={styles.cardFill}
+                >
+                  <DateRangeFields />
+                  <MinDiasSelector />
+                </ReportCard>
+              </View>
+
+              <View style={styles.cardWrapper}>
+                <ReportCard
+                  title="Cuentas por cobrar"
+                  description="Exporta las ventas con saldo pendiente en el rango de fechas seleccionado."
+                  onExport={handleDownloadCxc}
+                  loading={generatingCxc}
+                  disabled={generatingCxc}
+                  footer={cxcFooter}
+                  exportButtonVariant="excel"
+                  style={styles.cardFill}
+                >
+                  <DateRangeFields />
+                  <CxcEstadoSelector />
+                  {cxcSummary ? (
                     <View style={styles.globalSummary}>
                       <View style={styles.globalSummaryRow}>
-                        <Text style={styles.globalSummaryKey}>Ventas totales</Text>
-                        <Text style={styles.globalSummaryVal}>Q {(utilidadGlobal.total_ventas ?? 0).toFixed(2)}</Text>
+                        <Text style={styles.globalSummaryKey}>Registros exportados</Text>
+                        <Text style={styles.globalSummaryVal}>{cxcSummary.count}</Text>
                       </View>
                       <View style={styles.globalSummaryRow}>
-                        <Text style={styles.globalSummaryKey}>Costo total</Text>
-                        <Text style={styles.globalSummaryVal}>Q {(utilidadGlobal.costo_total ?? 0).toFixed(2)}</Text>
-                      </View>
-                      <View style={styles.globalSummaryRow}>
-                        <Text style={styles.globalSummaryKey}>Utilidad bruta</Text>
-                        <Text style={styles.globalSummaryVal}>Q {(utilidadGlobal.utilidad_bruta ?? 0).toFixed(2)}</Text>
-                      </View>
-                      <View style={styles.globalSummaryRow}>
-                        <Text style={styles.globalSummaryKey}>Margen</Text>
-                        <Text style={styles.globalSummaryVal}>{(utilidadGlobal.margen_pct ?? 0).toFixed(2)}%</Text>
+                        <Text style={styles.globalSummaryKey}>Saldo total pendiente</Text>
+                        <Text style={styles.globalSummaryVal}>Q {cxcSummary.saldo.toFixed(2)}</Text>
                       </View>
                     </View>
-                  ) : (
-                    <Text style={styles.globalSummaryFallback}>Sin resumen disponible</Text>
-                  )
-                ) : null}
-              </ReportCard>
-              <ReportCard
-                title="Productos con bajo movimiento"
-                description="Identifica productos con stock disponible y sin ventas recientes."
-                onExport={handleDownloadBajoMovimiento}
-                loading={generatingBajoMovimiento}
-                disabled={generatingBajoMovimiento}
-                footer={bajoMovimientoFooter}
-                exportButtonVariant="excel"
-              >
-                <DateRangeFields />
-                <MinDiasSelector />
-              </ReportCard>
+                  ) : null}
+                </ReportCard>
+              </View>
+
+              <View style={styles.cardWrapper}>
+                <ReportCard
+                  title="Cuentas por pagar"
+                  description="Exporta las compras con saldo pendiente en el rango de fechas seleccionado."
+                  onExport={handleDownloadCxp}
+                  loading={generatingCxp}
+                  disabled={generatingCxp}
+                  footer={cxpFooter}
+                  exportButtonVariant="excel"
+                  style={styles.cardFill}
+                >
+                  <DateRangeFields />
+                  <CxpEstadoSelector />
+                  {cxpSummary ? (
+                    <View style={styles.globalSummary}>
+                      <View style={styles.globalSummaryRow}>
+                        <Text style={styles.globalSummaryKey}>Registros exportados</Text>
+                        <Text style={styles.globalSummaryVal}>{cxpSummary.count}</Text>
+                      </View>
+                      <View style={styles.globalSummaryRow}>
+                        <Text style={styles.globalSummaryKey}>Saldo total pendiente</Text>
+                        <Text style={styles.globalSummaryVal}>Q {cxpSummary.saldo.toFixed(2)}</Text>
+                      </View>
+                    </View>
+                  ) : null}
+                </ReportCard>
+              </View>
             </View>
           </ScrollView>
 
@@ -795,6 +1211,13 @@ const makeStyles = (colors: any) =>
     stack: {
       flex: 1,
       gap: 16,
+      ...(Platform.OS === "web" ? { flexDirection: "row" as const, flexWrap: "wrap" as const } : {}),
+    },
+    cardWrapper: {
+      ...(Platform.OS === "web" ? { width: "calc(50% - 8px)" as any } : {}),
+    },
+    cardFill: {
+      ...(Platform.OS === "web" ? { flex: 1 } : {}),
     },
     rangeRow: {
       flexDirection: "row",

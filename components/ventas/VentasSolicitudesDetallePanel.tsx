@@ -21,6 +21,7 @@ import { ConfirmModal } from "../ui/confirm-modal";
 import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { alphaColor } from "../../lib/ui";
+import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useRole } from "../../lib/useRole";
 
 const BUCKET_COMPROBANTES = "comprobantes";
@@ -121,11 +122,13 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
   const [vendedorDisplay, setVendedorDisplay] = useState<string>("");
 
   const { role } = useRole();
+  const { empresaActivaId, isReady: empresaReady } = useEmpresaActiva();
   const roleNormalized = normalizeUpper(role);
   const isAdmin = roleNormalized === "ADMIN";
 
   const fetchAll = useCallback(async () => {
     if (!Number.isFinite(id) || id <= 0) return;
+    if (!empresaActivaId) return;
     setLoading(true);
     try {
       let ventaRow: any = null;
@@ -133,6 +136,7 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
       const { data: vCxc, error: errCxc } = await supabase
         .from("vw_cxc_ventas")
         .select("*")
+        .eq("empresa_id", empresaActivaId)
         .eq("venta_id", id)
         .maybeSingle();
 
@@ -149,6 +153,7 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
         const { data: vBaseById, error: errBaseById } = await supabase
           .from("ventas")
           .select("*")
+          .eq("empresa_id", empresaActivaId)
           .eq("id", id)
           .maybeSingle();
 
@@ -166,6 +171,7 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
           const { data: vBaseByVentaId, error: errBaseByVentaId } = await supabase
             .from("ventas")
             .select("*")
+            .eq("empresa_id", empresaActivaId)
             .eq("venta_id", id)
             .maybeSingle();
 
@@ -215,6 +221,7 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
         const { data: c } = await supabase
           .from("clientes")
           .select("nombre")
+          .eq("empresa_id", empresaActivaId)
           .eq("id", ventaRow.cliente_id)
           .maybeSingle();
 
@@ -229,6 +236,7 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
         .select(
           "id,venta_id,producto_id,lote_id,cantidad,precio_venta_unit,subtotal,producto_lotes(lote,fecha_exp),productos(nombre,marcas(nombre))"
         )
+        .eq("empresa_id", empresaActivaId)
         .eq("venta_id", id)
         .order("id", { ascending: true });
       setLineas((d ?? []) as any[]);
@@ -238,6 +246,7 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
         .select(
           "id,venta_id,tipo,path,numero_factura,original_name,size_bytes,created_at,monto_total,fecha_vencimiento"
         )
+        .eq("empresa_id", empresaActivaId)
         .eq("venta_id", id)
         .order("created_at", { ascending: false });
       const frows = (f ?? []).map((r: any) => ({ ...r, path: normalizeStoragePath(r.path) }));
@@ -248,6 +257,7 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
         .select(
           "id,venta_id,factura_id,fecha,monto,metodo,referencia,comprobante_path,comentario,created_by"
         )
+        .eq("empresa_id", empresaActivaId)
         .eq("venta_id", id)
         .order("fecha", { ascending: false });
       setPagos((p ?? []) as any[]);
@@ -258,6 +268,7 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
           .select(
             "id,venta_id,factura_id,fecha_reportado,created_at,monto,metodo,referencia,comprobante_path,comentario,created_by,estado"
           )
+          .eq("empresa_id", empresaActivaId)
           .eq("venta_id", id)
           .eq("estado", "PENDIENTE")
           .order("created_at", { ascending: false });
@@ -275,7 +286,7 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
     } finally {
       setLoading(false);
     }
-  }, [id, isAdmin]);
+  }, [id, isAdmin, empresaActivaId]);
 
   useEffect(() => {
     void fetchAll();
@@ -416,6 +427,10 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
     async (p: any, action: "aprobar" | "rechazar") => {
       const pid = Number(p?.id);
       if (!Number.isFinite(pid) || pid <= 0) return;
+      if (!empresaReady) return;
+      if (!empresaActivaId) {
+        return Alert.alert("Sin empresa", "No tienes una empresa activa asignada. Contacta al administrador.");
+      }
       setActingPagoReportadoId(pid);
       try {
         if (action === "aprobar") {
@@ -439,7 +454,7 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
         setActingPagoReportadoId(null);
       }
     },
-    [fetchAll]
+    [empresaActivaId, empresaReady, fetchAll]
   );
 
   const handleAprobarPagoReportado = useCallback(
@@ -469,8 +484,9 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
       const refInfo = p.referencia ? `\nRef: ${p.referencia}` : "";
       const msg = `Se eliminará el pago del ${fmtDate(p.fecha)} por ${fmtQ(p.monto)}.${refInfo}`;
       const doDelete = async () => {
+        if (!empresaActivaId) return;
         try {
-          const { error } = await supabase.from("ventas_pagos").delete().eq("id", p.id);
+          const { error } = await supabase.from("ventas_pagos").delete().eq("empresa_id", empresaActivaId).eq("id", p.id);
           if (error) throw error;
           await fetchAll();
         } catch (e: any) {

@@ -17,6 +17,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Proveedor, useCompraDraft } from "../lib/compraDraft";
 import { supabase } from "../lib/supabase";
+import { useEmpresaActiva } from "../lib/useEmpresaActiva";
 import { useRole } from "../lib/useRole";
 import { AppButton } from "../components/ui/app-button";
 import { DoneAccessory } from "../components/ui/done-accessory";
@@ -38,6 +39,7 @@ export default function SelectProveedor() {
   const header = useMemo(() => getHeaderColors(!!dark), [dark]);
   const { setProveedor } = useCompraDraft();
   const { isAdmin } = useRole();
+  const { empresaActivaId } = useEmpresaActiva();
   const DONE_ID = "doneAccessory";
   const { scrollRef, handleFocus } = useKeyboardAutoScroll(110);
 
@@ -61,11 +63,13 @@ export default function SelectProveedor() {
   const [newTel, setNewTel] = useState("");
 
   const load = async () => {
+    if (!empresaActivaId) return;
     setLoading(true);
     try {
       let query = supabase
         .from("proveedores")
         .select("id,nombre,telefono,activo")
+        .eq("empresa_id", empresaActivaId)
         .order("nombre", { ascending: true })
         .limit(200);
 
@@ -87,12 +91,7 @@ export default function SelectProveedor() {
     const t = setTimeout(load, 200);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, mode]);
-
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [q, mode, empresaActivaId]);
 
   const pick = (p: Proveedor) => {
     setProveedor({
@@ -120,6 +119,7 @@ export default function SelectProveedor() {
       const { data: existing } = await supabase
         .from("proveedores")
         .select("id, nombre, nit")
+        .eq("empresa_id", empresaActivaId)
         .eq("nit", nit)
         .maybeSingle();
       if (existing) {
@@ -132,7 +132,7 @@ export default function SelectProveedor() {
 
       const { data, error } = await supabase
         .from("proveedores")
-        .insert({ nombre, nit, telefono: telefono ? telefono : null, activo: true })
+        .insert({ empresa_id: empresaActivaId, nombre, nit, telefono: telefono ? telefono : null, activo: true })
         .select("id,nombre,nit,telefono,activo")
         .single();
 

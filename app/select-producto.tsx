@@ -17,6 +17,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useCompraDraft } from "../lib/compraDraft";
 import { useVentaDraft } from "../lib/ventaDraft";
+import { useEmpresaActiva } from "../lib/useEmpresaActiva";
 import { supabase } from "../lib/supabase";
 import { getPrimary, getSwitchColors } from "../lib/ui";
 import { AppButton } from "../components/ui/app-button";
@@ -49,6 +50,7 @@ export default function SelectProducto() {
 
 function SelectProductoCompra({ lineKey }: { lineKey: string }) {
   const { colors } = useTheme();
+  const { empresaActivaId } = useEmpresaActiva();
 
   const PRIMARY = getPrimary(colors);
   const { trackOn: switchTrackOn, trackOff: switchTrackOff, thumbOn: switchThumbOn, thumbOff: switchThumbOff } =
@@ -75,20 +77,22 @@ function SelectProductoCompra({ lineKey }: { lineKey: string }) {
 
   // Cargar marcas
   const loadMarcas = useCallback(async () => {
-    const { data, error } = await supabase.from("marcas").select("id, nombre").order("nombre");
+    if (!empresaActivaId) return;
+    const { data, error } = await supabase.from("marcas").select("id, nombre").eq("empresa_id", empresaActivaId).order("nombre");
     if (error) {
       setMarcas([]);
       return;
     }
     setMarcas((data ?? []) as Marca[]);
-  }, []);
+  }, [empresaActivaId]);
   useEffect(() => { loadMarcas().catch(() => {}); }, [loadMarcas]);
 
   // Cargar productos
   const loadProductos = useCallback(async () => {
+    if (!empresaActivaId) { setLoading(false); return; }
     setLoading(true);
     try {
-      let query = supabase.from("productos").select("id,nombre,marca_id,activo").eq("activo", true).order("nombre", { ascending: true }).limit(300);
+      let query = supabase.from("productos").select("id,nombre,marca_id,activo").eq("empresa_id", empresaActivaId).eq("activo", true).order("nombre", { ascending: true }).limit(300);
       if (q.trim()) query = query.or(`nombre.ilike.%${q.trim()}%`);
       const { data } = await query;
       setItems((data ?? []) as ProductoRow[]);
@@ -97,7 +101,7 @@ function SelectProductoCompra({ lineKey }: { lineKey: string }) {
     } finally {
       setLoading(false);
     }
-  }, [q]);
+  }, [q, empresaActivaId]);
   useEffect(() => {
     if (mode !== "LISTA") return;
     const t = setTimeout(() => {
@@ -142,6 +146,7 @@ function SelectProductoCompra({ lineKey }: { lineKey: string }) {
       const { data, error } = await supabase
         .from("productos")
         .insert({
+          empresa_id: empresaActivaId,
           nombre,
           marca_id: brandId,
           requiere_receta: newRequiereReceta,
@@ -408,6 +413,7 @@ function SelectProductoCompra({ lineKey }: { lineKey: string }) {
               const { data: existing } = await supabase
                 .from("marcas")
                 .select("id, nombre")
+                .eq("empresa_id", empresaActivaId)
                 .ilike("nombre", nm)
                 .maybeSingle();
               if (existing) {
@@ -419,7 +425,7 @@ function SelectProductoCompra({ lineKey }: { lineKey: string }) {
               }
               const { data, error } = await supabase
                 .from("marcas")
-                .insert({ nombre: nm, activo: true })
+                .insert({ empresa_id: empresaActivaId, nombre: nm, activo: true })
                 .select("id,nombre")
                 .single();
               if (error) {
@@ -444,17 +450,20 @@ function SelectProductoCompra({ lineKey }: { lineKey: string }) {
 function SelectProductoVenta({ lineKey }: { lineKey: string }) {
   const { colors } = useTheme();
   const { setProductoEnLinea } = useVentaDraft();
+  const { empresaActivaId } = useEmpresaActiva();
 
   const [q, setQ] = useState("");
   const [items, setItems] = useState<ProductoVentaRow[]>([]);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
+    if (!empresaActivaId) { setLoading(false); return; }
     setLoading(true);
     try {
       let query = supabase
         .from("vw_inventario_productos_v2")
         .select("id,nombre,marca,stock_disponible,precio_min_venta,tiene_iva,requiere_receta,activo")
+        .eq("empresa_id", empresaActivaId)
         .eq("activo", true)
         .order("nombre", { ascending: true })
         .limit(300);
@@ -471,7 +480,7 @@ function SelectProductoVenta({ lineKey }: { lineKey: string }) {
     } finally {
       setLoading(false);
     }
-  }, [q]);
+  }, [q, empresaActivaId]);
 
   useEffect(() => {
     const t = setTimeout(() => load(), 220);

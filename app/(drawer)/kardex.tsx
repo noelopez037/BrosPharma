@@ -24,7 +24,8 @@ import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useRole } from "../../lib/useRole";
-import { onAppResumed } from "../../lib/resumeEvents";
+import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
+import { useResumeLoad } from "../../lib/useResumeLoad";
 
 type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "";
 
@@ -136,6 +137,7 @@ export default function KardexScreen() {
   useGoHomeOnBack(true, "/(drawer)/(tabs)");
 
   const { role, isReady, refreshRole } = useRole();
+  const { empresaActivaId } = useEmpresaActiva();
   const roleUp = normalizeUpper(role) as Role;
   const isAdmin = isReady && roleUp === "ADMIN";
 
@@ -212,6 +214,7 @@ export default function KardexScreen() {
 
 
   const fetchProductos = useCallback(async () => {
+    if (!empresaActivaId) return;
     const seq = ++prodReqSeq.current;
     setProdLoading(true);
     setProdError(null);
@@ -220,6 +223,7 @@ export default function KardexScreen() {
         // Usamos la vista que ya se usa en Reportes (y suele tener permisos/RLS correctos)
         .from("vw_inventario_productos_v2")
         .select("id,nombre,activo,marca")
+        .eq("empresa_id", empresaActivaId)
         .order("nombre", { ascending: true })
         .limit(250);
 
@@ -252,7 +256,7 @@ export default function KardexScreen() {
     } finally {
       if (seq === prodReqSeq.current) setProdLoading(false);
     }
-  }, [dProdQ, soloActivos]);
+  }, [dProdQ, soloActivos, empresaActivaId]);
 
   useEffect(() => {
     if (!prodModalOpen) return;
@@ -267,11 +271,13 @@ export default function KardexScreen() {
       setTotalesLoading(false);
       return;
     }
+    if (!empresaActivaId) return;
 
     setTotalesLoading(true);
     setTotalesError(null);
     try {
       const { data, error } = await supabase.rpc("rpc_inventario_totales_simple_v2", {
+        p_empresa_id: empresaActivaId,
         p_producto_id: productoId,
       });
       if (error) throw error;
@@ -294,7 +300,7 @@ export default function KardexScreen() {
     } finally {
       setTotalesLoading(false);
     }
-  }, [producto?.id]);
+  }, [empresaActivaId, producto?.id]);
 
   useEffect(() => {
     void fetchTotalesSimple();
@@ -307,7 +313,7 @@ export default function KardexScreen() {
     }, [fetchTotalesSimple, producto?.id])
   );
 
-  useEffect(() => onAppResumed(() => { void fetchTotalesSimple(); }), [fetchTotalesSimple]);
+  useResumeLoad(empresaActivaId, () => { void fetchTotalesSimple(); });
 
   const openDesdePicker = () => {
     if (Platform.OS === "android") {
@@ -350,6 +356,7 @@ export default function KardexScreen() {
       const p_hasta = endOfDay(hasta).toISOString();
 
       const { data, error } = await supabase.rpc("rpc_kardex_producto_detallado", {
+        p_empresa_id: empresaActivaId,
         p_producto_id: producto.id,
         p_desde,
         p_hasta,
@@ -412,7 +419,7 @@ export default function KardexScreen() {
       setLoading(false);
     }
     setBusquedaEjecutada(true);
-  }, [canSearch, desde, hasta, producto]);
+  }, [canSearch, desde, empresaActivaId, hasta, producto]);
 
   const exportarCSV = async () => {
     try {

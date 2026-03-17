@@ -23,13 +23,15 @@ import { claimPushForCurrentSession } from "../lib/pushNotifications";
 import { parseVentaSolicitudAdminNotifData } from "../lib/pushPayload";
 import { supabase } from "../lib/supabase";
 import { invalidateAll } from "../lib/productoCache";
-import { emitAppResumed } from "../lib/resumeEvents";
+import { emitAppResumed, markAppResumed } from "../lib/resumeEvents";
+import { refreshEmpresaActiva } from "../lib/useEmpresaActiva";
 import { makeNativeTheme } from "../src/theme/navigationTheme";
 import { getHeaderColors } from "../src/theme/headerColors";
 
 if (Platform.OS === "web") {
   require("../global.css");
 }
+
 
 // iOS: avoid rare initial hit-testing issues with react-native-screens
 // in nested navigators right after auth transitions.
@@ -241,22 +243,90 @@ export default function Layout() {
 
     void clearBadge();
 
+    // Estado de resume diferido (sesión no disponible inmediatamente tras foreground).
+    let deferredSub: ReturnType<typeof supabase.auth.onAuthStateChange> | null = null;
+    let deferredTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function cancelDeferred() {
+      if (deferredSub) {
+        try { deferredSub.data.subscription.unsubscribe(); } catch { /* ignorar */ }
+        deferredSub = null;
+      }
+      if (deferredTimer) {
+        clearTimeout(deferredTimer);
+        deferredTimer = null;
+      }
+    }
+
+    // Emite resume de forma segura: espera empresa lista + tick de React antes de notificar.
+    async function doEmitResume() {
+      // Esperar empresa antes de emitir para que los callbacks tengan empresaActivaId válido.
+      await refreshEmpresaActiva().catch(() => {});
+      // Pequeño delay para que React procese el cambio de estado y actualice los refs.
+      await new Promise((r) => setTimeout(r, 80));
+      emitAppResumed();
+    }
+
+    function scheduleDeferredResume() {
+      cancelDeferred();
+      // Escuchar el siguiente TOKEN_REFRESHED o SIGNED_IN para emitir resume.
+      deferredSub = supabase.auth.onAuthStateChange(async (event) => {
+        if (event !== "TOKEN_REFRESHED" && event !== "SIGNED_IN") return;
+        cancelDeferred();
+        invalidateAll();
+        await doEmitResume();
+      });
+      // Cancelar si la sesión no se recupera en 60 s.
+      deferredTimer = setTimeout(cancelDeferred, 60_000);
+    }
+
     const sub = AppState.addEventListener("change", (nextState: AppStateStatus) => {
       if (nextState === "active") {
         void clearBadge();
+        markAppResumed();
         void (async () => {
-          await supabase.auth.getSession();
+          // iOS puede tardar 1-2s en reconectar WiFi/celular tras background prolongado.
+          await new Promise((r) => setTimeout(r, 1200));
           void supabase.auth.startAutoRefresh();
+
+          // Intentar obtener sesion valida antes de emitir resume a las pantallas.
+          // 5 reintentos × 2 s = hasta 11 s adicionales para que la red se estabilice.
+          let hasSession = false;
+          for (let attempt = 0; attempt < 5; attempt++) {
+            try {
+              const { data } = await supabase.auth.getSession();
+              if (data?.session) {
+                hasSession = true;
+                break;
+              }
+            } catch {
+              // ignorar — reintentar
+            }
+            if (attempt < 4) await new Promise((r) => setTimeout(r, 2000));
+          }
+
           invalidateAll();
-          emitAppResumed();
+
+          if (hasSession) {
+            // Sesión disponible: esperar empresa + emitir.
+            await doEmitResume();
+          } else {
+            // Red aún no lista: diferir el resume hasta que la sesión se recupere.
+            if (__DEV__) {
+              console.warn("[resume] sesión no recuperada tras reintentos — diferiendo emitAppResumed");
+            }
+            scheduleDeferredResume();
+          }
         })();
       } else if (nextState === "background") {
+        cancelDeferred();
         void supabase.auth.stopAutoRefresh();
       }
     });
 
     return () => {
       sub.remove();
+      cancelDeferred();
       void supabase.auth.stopAutoRefresh();
     };
   }, []);
