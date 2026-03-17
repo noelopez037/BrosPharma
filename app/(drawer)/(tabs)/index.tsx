@@ -682,21 +682,35 @@ export default function Inicio() {
     const hoyStr = now.toISOString().split("T")[0];
 
     // 1. Ventas del año para calcular misVentasHoy y el gráfico de 12 meses
-    const { data: ventasAno, error: v1Err } = await supabase
+    const { data: ventasAnoRaw, error: v1Err } = await supabase
       .from("ventas")
       .select("id, fecha")
       .eq("empresa_id", empresaId)
       .eq("vendedor_id", userId)
-      .not("estado", "eq", "ANULADO")
       .gte("fecha", inicioAno)
       .lt("fecha", finAno);
     if (v1Err) throw v1Err;
 
-    const misVentasHoy = (ventasAno ?? []).filter(
+    // Excluir ventas con tag ANULADO activo (el sistema usa tags, no el campo estado)
+    const rawIds = (ventasAnoRaw ?? []).map((v: any) => Number(v.id));
+    let anuladasIds = new Set<number>();
+    if (rawIds.length > 0) {
+      const { data: tagsAnuladas } = await supabase
+        .from("ventas_tags")
+        .select("venta_id")
+        .eq("empresa_id", empresaId)
+        .in("venta_id", rawIds)
+        .eq("tag", "ANULADO")
+        .is("removed_at", null);
+      (tagsAnuladas ?? []).forEach((t: any) => anuladasIds.add(Number(t.venta_id)));
+    }
+    const ventasAno = (ventasAnoRaw ?? []).filter((v: any) => !anuladasIds.has(Number(v.id)));
+
+    const misVentasHoy = ventasAno.filter(
       (v: any) => String(v.fecha ?? "").slice(0, 10) === hoyStr
     ).length;
 
-    const ventasIds = (ventasAno ?? []).map((v: any) => Number(v.id));
+    const ventasIds = ventasAno.map((v: any) => Number(v.id));
 
     // 2. Detalle de ventas para sumar por mes (gráfico)
     const ventasMes = new Array<number>(12).fill(0);
@@ -740,14 +754,25 @@ export default function Inicio() {
     let cxcSaldo = 0;
 
     if (misClientesIds.length > 0) {
-      const { data: ventasCxC } = await supabase
+      const { data: ventasCxCRaw } = await supabase
         .from("ventas")
         .select("id")
         .eq("empresa_id", empresaId)
-        .in("cliente_id", misClientesIds)
-        .not("estado", "eq", "ANULADO");
+        .in("cliente_id", misClientesIds);
 
-      const ventasCxCIds = (ventasCxC ?? []).map((v: any) => Number(v.id));
+      const cxcRawIds = (ventasCxCRaw ?? []).map((v: any) => Number(v.id));
+      let cxcAnuladasIds = new Set<number>();
+      if (cxcRawIds.length > 0) {
+        const { data: cxcTags } = await supabase
+          .from("ventas_tags")
+          .select("venta_id")
+          .eq("empresa_id", empresaId)
+          .in("venta_id", cxcRawIds)
+          .eq("tag", "ANULADO")
+          .is("removed_at", null);
+        (cxcTags ?? []).forEach((t: any) => cxcAnuladasIds.add(Number(t.venta_id)));
+      }
+      const ventasCxCIds = cxcRawIds.filter((id) => !cxcAnuladasIds.has(id));
 
       if (ventasCxCIds.length > 0) {
         const { data: facturas } = await supabase
