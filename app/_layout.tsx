@@ -16,6 +16,7 @@ import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-c
 
 import RootLayout from "./_layout_root";
 
+import ErrorBoundary from "../components/ErrorBoundary";
 import { CompraDraftProvider } from "../lib/compraDraft";
 import { VentaDraftProvider } from "../lib/ventaDraft";
 import { ThemePrefProvider, useThemePref } from "../lib/themePreference";
@@ -174,6 +175,7 @@ function AppShell() {
     <ThemeProvider value={theme}>
       <CompraDraftProvider>
         <VentaDraftProvider>
+          <ErrorBoundary>
           <Stack
             // @ts-expect-error - forwarded to underlying navigator at runtime
             detachInactiveScreens={false}
@@ -219,6 +221,7 @@ function AppShell() {
               }}
             />
           </Stack>
+          </ErrorBoundary>
         </VentaDraftProvider>
       </CompraDraftProvider>
 

@@ -230,11 +230,11 @@ export default function DrawerLayout() {
       }
     };
 
-    load().catch(() => {});
+    load().catch((e) => { if (__DEV__) console.error("[drawer] load error", e); });
 
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
       if (__DEV__) console.log("[drawer] auth", { event });
-      load().catch(() => {});
+      load().catch((e) => { if (__DEV__) console.error("[drawer] load error on auth change", e); });
     });
 
     return () => {
@@ -385,15 +385,15 @@ export default function DrawerLayout() {
       }
     };
 
-    loadCount().catch(() => {});
+    loadCount().catch((e) => { if (__DEV__) console.error("[drawer] loadCount error", e); });
 
     const unsub = onSolicitudesChanged(() => {
-      loadCount().catch(() => {});
+      loadCount().catch((e) => { if (__DEV__) console.error("[drawer] loadCount error on change", e); });
     });
 
     // refresco liviano para que el badge no se quede stale
     timer = setInterval(() => {
-      loadCount().catch(() => {});
+      loadCount().catch((e) => { if (__DEV__) console.error("[drawer] loadCount error on interval", e); });
     }, 30000);
 
     return () => {

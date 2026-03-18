@@ -398,7 +398,7 @@ export default function ReportesScreen() {
           : null,
       });
     } catch (e: any) {
-      if (__DEV__) console.log("[reportes] error exportando auditoría", e);
+      if (__DEV__) console.error("[reportes] error exportando auditoría", e);
       if (isPostgrestError(e)) {
         setAuditStatus({ error: `${e.code ?? ""} - ${e.message ?? ""}`, warning: null, info: null });
       } else {
@@ -508,7 +508,7 @@ export default function ReportesScreen() {
           : null,
       });
     } catch (e: any) {
-      if (__DEV__) console.log("[reportes] error exportando utilidad productos", e);
+      if (__DEV__) console.error("[reportes] error exportando utilidad productos", e);
       if (isPostgrestError(e)) {
         setUtilidadStatus({ error: `${e.code ?? ""} - ${e.message ?? ""}`, warning: null, info: null });
       } else {
@@ -597,7 +597,7 @@ export default function ReportesScreen() {
           : null,
       });
     } catch (e: any) {
-      if (__DEV__) console.log("[reportes] error exportando bajo movimiento", e);
+      if (__DEV__) console.error("[reportes] error exportando bajo movimiento", e);
       if (isPostgrestError(e)) {
         setBajoMovimientoStatus({
           error: `${e.code ?? ""} - ${e.message ?? ""}`,
@@ -721,7 +721,7 @@ export default function ReportesScreen() {
           : null,
       });
     } catch (e: any) {
-      if (__DEV__) console.log("[reportes] error exportando CxC", e);
+      if (__DEV__) console.error("[reportes] error exportando CxC", e);
       if (isPostgrestError(e)) {
         setCxcStatus({ error: `${e.code ?? ""} - ${e.message ?? ""}`, warning: null, info: null });
       } else {
@@ -837,7 +837,7 @@ export default function ReportesScreen() {
           : null,
       });
     } catch (e: any) {
-      if (__DEV__) console.log("[reportes] error exportando CxP", e);
+      if (__DEV__) console.error("[reportes] error exportando CxP", e);
       if (isPostgrestError(e)) {
         setCxpStatus({ error: `${e.code ?? ""} - ${e.message ?? ""}`, warning: null, info: null });
       } else {

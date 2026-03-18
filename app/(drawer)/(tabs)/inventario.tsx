@@ -59,10 +59,10 @@ function ItemCard({
     <Pressable style={s.card} onPress={() => onPress(item.id)}>
       <View style={s.cardTop}>
         <View style={{ flex: 1 }}>
-          <Text style={s.title}>
-            {item.nombre}
-            {item.marca ? ` • ${item.marca}` : ""}
-          </Text>
+          <Text style={s.title} numberOfLines={1}>{item.nombre}</Text>
+          {item.marca ? (
+            <Text style={s.marca} numberOfLines={1}>{item.marca}</Text>
+          ) : null}
 
           <View style={s.metaRow}>
             <Text style={s.metaK}>Precio min de venta:</Text>
@@ -430,11 +430,12 @@ const styles = (colors: any) =>
       marginBottom: 10,
     },
     cardTop: { flexDirection: "row", gap: 10 },
-    title: { color: colors.text, fontSize: 16, fontWeight: "700" },
+    title: { color: colors.text, fontSize: Platform.OS === "web" ? 16 : 13, fontWeight: "700" },
+    marca: { color: colors.text + "AA", fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: "600", marginTop: 2 },
 
     metaRow: { flexDirection: "row", alignItems: "center", marginTop: 8, flexWrap: "wrap" },
-    metaK: { color: colors.text + "AA" },
-    metaV: { color: colors.text, fontWeight: "700", marginLeft: 6 },
+    metaK: { color: colors.text + "AA", fontSize: Platform.OS === "web" ? 13 : 11 },
+    metaV: { color: colors.text, fontWeight: "700", marginLeft: 6, fontSize: Platform.OS === "web" ? 13 : 11 },
 
     badgeOff: {
       color: colors.text + "AA",
@@ -447,7 +448,7 @@ const styles = (colors: any) =>
       marginLeft: 12,
     },
 
-    stockBox: { minWidth: 120, alignItems: "flex-end" },
-    stockLabel: { color: colors.text + "AA", fontSize: 12 },
-    stockValue: { color: colors.text, fontSize: 22, fontWeight: "800" },
+    stockBox: { minWidth: Platform.OS === "web" ? 120 : 90, alignItems: "flex-end" },
+    stockLabel: { color: colors.text + "AA", fontSize: Platform.OS === "web" ? 12 : 10 },
+    stockValue: { color: colors.text, fontSize: Platform.OS === "web" ? 22 : 18, fontWeight: "800" },
   });

@@ -690,7 +690,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
   // volver a cargar todos los datos del panel.
   React.useEffect(() => {
     if (refreshKey == null || refreshKey === 0) return;
-    fetchAll().catch(() => {});
+    fetchAll().catch((e) => { if (__DEV__) console.error("[VentaDetalle] fetchAll on refreshKey error", e); });
   }, [fetchAll, refreshKey]);
 
   const ivaLineas = useMemo(() => {
@@ -1100,7 +1100,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
             return { ...prev, [tipo]: { ...cur, numero: nextNumero, monto: nextMonto } };
           });
         } catch (e: any) {
-          console.log("[invoice_extract] error", { tipo, path, message: e?.message, error: e });
+          console.error("[invoice_extract] error", { tipo, path, message: e?.message, error: e });
         }
       } catch (e: any) {
         Alert.alert("Error", e?.message ?? "No se pudo subir el PDF");
@@ -1118,11 +1118,15 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       const path = String(d?.path ?? facturaCurrentByTipo[tipo]?.path ?? "").trim();
       if (!path) return;
 
-      const { data: s, error: se } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 15);
-      if (se) throw se;
-      const url = (s as any)?.signedUrl ?? null;
-      if (!url) throw new Error("No se pudo abrir el PDF");
-      await openInBrowser(url);
+      try {
+        const { data: s, error: se } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 15);
+        if (se) throw se;
+        const url = (s as any)?.signedUrl ?? null;
+        if (!url) throw new Error("No se pudo abrir el PDF");
+        await openInBrowser(url);
+      } catch (e: any) {
+        Alert.alert("Error", e?.message ?? "No se pudo abrir el PDF");
+      }
     },
     [canFacturar, facturaCurrentByTipo, facturaDraft]
   );
