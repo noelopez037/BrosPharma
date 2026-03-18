@@ -15,6 +15,7 @@ import { supabase } from "@/lib/supabase";
 import { useGoHomeOnBack } from "@/lib/useGoHomeOnBack";
 import { useRole } from "@/lib/useRole";
 import { useEmpresaActiva } from "@/lib/useEmpresaActiva";
+import { fmtDateTime } from "@/lib/utils/format";
 
 type AuditLogRow = {
   registrado: string;
@@ -191,19 +192,6 @@ function parseCalendarDate(dateString: string) {
   const [y, m, d] = dateString.split("-").map((v) => Number(v));
   if (!y || !m || !d) return new Date();
   return new Date(y, m - 1, d);
-}
-
-function fmtDateTime(iso: string | null | undefined) {
-  if (!iso) return "";
-  const date = new Date(iso);
-  if (!Number.isFinite(date.getTime())) return iso;
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  const hh = String(date.getHours()).padStart(2, "0");
-  const mm = String(date.getMinutes()).padStart(2, "0");
-  const ss = String(date.getSeconds()).padStart(2, "0");
-  return `${y}-${m}-${d} ${hh}:${mm}:${ss}`;
 }
 
 function safeNumber(value: any) {

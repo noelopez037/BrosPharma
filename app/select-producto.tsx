@@ -24,6 +24,7 @@ import { AppButton } from "../components/ui/app-button";
 import { KeyboardAwareModal } from "../components/ui/keyboard-aware-modal";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
 import { goBackSafe } from "../lib/goBackSafe";
+import { safeIlike } from "../lib/utils/text";
 
 type Marca = { id: number; nombre: string };
 type ProductoRow = { id: number; nombre: string; marca_id: number | null; activo?: boolean };
@@ -93,7 +94,7 @@ function SelectProductoCompra({ lineKey }: { lineKey: string }) {
     setLoading(true);
     try {
       let query = supabase.from("productos").select("id,nombre,marca_id,activo").eq("empresa_id", empresaActivaId).eq("activo", true).order("nombre", { ascending: true }).limit(300);
-      if (q.trim()) query = query.or(`nombre.ilike.%${q.trim()}%`);
+      if (q.trim()) query = query.or(`nombre.ilike.%${safeIlike(q)}%`);
       const { data } = await query;
       setItems((data ?? []) as ProductoRow[]);
     } catch (e: any) {
@@ -110,24 +111,24 @@ function SelectProductoCompra({ lineKey }: { lineKey: string }) {
     return () => clearTimeout(t);
   }, [loadProductos, mode]);
 
-  const brandNameForId = (id: number | null | undefined) => {
+  const brandNameForId = useCallback((id: number | null | undefined) => {
     if (!id) return null;
     const m = marcas.find((mm) => mm.id === id);
     return m?.nombre ?? null;
-  };
+  }, [marcas]);
 
-  const labelForItem = (p: ProductoRow) => {
+  const labelForItem = useCallback((p: ProductoRow) => {
     const nm = p.nombre ?? "";
     const b = brandNameForId(p.marca_id ?? null);
     return b ? `${nm} • ${b}` : nm;
-  };
+  }, [brandNameForId]);
 
-  const pick = (p: ProductoRow) => {
+  const pick = useCallback((p: ProductoRow) => {
     if (!lineKey) return;
     const label = labelForItem(p);
     setProductoEnLinea(lineKey, p.id, label);
     goBackSafe("/compra-nueva");
-  };
+  }, [lineKey, labelForItem, setProductoEnLinea]);
 
   const crear = async () => {
     if (!lineKey) return;
@@ -165,6 +166,30 @@ function SelectProductoCompra({ lineKey }: { lineKey: string }) {
   };
 
   const title = mode === "LISTA" ? "Producto" : "Nuevo producto";
+
+  const renderCompraItem = useCallback(
+    ({ item }: { item: ProductoRow }) => (
+      <Pressable
+        onPress={() => pick(item)}
+        style={({ pressed }) => [
+          styles.rowItem,
+          { borderTopColor: colors?.border ?? "#ccc" },
+          pressed && { opacity: 0.8 },
+        ]}
+      >
+        <Text style={[styles.itemTitle, { color: colors?.text ?? "#000" }]}>
+          {item.nombre}{" "}
+          {item.marca_id
+            ? (() => {
+                const m = marcas.find((mm) => mm.id === item.marca_id);
+                return m ? ` • ${m.nombre}` : "";
+              })()
+            : ""}
+        </Text>
+      </Pressable>
+    ),
+    [colors, marcas, pick]
+  );
 
   return (
     <>
@@ -225,26 +250,7 @@ function SelectProductoCompra({ lineKey }: { lineKey: string }) {
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
               automaticallyAdjustKeyboardInsets
-              renderItem={({ item }) => (
-                <Pressable
-                  onPress={() => pick(item)}
-                  style={({ pressed }) => [
-                    styles.rowItem,
-                    { borderTopColor: colors?.border ?? "#ccc" },
-                    pressed && { opacity: 0.8 },
-                  ]}
-                >
-                  <Text style={[styles.itemTitle, { color: colors?.text ?? "#000" }]}>
-                    {item.nombre}{" "}
-                    {item.marca_id
-                      ? (() => {
-                          const m = marcas.find((mm) => mm.id === item.marca_id);
-                          return m ? ` • ${m.nombre}` : "";
-                        })()
-                      : ""}
-                  </Text>
-                </Pressable>
-              )}
+              renderItem={renderCompraItem}
             />
           </>
         ) : (
@@ -469,7 +475,8 @@ function SelectProductoVenta({ lineKey }: { lineKey: string }) {
         .limit(300);
 
       const search = q.trim();
-      if (search) query = query.or(`nombre.ilike.%${search}%,marca.ilike.%${search}%`);
+      const safe = safeIlike(search);
+      if (safe) query = query.or(`nombre.ilike.%${safe}%,marca.ilike.%${safe}%`);
 
       const { data, error } = await query;
       if (error) throw error;
@@ -487,7 +494,7 @@ function SelectProductoVenta({ lineKey }: { lineKey: string }) {
     return () => clearTimeout(t);
   }, [load]);
 
-  const pick = (p: ProductoVentaRow) => {
+  const pick = useCallback((p: ProductoVentaRow) => {
     if (!lineKey) return;
     const stock = Number((p as any).stock_disponible ?? 0);
     if (stock <= 0) return;
@@ -505,7 +512,36 @@ function SelectProductoVenta({ lineKey }: { lineKey: string }) {
       requiere_receta: !!p.requiere_receta,
     });
     goBackSafe("/venta-nueva");
-  };
+  }, [lineKey, setProductoEnLinea]);
+
+  const renderVentaItem = useCallback(
+    ({ item }: { item: ProductoVentaRow }) => {
+      const stock = Number((item as any).stock_disponible ?? 0);
+      const min = item.precio_min_venta == null ? null : Number(item.precio_min_venta);
+      const disabled = stock <= 0;
+      return (
+        <Pressable
+          onPress={() => (disabled ? null : pick(item))}
+          disabled={disabled}
+          style={({ pressed }) => [
+            styles.rowItem,
+            { borderTopColor: colors?.border ?? "#ccc", opacity: disabled ? 0.5 : 1 },
+            pressed && !disabled ? { opacity: 0.85 } : null,
+          ]}
+        >
+          <Text style={[styles.itemTitle, { color: colors?.text ?? "#000" }]} numberOfLines={1}>
+            {item.nombre}
+            {item.marca ? ` • ${item.marca}` : ""}
+            {disabled ? "  •  SIN STOCK" : ""}
+          </Text>
+          <Text style={[styles.itemSub, { color: (colors?.text ?? "#000") + "AA" }]} numberOfLines={1}>
+            Disponibles: {stock}  •  Min: {min == null || !Number.isFinite(min) ? "—" : `Q ${min.toFixed(2)}`}
+          </Text>
+        </Pressable>
+      );
+    },
+    [colors, pick]
+  );
 
   const title = "Producto";
   const s = styles;
@@ -546,31 +582,7 @@ function SelectProductoVenta({ lineKey }: { lineKey: string }) {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           automaticallyAdjustKeyboardInsets
-          renderItem={({ item }) => {
-            const stock = Number((item as any).stock_disponible ?? 0);
-            const min = item.precio_min_venta == null ? null : Number(item.precio_min_venta);
-            const disabled = stock <= 0;
-            return (
-              <Pressable
-                onPress={() => (disabled ? null : pick(item))}
-                disabled={disabled}
-                style={({ pressed }) => [
-                  s.rowItem,
-                  { borderTopColor: colors?.border ?? "#ccc", opacity: disabled ? 0.5 : 1 },
-                  pressed && !disabled ? { opacity: 0.85 } : null,
-                ]}
-              >
-                <Text style={[s.itemTitle, { color: colors?.text ?? "#000" }]} numberOfLines={1}>
-                  {item.nombre}
-                  {item.marca ? ` • ${item.marca}` : ""}
-                  {disabled ? "  •  SIN STOCK" : ""}
-                </Text>
-                <Text style={[s.itemSub, { color: (colors?.text ?? "#000") + "AA" }]} numberOfLines={1}>
-                  Disponibles: {stock}  •  Min: {min == null || !Number.isFinite(min) ? "—" : `Q ${min.toFixed(2)}`}
-                </Text>
-              </Pressable>
-            );
-          }}
+          renderItem={renderVentaItem}
           ListEmptyComponent={!loading ? <Text style={{ padding: 16, color: (colors?.text ?? "#000") + "88" }}>Sin resultados</Text> : null}
         />
       </SafeAreaView>

@@ -11,14 +11,12 @@ export type VentaSolicitudAdminNotifParsed = {
   vendedorCodigo: string | null;
 };
 
+import { normalizeUpper } from "./utils/text";
+
 type UnknownRecord = Record<string, unknown>;
 
 function isRecord(v: unknown): v is UnknownRecord {
   return typeof v === "object" && v != null && !Array.isArray(v);
-}
-
-function normalizeUpper(v: unknown): string {
-  return String(v ?? "").trim().toUpperCase();
 }
 
 function pickStr(v: unknown): string | null {

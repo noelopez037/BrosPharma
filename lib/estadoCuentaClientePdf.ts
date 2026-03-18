@@ -3,6 +3,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { Platform } from "react-native";
+import { pad2 } from "@/lib/utils/format";
 
 type RpcHeader = Record<string, any>;
 type RpcTotals = Record<string, any>;
@@ -13,10 +14,6 @@ export type EstadoCuentaClientePdfPayload = {
   totals: RpcTotals;
   rows: RpcRow[];
 };
-
-function pad2(n: number) {
-  return String(n).padStart(2, "0");
-}
 
 export function formatDateDMY(value: any) {
   if (!value) return "-";

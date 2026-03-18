@@ -23,6 +23,7 @@ import { supabase } from "../lib/supabase";
 import { useRole } from "../lib/useRole";
 import { useEmpresaActiva } from "../lib/useEmpresaActiva";
 import { goBackSafe } from "../lib/goBackSafe";
+import { normalizeUpper, safeIlike } from "../lib/utils/text";
 import { getHeaderColors } from "../src/theme/headerColors";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
@@ -44,10 +45,6 @@ function alpha(hexOrRgb: string, a: number) {
   const b = parseInt(hexOrRgb.slice(5, 7), 16);
   const aa = Math.max(0, Math.min(1, a));
   return `rgba(${r},${g},${b},${aa})`;
-}
-
-function normalizeUpper(v: any) {
-  return String(v ?? "").trim().toUpperCase();
 }
 
 function nitToSave(input: string): string | null {
@@ -113,7 +110,8 @@ export default function SelectCliente() {
 
       const search = q.trim();
       if (search) {
-        req = req.or(`nombre.ilike.%${search}%,nit.ilike.%${search}%,telefono.ilike.%${search}%`);
+        const safe = safeIlike(search);
+        req = req.or(`nombre.ilike.%${safe}%,nit.ilike.%${safe}%,telefono.ilike.%${safe}%`);
       }
 
       // VENTAS: solo clientes asignados al vendedor
@@ -150,7 +148,7 @@ export default function SelectCliente() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, isVentas, isReady, uid, mode, empresaActivaId]);
 
-  const pick = (c: ClienteRow) => {
+  const pick = useCallback((c: ClienteRow) => {
     const payload: Cliente = {
       id: c.id,
       nombre: c.nombre,
@@ -160,7 +158,33 @@ export default function SelectCliente() {
     };
     setCliente(payload);
     goBackSafe("/venta-nueva");
-  };
+  }, [setCliente]);
+
+  const renderClienteItem = useCallback(
+    ({ item }: { item: ClienteRow }) => (
+      <Pressable
+        onPress={() => pick(item)}
+        style={({ pressed }) => [
+          styles.rowItem,
+          { borderTopColor: C.border },
+          pressed && { opacity: 0.8 },
+        ]}
+      >
+        <Text style={[styles.itemTitle, { color: C.text }]} numberOfLines={1}>
+          {item.nombre}
+        </Text>
+        <Text style={[styles.itemSub, { color: C.sub }]} numberOfLines={1}>
+          NIT: {displayNit(item.nit)} • Tel: {item.telefono ?? "—"}
+        </Text>
+        {!!item.direccion ? (
+          <Text style={[styles.itemSub, { color: C.sub }]} numberOfLines={1}>
+            Dir: {item.direccion}
+          </Text>
+        ) : null}
+      </Pressable>
+    ),
+    [C, pick]
+  );
 
   const resetCrear = () => {
     setNewNombre("");
@@ -289,28 +313,7 @@ export default function SelectCliente() {
               keyboardDismissMode="on-drag"
               automaticallyAdjustKeyboardInsets
               contentContainerStyle={{ paddingBottom: 24 }}
-              renderItem={({ item }) => (
-                <Pressable
-                  onPress={() => pick(item)}
-                  style={({ pressed }) => [
-                    styles.rowItem,
-                    { borderTopColor: C.border },
-                    pressed && { opacity: 0.8 },
-                  ]}
-                >
-                  <Text style={[styles.itemTitle, { color: C.text }]} numberOfLines={1}>
-                    {item.nombre}
-                  </Text>
-                  <Text style={[styles.itemSub, { color: C.sub }]} numberOfLines={1}>
-                    NIT: {displayNit(item.nit)} • Tel: {item.telefono ?? "—"}
-                  </Text>
-                  {!!item.direccion ? (
-                    <Text style={[styles.itemSub, { color: C.sub }]} numberOfLines={1}>
-                      Dir: {item.direccion}
-                    </Text>
-                  ) : null}
-                </Pressable>
-              )}
+              renderItem={renderClienteItem}
               ListEmptyComponent={
                 <Text style={{ padding: 16, color: C.sub, fontWeight: "700" }}>
                   {loading ? "Cargando..." : "Sin clientes"}

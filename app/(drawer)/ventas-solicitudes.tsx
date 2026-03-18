@@ -27,6 +27,8 @@ import { alphaColor } from "../../lib/ui";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useRole } from "../../lib/useRole";
 import { useResumeLoad } from "../../lib/useResumeLoad";
+import { fmtQ, fmtDateTime } from "../../lib/utils/format";
+import { normalizeUpper } from "../../lib/utils/text";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
 type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "";
@@ -63,23 +65,6 @@ type PagoReportadoRow = {
 type UnifiedItem =
   | { kind: "solicitud"; data: SolicitudRow }
   | { kind: "pago"; data: PagoReportadoRow };
-
-function normalizeUpper(v: any) {
-  return String(v ?? "").trim().toUpperCase();
-}
-
-function fmtDateTime(iso: string | null | undefined) {
-  if (!iso) return "—";
-  const s = String(iso).replace("T", " ");
-  return s.slice(0, 16);
-}
-
-function fmtQ(n: number | string | null | undefined) {
-  if (n == null) return "—";
-  const x = Number(n);
-  if (!Number.isFinite(x)) return "—";
-  return `Q ${x.toFixed(2)}`;
-}
 
 function actionLabel(a: SolicitudRow["solicitud_accion"]) {
   if (a === "ANULACION") return "Anulacion";

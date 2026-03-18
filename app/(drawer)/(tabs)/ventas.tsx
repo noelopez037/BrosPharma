@@ -26,6 +26,8 @@ import { useRole } from "../../../lib/useRole";
 import { useEmpresaActiva } from "../../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../../lib/useResumeLoad";
 import { onVentaEstadoChanged, emitVentaEstadoChanged } from "../../../lib/ventaEstadoEvents";
+import { normalizeUpper, safeIlike } from "../../../lib/utils/text";
+import { fmtDate } from "../../../lib/utils/format";
 import { FB_DARK_DANGER } from "../../../src/theme/headerColors";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
@@ -69,15 +71,6 @@ function sameRowsQuick(a: VentaRow[] | null | undefined, b: VentaRow[]) {
   const aL = Number(a[al - 1]?.id ?? 0);
   const bL = Number(b[al - 1]?.id ?? 0);
   return aL === bL;
-}
-
-function normalizeUpper(v: any) {
-  return String(v ?? "").trim().toUpperCase();
-}
-
-function fmtDate(iso: string | null | undefined) {
-  if (!iso) return "—";
-  return String(iso).slice(0, 10);
 }
 
 function formatYmdEsLong(ymd: string) {
@@ -412,7 +405,7 @@ export default function Ventas() {
           .select("id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada")
           .eq("empresa_id", empresaActivaId)
           .eq("estado", estado)
-          .ilike("cliente_nombre", `%${trimmed}%`)
+          .ilike("cliente_nombre", `%${safeIlike(trimmed)}%`)
           .order("fecha", { ascending: false })
           .limit(50);
 
@@ -424,7 +417,7 @@ export default function Ventas() {
             .select("id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada")
             .eq("empresa_id", empresaActivaId)
             .eq("estado", estado)
-            .or(`cliente_nombre.ilike.%${trimmed}%,id.eq.${trimmed}`)
+            .or(`cliente_nombre.ilike.%${safeIlike(trimmed)}%,id.eq.${trimmed}`)
             .order("fecha", { ascending: false })
             .limit(50);
         }

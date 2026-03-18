@@ -31,6 +31,8 @@ import { alphaColor } from "../../lib/ui";
 import { AppButton } from "../ui/app-button";
 import { DoneAccessory } from "../ui/done-accessory";
 import { goBackSafe } from "../../lib/goBackSafe";
+import { fmtQ, fmtDate } from "../../lib/utils/format";
+import { normalizeUpper } from "../../lib/utils/text";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 import { CompraNuevaModal } from "./CompraNuevaModal";
 
@@ -96,22 +98,6 @@ type CompraDetallePanelContentProps = {
   onRefresh?: () => void;
   onDeleted?: () => void;
 };
-
-function fmtDate(iso: string | null | undefined) {
-  if (!iso) return "—";
-  return String(iso).slice(0, 10);
-}
-
-function fmtQ(n: string | number | null | undefined) {
-  if (n == null) return "—";
-  const x = Number(n);
-  if (!Number.isFinite(x)) return "—";
-  return `Q ${x.toFixed(2)}`;
-}
-
-function normalizeUpper(s: string | null | undefined) {
-  return (s ?? "").trim().toUpperCase();
-}
 
 function safeNumber(n: any) {
   const x = Number(n);
@@ -420,18 +406,38 @@ function CompraDetallePanelContent({ embedded, compraIdProp, onRefresh, onDelete
 
     setLoading(true);
     try {
-      const { data: c, error: e1 } = await supabase
-        .from("compras")
-        .select(
-          "id,fecha,numero_factura,tipo_pago,fecha_vencimiento,estado,monto_total,saldo_pendiente,comentarios,proveedor_id,proveedores(nombre)"
-        )
-        .eq("empresa_id", empresaActivaId)
-        .eq("id", compraId)
-        .maybeSingle();
+      // Run independent queries in parallel (compras, compras_detalle, compras_pagos)
+      const [compraRes, detalleRes, pagosRes] = await Promise.all([
+        supabase
+          .from("compras")
+          .select(
+            "id,fecha,numero_factura,tipo_pago,fecha_vencimiento,estado,monto_total,saldo_pendiente,comentarios,proveedor_id,proveedores(nombre)"
+          )
+          .eq("empresa_id", empresaActivaId)
+          .eq("id", compraId)
+          .maybeSingle(),
+        supabase
+          .from("compras_detalle")
+          .select(
+            "id,compra_id,producto_id,lote_id,cantidad,precio_compra_unit,subtotal,productos(nombre,image_path,marca_id,marcas(nombre)),producto_lotes(lote,fecha_exp)"
+          )
+          .eq("empresa_id", empresaActivaId)
+          .eq("compra_id", compraId)
+          .order("id", { ascending: true }),
+        supabase
+          .from("compras_pagos")
+          .select("id,compra_id,fecha,monto,metodo,referencia,comprobante_path,comentario")
+          .eq("empresa_id", empresaActivaId)
+          .eq("compra_id", compraId)
+          .order("fecha", { ascending: false }),
+      ]);
 
-      if (e1) throw e1;
-      if (!c) throw new Error("Compra no encontrada");
+      if (compraRes.error) throw compraRes.error;
+      if (!compraRes.data) throw new Error("Compra no encontrada");
+      if (detalleRes.error) throw detalleRes.error;
+      if (pagosRes.error) throw pagosRes.error;
 
+      const c = compraRes.data;
       setCompra({
         id: c.id,
         fecha: c.fecha,
@@ -446,18 +452,7 @@ function CompraDetallePanelContent({ embedded, compraIdProp, onRefresh, onDelete
         proveedor_nombre: (c as any).proveedores?.nombre ?? null,
       });
 
-      const { data: d, error: e2 } = await supabase
-        .from("compras_detalle")
-        .select(
-          "id,compra_id,producto_id,lote_id,cantidad,precio_compra_unit,subtotal,productos(nombre,image_path,marca_id,marcas(nombre)),producto_lotes(lote,fecha_exp)"
-        )
-        .eq("empresa_id", empresaActivaId)
-        .eq("compra_id", compraId)
-        .order("id", { ascending: true });
-
-      if (e2) throw e2;
-
-      const mapped: Linea[] = (d ?? []).map((r: any) => ({
+      const mapped: Linea[] = (detalleRes.data ?? []).map((r: any) => ({
         detalle_id: r.id,
         producto_id: r.producto_id,
         producto_nombre: r.productos?.nombre ?? null,
@@ -473,6 +468,7 @@ function CompraDetallePanelContent({ embedded, compraIdProp, onRefresh, onDelete
         stock_reservado: null,
       }));
 
+      // stock_lotes depends on detalle loteIds — must run after detalle query
       const loteIds = Array.from(
         new Set(
           mapped
@@ -506,16 +502,7 @@ function CompraDetallePanelContent({ embedded, compraIdProp, onRefresh, onDelete
       }
 
       setLineas(mapped);
-
-      const { data: p, error: pe } = await supabase
-        .from("compras_pagos")
-        .select("id,compra_id,fecha,monto,metodo,referencia,comprobante_path,comentario")
-        .eq("empresa_id", empresaActivaId)
-        .eq("compra_id", compraId)
-        .order("fecha", { ascending: false });
-
-      if (pe) throw pe;
-      setPagos((p ?? []) as any);
+      setPagos((pagosRes.data ?? []) as any);
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo cargar");
       setCompra(null);

@@ -3,6 +3,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { Platform } from "react-native";
+import { pad2 } from "@/lib/utils/format";
 
 export type CotizacionLinea = {
   producto_label: string;
@@ -42,10 +43,6 @@ function fmtQ(n: number) {
     maximumFractionDigits: 2,
   }).format(n);
   return `Q ${body}`;
-}
-
-function pad2(n: number) {
-  return String(n).padStart(2, "0");
 }
 
 function fmtDate(d: Date) {

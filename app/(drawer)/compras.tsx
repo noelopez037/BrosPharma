@@ -39,6 +39,8 @@ import { useRole } from "../../lib/useRole";
 import { useResumeLoad } from "../../lib/useResumeLoad";
 import { CompraDetallePanel } from "../../components/compras/CompraDetallePanel";
 import { CompraNuevaModal } from "../../components/compras/CompraNuevaModal";
+import { fmtQ, fmtDate, fmtDateLongEs } from "../../lib/utils/format";
+import { normalizeUpper, safeIlike } from "../../lib/utils/text";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
 
@@ -68,37 +70,6 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
     return () => clearTimeout(t);
   }, [value, delayMs]);
   return debounced;
-}
-
-function fmtQ(n: number | null | undefined) {
-  if (n == null) return "—";
-  return `Q ${Number(n).toFixed(2)}`;
-}
-function fmtDate(iso: string | null | undefined) {
-  if (!iso) return "—";
-  return String(iso).slice(0, 10);
-}
-function normalizeUpper(s: string | null | undefined) {
-  return (s ?? "").trim().toUpperCase();
-}
-
-function fmtDateLongEs(isoOrYmd: string | null | undefined) {
-  if (!isoOrYmd) return "—";
-  const raw = String(isoOrYmd).trim();
-  if (!raw) return "—";
-  if (raw.toUpperCase() === "SIN_FECHA" || raw.toLowerCase() === "sin fecha") return "Sin fecha";
-  const ymd = raw.slice(0, 10);
-  const d = new Date(`${ymd}T12:00:00`);
-  if (!Number.isFinite(d.getTime())) return "—";
-  return new Intl.DateTimeFormat("es-ES", {
-    weekday: "long",
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  })
-    .format(d)
-    .toLowerCase()
-    .replace(/\./g, "");
 }
 
 function parseYmdToDate(iso: string) {
@@ -353,7 +324,7 @@ export default function ComprasScreen() {
       .eq("empresa_id", empresaActivaId)
       .order("fecha", { ascending: false });
 
-    if (dq) req = req.or(`proveedor.ilike.%${dq}%,numero_factura.ilike.%${dq}%`);
+    if (dq) { const safe = safeIlike(dq); req = req.or(`proveedor.ilike.%${safe}%,numero_factura.ilike.%${safe}%`); }
 
     // filtros server-side simples
     if (fProveedorId) req = req.eq("proveedor_id", fProveedorId);

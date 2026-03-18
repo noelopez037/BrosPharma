@@ -23,6 +23,7 @@ import { KeyboardAwareModal } from "../components/ui/keyboard-aware-modal";
 import { DoneAccessory } from "../components/ui/done-accessory";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
 import { goBackSafe } from "../lib/goBackSafe";
+import { normalizeUpper } from "../lib/utils/text";
 import { FB_DARK_DANGER } from "../src/theme/headerColors";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
@@ -42,10 +43,6 @@ type VendedorRow = {
   full_name: string | null;
   role: string;
 };
-
-function normalizeUpper(v: any) {
-  return String(v ?? "").trim().toUpperCase();
-}
 
 function nitToSave(input: string): string | null {
   const t = input.trim();

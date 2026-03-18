@@ -26,6 +26,7 @@ import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useRole } from "../../lib/useRole";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../lib/useResumeLoad";
+import { normalizeUpper, safeIlike } from "../../lib/utils/text";
 
 type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "";
 
@@ -80,10 +81,6 @@ function normalizeKardexRows(rows: KardexRow[]): KardexRow[] {
     if (typeof ventaId !== "number" || !Number.isFinite(ventaId)) return true;
     return !reservaVentaIds.has(ventaId);
   });
-}
-
-function normalizeUpper(v: any) {
-  return String(v ?? "").trim().toUpperCase();
 }
 
 function startOfDay(d: Date) {
@@ -231,7 +228,7 @@ export default function KardexScreen() {
       if (dProdQ) {
         // intenta por nombre o marca
         const q = dProdQ.replace(/,/g, " ").trim();
-        if (q) req = req.or(`nombre.ilike.%${q}%,marca.ilike.%${q}%`);
+        if (q) { const safe = safeIlike(q); req = req.or(`nombre.ilike.%${safe}%,marca.ilike.%${safe}%`); }
       }
 
       const { data, error } = await req;

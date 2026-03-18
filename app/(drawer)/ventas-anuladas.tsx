@@ -15,6 +15,8 @@ import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 import { useRole } from "../../lib/useRole";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../lib/useResumeLoad";
+import { fmtDateLongEs } from "../../lib/utils/format";
+import { normalizeUpper, safeIlike } from "../../lib/utils/text";
 
 type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "";
 
@@ -28,29 +30,6 @@ type VentaRow = {
 };
 
 type AnuladaSection = { title: string; data: VentaRow[] };
-
-function normalizeUpper(v: any) {
-  return String(v ?? "").trim().toUpperCase();
-}
-
-function fmtDateLongEs(isoOrYmd: string | null | undefined) {
-  if (!isoOrYmd) return "—";
-  const raw = String(isoOrYmd).trim();
-  if (!raw) return "—";
-  if (raw.toUpperCase() === "SIN_FECHA" || raw.toLowerCase() === "sin fecha") return "Sin fecha";
-  const ymd = raw.slice(0, 10);
-  const d = new Date(`${ymd}T12:00:00`);
-  if (!Number.isFinite(d.getTime())) return "—";
-  return new Intl.DateTimeFormat("es-ES", {
-    weekday: "long",
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  })
-    .format(d)
-    .toLowerCase()
-    .replace(/\./g, "");
-}
 
 function shortUid(u: string | null | undefined) {
   const s = String(u ?? "").trim();
@@ -68,6 +47,47 @@ function endOfDay(d: Date) {
   x.setHours(23, 59, 59, 999);
   return x;
 }
+
+const AnuladaItem = React.memo(function AnuladaItem({
+  item,
+  C,
+  selected,
+  onPress,
+}: {
+  item: VentaRow;
+  C: { border: string; card: string; text: string; sub: string; dangerBg: string; dangerText: string; primary: string };
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.card,
+        { borderColor: C.border, backgroundColor: C.card },
+        selected && { borderColor: C.primary, borderWidth: 2 },
+        pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
+      ]}
+    >
+      <View style={styles.rowBetween}>
+        <Text style={[styles.title, { color: C.text }]} numberOfLines={1} ellipsizeMode="tail">
+          {item.cliente_nombre ?? "—"}
+        </Text>
+        <View style={[styles.pill, { backgroundColor: C.dangerBg, borderColor: C.border }]}>
+          <Text style={[styles.pillText, { color: C.dangerText }]} numberOfLines={1}>
+            ANULADA
+          </Text>
+        </View>
+      </View>
+      <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
+        Venta #{item.id} • Fecha: {fmtDateLongEs(item.fecha)}
+      </Text>
+      <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
+        Vendedor: {item.vendedor_codigo ? String(item.vendedor_codigo) : shortUid(item.vendedor_id)}
+      </Text>
+    </Pressable>
+  );
+});
 
 export default function VentasAnuladasScreen() {
   const { colors } = useTheme();
@@ -88,8 +108,9 @@ export default function VentasAnuladasScreen() {
       border: colors.border ?? (isDark ? "rgba(255,255,255,0.14)" : "#e5e5e5"),
       dangerBg: isDark ? "rgba(255,90,90,0.18)" : "rgba(220,0,0,0.10)",
       dangerText: FB_DARK_DANGER,
+      primary: String(colors.primary ?? "#153c9e"),
     }),
-    [colors.background, colors.border, colors.card, colors.text, isDark]
+    [colors.background, colors.border, colors.card, colors.text, colors.primary, isDark]
   );
 
   const { role, uid, isReady, refreshRole } = useRole();
@@ -160,7 +181,7 @@ export default function VentasAnuladasScreen() {
         .select("id,nombre")
         .eq("empresa_id", empresaActivaId)
         .eq("activo", true)
-        .ilike("nombre", `%${term.trim()}%`)
+        .ilike("nombre", `%${safeIlike(term)}%`)
         .limit(20);
       if (normalizeUpper(role) === "VENTAS" && uid) {
         req = req.eq("vendedor_id", uid);
@@ -293,6 +314,24 @@ export default function VentasAnuladasScreen() {
 
   const hasActiveFilters = !!(fClienteId || fDesde || fHasta);
 
+  const renderAnuladaItem = useCallback(
+    ({ item }: { item: VentaRow }) => (
+      <AnuladaItem
+        item={item}
+        C={C}
+        selected={canSplit && selectedId === item.id}
+        onPress={() => {
+          if (canSplit) {
+            setSelectedId(item.id);
+          } else {
+            router.push({ pathname: "/venta-detalle", params: { ventaId: String(item.id) } } as any);
+          }
+        }}
+      />
+    ),
+    [C, canSplit, selectedId]
+  );
+
   return (
     <>
       <Stack.Screen
@@ -356,40 +395,7 @@ export default function VentasAnuladasScreen() {
                     </Text>
                   </View>
                 )}
-                renderItem={({ item }) => (
-                  <Pressable
-                    onPress={() => {
-                      if (canSplit) {
-                        setSelectedId(item.id);
-                      } else {
-                        router.push({ pathname: "/venta-detalle", params: { ventaId: String(item.id) } } as any);
-                      }
-                    }}
-                    style={({ pressed }) => [
-                      styles.card,
-                      { borderColor: C.border, backgroundColor: C.card },
-                      canSplit && selectedId === item.id && { borderColor: colors.primary, borderWidth: 2 },
-                      pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
-                    ]}
-                  >
-                    <View style={styles.rowBetween}>
-                      <Text style={[styles.title, { color: C.text }]} numberOfLines={1} ellipsizeMode="tail">
-                        {item.cliente_nombre ?? "—"}
-                      </Text>
-                      <View style={[styles.pill, { backgroundColor: C.dangerBg, borderColor: C.border }]}>
-                        <Text style={[styles.pillText, { color: C.dangerText }]} numberOfLines={1}>
-                          ANULADA
-                        </Text>
-                      </View>
-                    </View>
-                    <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
-                      Venta #{item.id} • Fecha: {fmtDateLongEs(item.fecha)}
-                    </Text>
-                    <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
-                      Vendedor: {item.vendedor_codigo ? String(item.vendedor_codigo) : shortUid(item.vendedor_id)}
-                    </Text>
-                  </Pressable>
-                )}
+                renderItem={renderAnuladaItem}
                 ListEmptyComponent={
                   <Text style={{ padding: 16, color: C.sub, fontWeight: "700" }}>
                     {initialLoading ? "Cargando..." : "Sin anuladas"}
@@ -454,40 +460,7 @@ export default function VentasAnuladasScreen() {
                   </Text>
                 </View>
               )}
-              renderItem={({ item }) => (
-                <Pressable
-                  onPress={() => {
-                    if (canSplit) {
-                      setSelectedId(item.id);
-                    } else {
-                      router.push({ pathname: "/venta-detalle", params: { ventaId: String(item.id) } } as any);
-                    }
-                  }}
-                  style={({ pressed }) => [
-                    styles.card,
-                    { borderColor: C.border, backgroundColor: C.card },
-                    canSplit && selectedId === item.id && { borderColor: colors.primary, borderWidth: 2 },
-                    pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
-                  ]}
-                >
-                  <View style={styles.rowBetween}>
-                    <Text style={[styles.title, { color: C.text }]} numberOfLines={1} ellipsizeMode="tail">
-                      {item.cliente_nombre ?? "—"}
-                    </Text>
-                    <View style={[styles.pill, { backgroundColor: C.dangerBg, borderColor: C.border }]}>
-                      <Text style={[styles.pillText, { color: C.dangerText }]} numberOfLines={1}>
-                        ANULADA
-                      </Text>
-                    </View>
-                  </View>
-                  <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
-                    Venta #{item.id} • Fecha: {fmtDateLongEs(item.fecha)}
-                  </Text>
-                  <Text style={[styles.sub, { color: C.sub }]} numberOfLines={1}>
-                    Vendedor: {item.vendedor_codigo ? String(item.vendedor_codigo) : shortUid(item.vendedor_id)}
-                  </Text>
-                </Pressable>
-              )}
+              renderItem={renderAnuladaItem}
               ListEmptyComponent={
                 <Text style={{ padding: 16, color: C.sub, fontWeight: "700" }}>
                   {initialLoading ? "Cargando..." : "Sin anuladas"}

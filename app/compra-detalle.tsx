@@ -39,6 +39,8 @@ import { alphaColor } from "../lib/ui";
 import { AppButton } from "../components/ui/app-button";
 import { DoneAccessory } from "../components/ui/done-accessory";
 import { goBackSafe } from "../lib/goBackSafe";
+import { fmtQ, fmtDate } from "../lib/utils/format";
+import { normalizeUpper } from "../lib/utils/text";
 import { FB_DARK_DANGER } from "../src/theme/headerColors";
 
 const BUCKET_COMPROBANTES = "comprobantes";
@@ -89,22 +91,6 @@ type PickedImage = {
   mimeType: string; // e.g. image/jpeg
   fileName?: string | null;
 };
-
-function fmtDate(iso: string | null | undefined) {
-  if (!iso) return "—";
-  return String(iso).slice(0, 10);
-}
-
-function fmtQ(n: string | number | null | undefined) {
-  if (n == null) return "—";
-  const x = Number(n);
-  if (!Number.isFinite(x)) return "—";
-  return `Q ${x.toFixed(2)}`;
-}
-
-function normalizeUpper(s: string | null | undefined) {
-  return (s ?? "").trim().toUpperCase();
-}
 
 function safeNumber(n: any) {
   const x = Number(n);
@@ -414,17 +400,35 @@ export default function CompraDetalleScreen() {
 
     setLoading(true);
     try {
-      const { data: c, error: e1 } = await supabase
-        .from("compras")
-        .select(
-          "id,fecha,numero_factura,tipo_pago,fecha_vencimiento,estado,monto_total,saldo_pendiente,comentarios,proveedor_id,proveedores(nombre)"
-        )
-        .eq("empresa_id", empresaActivaId)
-        .eq("id", compraId)
-        .maybeSingle();
+      // Queries 1, 2 y 4 en paralelo (independientes entre sí)
+      const [r1, r2, r4] = await Promise.all([
+        supabase
+          .from("compras")
+          .select(
+            "id,fecha,numero_factura,tipo_pago,fecha_vencimiento,estado,monto_total,saldo_pendiente,comentarios,proveedor_id,proveedores(nombre)"
+          )
+          .eq("empresa_id", empresaActivaId)
+          .eq("id", compraId)
+          .maybeSingle(),
+        supabase
+          .from("compras_detalle")
+          .select(
+            "id,compra_id,producto_id,lote_id,cantidad,precio_compra_unit,subtotal,productos(nombre,image_path,marcas(nombre)),producto_lotes(lote,fecha_exp)"
+          )
+          .eq("empresa_id", empresaActivaId)
+          .eq("compra_id", compraId)
+          .order("id", { ascending: true }),
+        supabase
+          .from("compras_pagos")
+          .select("id,compra_id,fecha,monto,metodo,referencia,comprobante_path,comentario")
+          .eq("empresa_id", empresaActivaId)
+          .eq("compra_id", compraId)
+          .order("fecha", { ascending: false }),
+      ]);
 
-      if (e1) throw e1;
-      if (!c) throw new Error("Compra no encontrada");
+      if (r1.error) throw r1.error;
+      if (!r1.data) throw new Error("Compra no encontrada");
+      const c = r1.data;
 
       setCompra({
         id: c.id,
@@ -440,18 +444,9 @@ export default function CompraDetalleScreen() {
         proveedor_nombre: (c as any).proveedores?.nombre ?? null,
       });
 
-      const { data: d, error: e2 } = await supabase
-        .from("compras_detalle")
-        .select(
-          "id,compra_id,producto_id,lote_id,cantidad,precio_compra_unit,subtotal,productos(nombre,image_path,marca_id,marcas(nombre)),producto_lotes(lote,fecha_exp)"
-        )
-        .eq("empresa_id", empresaActivaId)
-        .eq("compra_id", compraId)
-        .order("id", { ascending: true });
+      if (r2.error) throw r2.error;
 
-      if (e2) throw e2;
-
-      const mapped: Linea[] = (d ?? []).map((r: any) => ({
+      const mapped: Linea[] = (r2.data ?? []).map((r: any) => ({
         detalle_id: r.id,
         producto_id: r.producto_id,
         producto_nombre: r.productos?.nombre ?? null,
@@ -467,6 +462,7 @@ export default function CompraDetalleScreen() {
         stock_reservado: null,
       }));
 
+      // Query 3 depende de query 2 (necesita loteIds)
       const loteIds = Array.from(
         new Set(
           mapped
@@ -501,15 +497,8 @@ export default function CompraDetalleScreen() {
 
       setLineas(mapped);
 
-      const { data: p, error: pe } = await supabase
-        .from("compras_pagos")
-        .select("id,compra_id,fecha,monto,metodo,referencia,comprobante_path,comentario")
-        .eq("empresa_id", empresaActivaId)
-        .eq("compra_id", compraId)
-        .order("fecha", { ascending: false });
-
-      if (pe) throw pe;
-      setPagos((p ?? []) as any);
+      if (r4.error) throw r4.error;
+      setPagos((r4.data ?? []) as any);
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo cargar");
       setCompra(null);

@@ -6,12 +6,9 @@ import { router } from "expo-router";
 
 import { AppButton } from "../ui/app-button";
 import { useRole } from "../../lib/useRole";
+import { normalizeUpper } from "../../lib/utils/text";
 
 type Allow = string[] | ((role: string) => boolean);
-
-function normalizeUpper(v: any) {
-  return String(v ?? "").trim().toUpperCase();
-}
 
 export function RoleGate({
   allow,

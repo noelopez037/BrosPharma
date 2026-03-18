@@ -17,6 +17,7 @@ import { generarEstadoCuentaClientePdf } from "../../lib/estadoCuentaClientePdf"
 import { supabase } from "../../lib/supabase";
 import { useRole } from "../../lib/useRole";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
+import { normalizeUpper } from "../../lib/utils/text";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 
@@ -50,10 +51,6 @@ type ClienteDetallePanelContentProps = {
   onEditWeb?: (id: number) => void;
   onDeleted?: () => void;
 };
-
-function normalizeUpper(v: any) {
-  return String(v ?? "").trim().toUpperCase();
-}
 
 function displayNit(nit: string | null | undefined) {
   const t = String(nit ?? "").trim();

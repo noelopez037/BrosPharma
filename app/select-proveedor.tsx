@@ -24,6 +24,7 @@ import { DoneAccessory } from "../components/ui/done-accessory";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
 import { goBackSafe } from "../lib/goBackSafe";
 import { getHeaderColors } from "../src/theme/headerColors";
+import { safeIlike } from "../lib/utils/text";
 
 function alpha(hexOrRgb: string, a: number) {
   if (!hexOrRgb?.startsWith("#") || hexOrRgb.length !== 7) return hexOrRgb;
@@ -73,7 +74,7 @@ export default function SelectProveedor() {
         .order("nombre", { ascending: true })
         .limit(200);
 
-      if (q.trim()) query = query.ilike("nombre", `%${q.trim()}%`);
+      if (q.trim()) query = query.ilike("nombre", `%${safeIlike(q)}%`);
 
       const { data, error } = await query;
       if (error) throw error;

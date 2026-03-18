@@ -19,6 +19,7 @@ import { ProductoModalContent } from "../../../components/producto/ProductoModal
 import { useRole } from "../../../lib/useRole";
 import { useEmpresaActiva } from "../../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../../lib/useResumeLoad";
+import { safeIlike } from "../../../lib/utils/text";
 
 type Row = {
   id: number;
@@ -143,7 +144,8 @@ export default function InventarioScreen() {
       }
 
       if (isSearching) {
-        req = req.or(`nombre.ilike.%${debouncedQ}%,marca.ilike.%${debouncedQ}%`);
+        const safe = safeIlike(debouncedQ);
+        req = req.or(`nombre.ilike.%${safe}%,marca.ilike.%${safe}%`);
       }
 
       const { data, error } = await req;

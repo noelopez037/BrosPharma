@@ -21,6 +21,7 @@ import { useRole } from "../../lib/useRole";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../lib/useResumeLoad";
 import { ClienteDetallePanel } from "../../components/clientes/ClienteDetallePanel";
+import { normalizeUpper, safeIlike } from "../../lib/utils/text";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
 
@@ -39,10 +40,6 @@ type ClienteRow = {
   } | null;
 };
 
-function normalizeUpper(v: any) {
-  return String(v ?? "").trim().toUpperCase();
-}
-
 function useDebouncedValue<T>(value: T, delayMs: number) {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -57,13 +54,7 @@ function displayNit(nit: string | null | undefined) {
   return t ? t : "CF";
 }
 
-function makeSafeIlikePattern(input: string) {
-  return String(input ?? "")
-    .replace(/[%_]/g, "\\$&")
-    .replace(/[(),]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+
 
 function logClientesError(tag: string, error: any) {
   if (!error) return;
@@ -75,6 +66,49 @@ function logClientesError(tag: string, error: any) {
     error.code ?? ""
   );
 }
+
+const ClienteItem = React.memo(function ClienteItem({
+  item,
+  selected,
+  primaryColor,
+  s,
+  onPress,
+}: {
+  item: ClienteRow;
+  selected: boolean;
+  primaryColor: string;
+  s: ReturnType<typeof styles>;
+  onPress: () => void;
+}) {
+  const vendedorNombre = (item.vendedor?.full_name ?? "").trim();
+  const vendedorChipLabel = vendedorNombre || (item.vendedor_id ? item.vendedor_id : "Sin asignar");
+
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        s.card,
+        selected ? { borderColor: primaryColor, borderWidth: 2 } : null,
+        pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
+      ]}
+      onPress={onPress}
+    >
+      <View style={s.row}>
+        <View style={{ flex: 1 }}>
+          <Text style={s.title} numberOfLines={1}>{item.nombre}</Text>
+          <Text style={s.sub} numberOfLines={1}>NIT: {displayNit(item.nit)}</Text>
+          <Text style={s.sub} numberOfLines={1}>Tel: {item.telefono ?? "—"}</Text>
+          <Text style={s.sub} numberOfLines={1}>Dir: {item.direccion ?? "—"}</Text>
+        </View>
+        <View style={s.rightCol}>
+          <View style={s.vendedorPill}>
+            <Text style={s.vendedorPillText} numberOfLines={1}>{vendedorChipLabel}</Text>
+          </View>
+          {!item.activo ? <Text style={s.badgeOff}>INACTIVO</Text> : null}
+        </View>
+      </View>
+    </Pressable>
+  );
+});
 
 export default function ClientesScreen() {
   const { colors } = useTheme();
@@ -159,7 +193,7 @@ export default function ClientesScreen() {
     const isAdminNow = effectiveRoleUp === "ADMIN";
     const isVentasNow = effectiveRoleUp === "VENTAS";
 
-    const safeSearch = dq ? makeSafeIlikePattern(dq) : "";
+    const safeSearch = dq ? safeIlike(dq) : "";
 
     const buildQuery = (includeSearch: boolean) => {
       let req = supabase
@@ -253,18 +287,13 @@ export default function ClientesScreen() {
 
   useResumeLoad(empresaActivaId, () => { void fetchClientes(); });
 
-  const renderItem = ({ item }: { item: ClienteRow }) => {
-    const vendedorNombre = (item.vendedor?.full_name ?? "").trim();
-    const vendedorChipLabel = vendedorNombre || (item.vendedor_id ? item.vendedor_id : "Sin asignar");
-    const selected = canSplit && selectedClienteId === item.id;
-
-    return (
-      <Pressable
-        style={({ pressed }) => [
-          s.card,
-          selected ? { borderColor: colors.primary, borderWidth: 2 } : null,
-          pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
-        ]}
+  const renderItem = useCallback(
+    ({ item }: { item: ClienteRow }) => (
+      <ClienteItem
+        item={item}
+        selected={canSplit && selectedClienteId === item.id}
+        primaryColor={String(colors.primary ?? "#153c9e")}
+        s={s}
         onPress={() => {
           if (canSplit) {
             setSelectedClienteId(item.id);
@@ -275,38 +304,10 @@ export default function ClientesScreen() {
             params: { id: String(item.id), readOnly: readOnly ? "1" : "0" },
           });
         }}
-      >
-        <View style={s.row}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.title} numberOfLines={1}>
-              {item.nombre}
-            </Text>
-
-            <Text style={s.sub} numberOfLines={1}>
-              NIT: {displayNit(item.nit)}
-            </Text>
-
-            <Text style={s.sub} numberOfLines={1}>
-              Tel: {item.telefono ?? "—"}
-            </Text>
-
-            <Text style={s.sub} numberOfLines={1}>
-              Dir: {item.direccion ?? "—"}
-            </Text>
-          </View>
-
-          <View style={s.rightCol}>
-            <View style={s.vendedorPill}>
-              <Text style={s.vendedorPillText} numberOfLines={1}>
-                {vendedorChipLabel}
-              </Text>
-            </View>
-            {!item.activo ? <Text style={s.badgeOff}>INACTIVO</Text> : null}
-          </View>
-        </View>
-      </Pressable>
-    );
-  };
+      />
+    ),
+    [canSplit, selectedClienteId, s, readOnly, colors.primary]
+  );
 
   const fabBg = String(colors.primary ?? "#153c9e");
 

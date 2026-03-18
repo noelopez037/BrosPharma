@@ -25,6 +25,8 @@ import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useRole } from "../../lib/useRole";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../lib/useResumeLoad";
+import { fmtQ, fmtDateLongEs } from "../../lib/utils/format";
+import { normalizeUpper } from "../../lib/utils/text";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
 type CxCRow = {
@@ -63,35 +65,6 @@ function useDebouncedValue<T>(value: T, delayMs: number) {
   return debounced;
 }
 
-function fmtQ(n: number | string | null | undefined) {
-  if (n == null) return "—";
-  const x = Number(n);
-  if (!Number.isFinite(x)) return "—";
-  return `Q ${x.toFixed(2)}`;
-}
-
-function fmtDateLongEs(isoOrYmd: string | null | undefined) {
-  if (!isoOrYmd) return "—";
-  const raw = String(isoOrYmd).trim();
-  if (!raw) return "—";
-  if (raw.toUpperCase() === "SIN_FECHA" || raw.toLowerCase() === "sin fecha") return "Sin fecha";
-  const ymd = raw.slice(0, 10);
-  const d = new Date(`${ymd}T12:00:00`);
-  if (!Number.isFinite(d.getTime())) return "—";
-  return new Intl.DateTimeFormat("es-ES", {
-    weekday: "long",
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  })
-    .format(d)
-    .toLowerCase()
-    .replace(/\./g, "");
-}
-
-function normalizeUpper(s: string | null | undefined) {
-  return (s ?? "").trim().toUpperCase();
-}
 
 function parseYmdToDate(iso: string) {
   const ymd = String(iso).slice(0, 10);

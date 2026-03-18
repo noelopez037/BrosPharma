@@ -24,6 +24,8 @@ import { useThemePref } from "../../lib/themePreference";
 import { useRole } from "../../lib/useRole";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../lib/useResumeLoad";
+import { fmtQ, fmtDateLongEs, pad2 } from "../../lib/utils/format";
+import { normalizeUpper } from "../../lib/utils/text";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
 type RpcComisionRow = {
@@ -49,39 +51,9 @@ type CxCVentaRow = {
 
 type VendedorOption = { vendedor_id: string; vendedor_codigo: string };
 
-function normalizeUpper(v: any) {
-  return String(v ?? "").trim().toUpperCase();
-}
-
 function safeNumber(n: any) {
   const x = Number(n);
   return Number.isFinite(x) ? x : 0;
-}
-
-function fmtQ(n: number | string | null | undefined) {
-  if (n == null) return "—";
-  const x = Number(n);
-  if (!Number.isFinite(x)) return "—";
-  return `Q ${x.toFixed(2)}`;
-}
-
-function fmtDateLongEs(isoOrYmd: string | null | undefined) {
-  if (!isoOrYmd) return "—";
-  const raw = String(isoOrYmd).trim();
-  if (!raw) return "—";
-  if (raw.toUpperCase() === "SIN_FECHA" || raw.toLowerCase() === "sin fecha") return "Sin fecha";
-  const ymd = raw.slice(0, 10);
-  const d = new Date(`${ymd}T12:00:00`);
-  if (!Number.isFinite(d.getTime())) return "—";
-  const weekday = new Intl.DateTimeFormat("es-ES", { weekday: "long" }).format(d).toLowerCase();
-  const month = new Intl.DateTimeFormat("es-ES", { month: "short" }).format(d).toLowerCase().replace(/\./g, "");
-  const day = String(d.getDate()).padStart(2, "0");
-  const year = d.getFullYear();
-  return `${weekday}, ${day} de ${month} de ${year}`;
-}
-
-function pad2(n: number) {
-  return String(n).padStart(2, "0");
 }
 
 function daysInMonthUtc(year: number, monthIndex0: number) {

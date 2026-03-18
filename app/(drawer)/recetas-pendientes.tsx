@@ -11,6 +11,14 @@ import { useThemePref } from "../../lib/themePreference";
 import { AppButton } from "../../components/ui/app-button";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useResumeLoad } from "../../lib/useResumeLoad";
+import { normalizeUpper } from "../../lib/utils/text";
+import { fmtDate } from "../../lib/utils/format";
+
+type RecetaColors = {
+  bg: string; card: string; text: string; sub: string;
+  border: string; tint: string; chipBg: string;
+  chipAmberBg: string; chipAmberText: string;
+};
 
 type VentaRow = {
   id: number;
@@ -26,15 +34,6 @@ function shortUid(u: string | null | undefined) {
   const s = String(u ?? "").trim();
   if (!s) return "—";
   return s.slice(0, 8);
-}
-
-function fmtDate(iso: string | null | undefined) {
-  if (!iso) return "—";
-  return String(iso).slice(0, 10);
-}
-
-function normalizeUpper(v: any) {
-  return String(v ?? "").trim().toUpperCase();
 }
 
 function startOfMonth(d: Date) {
@@ -67,6 +66,31 @@ function endOfDay(d: Date) {
   x.setHours(23, 59, 59, 999);
   return x;
 }
+
+const RecetaItem = React.memo(function RecetaItem({
+  item,
+  vendedorLabel,
+  showChip,
+  C,
+  onPress,
+}: {
+  item: VentaRow;
+  vendedorLabel: string;
+  showChip: boolean;
+  C: RecetaColors;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [s.card, { borderColor: C.border, backgroundColor: C.card }, pressed ? { opacity: 0.85 } : null]}>
+      <Text style={[s.cardTitle, { color: C.text }]} numberOfLines={2}>{item.cliente_nombre ?? "—"}</Text>
+      <Text style={[s.cardSub, { color: C.sub }]}>Fecha: {fmtDate(item.fecha)}</Text>
+      <Text style={[s.cardSub, { color: C.sub }]}>Vendedor: {vendedorLabel}</Text>
+      {showChip ? (
+        <View style={s.chipsRow}><View style={[s.chip, { backgroundColor: C.chipAmberBg, borderColor: C.border }]}><Text style={[s.chipText, { color: C.chipAmberText }]}>Falta receta</Text></View></View>
+      ) : null}
+    </Pressable>
+  );
+});
 
 export default function RecetasPendientesScreen() {
   const { colors } = useTheme();
@@ -420,6 +444,27 @@ export default function RecetasPendientesScreen() {
     router.push({ pathname: "/venta-detalle", params: { ventaId: String(id), returnTo: "/(drawer)/recetas-pendientes" } } as any);
   }, []);
 
+  const renderRecetaItem = useCallback(
+    ({ item }: { item: VentaRow }) => {
+      const showChip = item.requiere_receta && !item.receta_cargada;
+      const vendedorLabel =
+        String(item.vendedor_codigo ?? "").trim() ||
+        (uid && String(item.vendedor_id ?? "") === uid ? String(selfVendedorLabel || "").trim() : null) ||
+        (item.vendedor_id ? vendedoresMap.get(String(item.vendedor_id)) : null) ||
+        shortUid(item.vendedor_id);
+      return (
+        <RecetaItem
+          item={item}
+          vendedorLabel={vendedorLabel}
+          showChip={showChip}
+          C={C}
+          onPress={() => openDetail(Number(item.id))}
+        />
+      );
+    },
+    [C, vendedoresMap, uid, selfVendedorLabel, openDetail]
+  );
+
   return (
     <SafeAreaView style={[s.safe, { backgroundColor: C.bg }]} edges={["bottom"]}>
       <Stack.Screen
@@ -618,24 +663,7 @@ export default function RecetasPendientesScreen() {
         automaticallyAdjustKeyboardInsets
         refreshing={refreshing}
         onRefresh={onRefresh}
-        renderItem={({ item }) => {
-          const showChip = item.requiere_receta && !item.receta_cargada;
-          const vendedorLabel =
-            String(item.vendedor_codigo ?? "").trim() ||
-            (uid && String(item.vendedor_id ?? "") === uid ? String(selfVendedorLabel || "").trim() : null) ||
-            (item.vendedor_id ? vendedoresMap.get(String(item.vendedor_id)) : null) ||
-            shortUid(item.vendedor_id);
-          return (
-            <Pressable onPress={() => openDetail(Number(item.id))} style={({ pressed }) => [s.card, { borderColor: C.border, backgroundColor: C.card }, pressed ? { opacity: 0.85 } : null]}>
-              <Text style={[s.cardTitle, { color: C.text }]} numberOfLines={2}>{item.cliente_nombre ?? "—"}</Text>
-              <Text style={[s.cardSub, { color: C.sub }]}>Fecha: {fmtDate(item.fecha)}</Text>
-              <Text style={[s.cardSub, { color: C.sub }]}>Vendedor: {vendedorLabel}</Text>
-              {showChip ? (
-                <View style={s.chipsRow}><View style={[s.chip, { backgroundColor: C.chipAmberBg, borderColor: C.border }]}><Text style={[s.chipText, { color: C.chipAmberText }]}>Falta receta</Text></View></View>
-              ) : null}
-            </Pressable>
-          );
-        }}
+        renderItem={renderRecetaItem}
         ListEmptyComponent={
           <Text style={{ padding: 16, color: C.sub, fontWeight: "700" }}>{initialLoading || listLoading ? "Cargando..." : "Sin ventas"}</Text>
         }

@@ -18,6 +18,7 @@ import { useCompraDraft } from "../../lib/compraDraft";
 import { supabase } from "../../lib/supabase";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useRole } from "../../lib/useRole";
+import { safeIlike } from "../../lib/utils/text";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -293,7 +294,7 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
         .from("proveedores")
         .select("id,nombre,telefono")
         .eq("empresa_id", empresaActivaId)
-        .ilike("nombre", `%${term.trim()}%`)
+        .ilike("nombre", `%${safeIlike(term)}%`)
         .eq("activo", true)
         .limit(20);
       setProvResults(data ?? []);
@@ -324,7 +325,7 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
         .select("id,nombre,marca_id,marcas(nombre)")
         .eq("empresa_id", empresaActivaId)
         .eq("activo", true)
-        .ilike("nombre", `%${term.trim()}%`)
+        .ilike("nombre", `%${safeIlike(term)}%`)
         .limit(20);
       setProdResultsByKey((prev) => ({ ...prev, [lineKey]: data ?? [] }));
     } catch {
@@ -432,6 +433,7 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
         const contentType = ext === "png" ? "image/png" : ext === "heic" ? "image/heic" : "image/jpeg";
         const path = `${empresaActivaId}/compras/imagenes/${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`;
         const ab = await file.arrayBuffer();
+        if (ab.byteLength > 10 * 1024 * 1024) throw new Error("La imagen excede 10 MB.");
         const { error } = await supabase.storage.from(BUCKET).upload(path, ab, { contentType, upsert: true });
         if (error) throw error;
         updateLinea(lineKey, { image_path: path });

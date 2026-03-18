@@ -22,6 +22,7 @@ import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useRole } from "../../lib/useRole";
+import { fmtQ, fmtDate } from "../../lib/utils/format";
 
 const BUCKET_VENTAS_DOCS = "Ventas-Docs";
 const BUCKET_COMPROBANTES = "comprobantes";
@@ -100,18 +101,6 @@ async function openFacturaPdf(pathRaw: string) {
 }
 
 type ComisionVentaDetallePanelProps = { ventaId: number | null; embedded?: boolean };
-
-function fmtQ(n: string | number | null | undefined) {
-  if (n == null) return "—";
-  const x = Number(n);
-  if (!Number.isFinite(x)) return "—";
-  return `Q ${x.toFixed(2)}`;
-}
-
-function fmtDate(iso: string | null | undefined) {
-  if (!iso) return "—";
-  return String(iso).slice(0, 10);
-}
 
 function safeNumber(n: any) {
   const x = Number(n);

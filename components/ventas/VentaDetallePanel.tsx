@@ -36,6 +36,9 @@ import { useThemePref } from "../../lib/themePreference";
 import { alphaColor } from "../../lib/ui";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useRole } from "../../lib/useRole";
+import { uriToArrayBuffer } from "../../lib/utils/file";
+import { fmtQ, fmtDate } from "../../lib/utils/format";
+import { normalizeUpper } from "../../lib/utils/text";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
@@ -161,26 +164,10 @@ function VentaDetallePanelWithParams({ fallbackVentaId }: { fallbackVentaId: num
   return <VentaDetallePanelContent embedded={false} ventaIdProp={fallbackVentaId} params={params} />;
 }
 
-function normalizeUpper(v: any) {
-  return String(v ?? "").trim().toUpperCase();
-}
-
 function shortUid(u: string | null | undefined) {
   const s = String(u ?? "").trim();
   if (!s) return "—";
   return s.slice(0, 8);
-}
-
-function fmtDate(iso: string | null | undefined) {
-  if (!iso) return "—";
-  return String(iso).slice(0, 10);
-}
-
-function fmtQ(n: string | number | null | undefined) {
-  if (n == null) return "—";
-  const x = Number(n);
-  if (!Number.isFinite(x)) return "—";
-  return `Q ${x.toFixed(2)}`;
 }
 
 function toIsoDateLocal(d: Date) {
@@ -251,12 +238,6 @@ function normalizeStoragePath(raw: string) {
   const pref = `${BUCKET}/`;
   if (clean.startsWith(pref)) clean = clean.slice(pref.length);
   return clean;
-}
-
-async function uriToArrayBuffer(uri: string): Promise<ArrayBuffer> {
-  const res = await fetch(uri);
-  if (!res.ok) throw new Error("No se pudo leer la imagen");
-  return await res.arrayBuffer();
 }
 
 async function uriToBytes(uri: string): Promise<Uint8Array> {
@@ -920,6 +901,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
 
        setUploading(true);
        const bytes = await uriToBytes(uploadUri);
+       if (bytes.byteLength > 10 * 1024 * 1024) throw new Error("La imagen excede 10 MB.");
 
        const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, bytes, {
          contentType: ct,
@@ -994,6 +976,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
         const path = `${empresaActivaId}/ventas/${venta.id}/facturas/${tipo}/${stamp}-${rnd}.pdf`;
 
         const bytes = await uriToBytes(uri);
+        if (bytes.byteLength > 50 * 1024 * 1024) throw new Error("El PDF excede 50 MB.");
         const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, bytes, {
           contentType: "application/pdf",
           upsert: false,

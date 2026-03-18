@@ -23,6 +23,7 @@ import { useEmpresaActiva } from "../lib/useEmpresaActiva";
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { AppButton } from "../components/ui/app-button";
+import { fmtDate } from "../lib/utils/format";
 import { HEADER_BG } from "../src/theme/headerColors";
 
 const BUCKET = "productos";
@@ -62,10 +63,6 @@ type ProductoHead = {
 };
 
 /* ===================== HELPERS ===================== */
-
-function fmtDate(iso: string | null) {
-  return iso ? iso.slice(0, 10) : "—";
-}
 
 function extFromUrl(url: string) {
   const clean = String(url).split("?")[0];

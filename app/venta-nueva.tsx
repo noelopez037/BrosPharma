@@ -29,53 +29,14 @@ import { useVentaDraft } from "../lib/ventaDraft";
 import { goBackSafe } from "../lib/goBackSafe";
 import { useRole } from "../lib/useRole";
 import { useEmpresaActiva } from "../lib/useEmpresaActiva";
+import { extFromUri, mimeFromExt, uriToArrayBuffer } from "../lib/utils/file";
+import { fmtQ, parseIntSafe, parseDecimalSafe } from "../lib/utils/format";
+import { normalizeUpper, safeIlike } from "../lib/utils/text";
 import { FB_DARK_DANGER } from "../src/theme/headerColors";
 
 const BUCKET_VENTAS_DOCS = "Ventas-Docs";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
-
-function normalizeUpper(v: any) {
-  return String(v ?? "").trim().toUpperCase();
-}
-
-function parseIntSafe(s: string) {
-  const n = Number(String(s ?? "").replace(/[^0-9]/g, ""));
-  return Number.isFinite(n) ? Math.floor(n) : 0;
-}
-
-function parseDecimalSafe(s: string) {
-  const n = Number(String(s ?? "").replace(/[^0-9.]/g, ""));
-  return Number.isFinite(n) ? n : 0;
-}
-
-function fmtQ(n: number | null | undefined) {
-  if (n == null) return "—";
-  return `Q ${Number(n).toFixed(2)}`;
-}
-
-function extFromUri(uri: string) {
-  const clean = String(uri ?? "").split("?")[0];
-  const m = clean.match(/\.([a-zA-Z0-9]+)$/);
-  const ext = (m?.[1] ?? "jpg").toLowerCase();
-  if (ext === "jpeg") return "jpg";
-  return ext;
-}
-
-function mimeFromExt(ext: string) {
-  const e = (ext || "").toLowerCase();
-  if (e === "png") return "image/png";
-  if (e === "webp") return "image/webp";
-  if (e === "heic") return "image/heic";
-  if (e === "heif") return "image/heif";
-  return "image/jpeg";
-}
-
-async function uriToArrayBuffer(uri: string): Promise<ArrayBuffer> {
-  const res = await fetch(uri);
-  if (!res.ok) throw new Error("No se pudo leer la imagen");
-  return await res.arrayBuffer();
-}
 
 export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {}) {
   const DONE_ID = "doneAccessory";
@@ -192,7 +153,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
         .from("clientes")
         .select("id,nombre,nit,telefono,direccion")
         .eq("empresa_id", empresaActivaId)
-        .ilike("nombre", `%${term.trim()}%`)
+        .ilike("nombre", `%${safeIlike(term)}%`)
         .limit(20);
       setClienteDropResults(data ?? []);
     } catch {
@@ -216,7 +177,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
         .select("id,nombre,marca,stock_disponible,precio_min_venta,tiene_iva,requiere_receta")
         .eq("empresa_id", empresaActivaId)
         .eq("activo", true)
-        .ilike("nombre", `%${term.trim()}%`)
+        .ilike("nombre", `%${safeIlike(term)}%`)
         .limit(20);
       const rows = data ?? [];
       // Sort: in-stock first, out-of-stock at the bottom (stable within each group)

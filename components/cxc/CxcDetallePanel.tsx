@@ -33,6 +33,8 @@ import { alphaColor } from "../../lib/ui";
 import { emitSolicitudesChanged } from "../../lib/solicitudesEvents";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useRole } from "../../lib/useRole";
+import { fmtQ, fmtDate } from "../../lib/utils/format";
+import { normalizeUpper } from "../../lib/utils/text";
 
 const BUCKET_COMPROBANTES = "comprobantes";
 const BUCKET_VENTAS_DOCS = "Ventas-Docs";
@@ -54,22 +56,6 @@ async function openInBrowser(url: string) {
   } catch {
     await WebBrowser.openBrowserAsync(encodeURI(url));
   }
-}
-
-function fmtDate(iso: string | null | undefined) {
-  if (!iso) return "—";
-  return String(iso).slice(0, 10);
-}
-
-function fmtQ(n: string | number | null | undefined) {
-  if (n == null) return "—";
-  const x = Number(n);
-  if (!Number.isFinite(x)) return "—";
-  return `Q ${x.toFixed(2)}`;
-}
-
-function normalizeUpper(s: string | null | undefined) {
-  return (s ?? "").trim().toUpperCase();
 }
 
 function safeNumber(n: any) {

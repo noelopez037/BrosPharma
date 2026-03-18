@@ -19,6 +19,8 @@ import { alphaColor } from "../../../lib/ui";
 import { useRole } from "../../../lib/useRole";
 import { useEmpresaActiva } from "../../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../../lib/useResumeLoad";
+import { fmtQ, fmtDate, pad2 } from "../../../lib/utils/format";
+import { normalizeUpper } from "../../../lib/utils/text";
 import { FB_DARK_DANGER } from "../../../src/theme/headerColors";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -143,24 +145,9 @@ function buildGreeting(name: string, role: string, ventasHoy?: number): string {
   return name ? `Hola ${name}` : "Hola";
 }
 
-function fmtQ(n: any) {
-  const x = Number(n);
-  if (!Number.isFinite(x)) return "—";
-  return `Q ${x.toFixed(2)}`;
-}
-
-function fmtDate(iso: string | null | undefined) {
-  if (!iso) return "—";
-  return String(iso).slice(0, 10);
-}
-
 function safeNumber(n: any) {
   const x = Number(n);
   return Number.isFinite(x) ? x : 0;
-}
-
-function normalizeUpper(v: any) {
-  return String(v ?? "").trim().toUpperCase();
 }
 
 function dayDiffFromToday(isoYmd: string) {
@@ -181,10 +168,6 @@ function nameFromEmail(email: string | null | undefined) {
   const e = (email ?? "").trim();
   if (!e) return "";
   return e.split("@")[0] ?? "";
-}
-
-function pad2(n: number) {
-  return String(n).padStart(2, "0");
 }
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────

@@ -43,6 +43,7 @@ import { goBackSafe } from "../lib/goBackSafe";
 import { AppButton } from "../components/ui/app-button";
 import { DoneAccessory } from "../components/ui/done-accessory";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
+import { extFromUri, uriToArrayBuffer } from "../lib/utils/file";
 import { FB_DARK_DANGER } from "../src/theme/headerColors";
 
 const BUCKET = "productos";
@@ -61,22 +62,6 @@ function addDays(d: Date, days: number) {
 function parseNumberSafe(s: string) {
   const n = Number(String(s).replace(/[^0-9.]/g, ""));
   return Number.isFinite(n) ? n : 0;
-}
-
-function extFromUri(uri: string) {
-  const clean = uri.split("?")[0];
-  const m = clean.match(/\.([a-zA-Z0-9]+)$/);
-  const ext = (m?.[1] ?? "jpg").toLowerCase();
-  if (ext === "jpeg") return "jpg";
-  if (ext === "heic") return "heic";
-  if (ext === "png") return "png";
-  return "jpg";
-}
-
-async function uriToArrayBuffer(uri: string): Promise<ArrayBuffer> {
-  const res = await fetch(uri);
-  if (!res.ok) throw new Error("No se pudo leer la imagen");
-  return await res.arrayBuffer();
 }
 
 export default function CompraNuevaScreen() {
@@ -410,6 +395,7 @@ export default function CompraNuevaScreen() {
       const ext = extFromUri(asset.uri);
       const path = `${empresaActivaId}/compras/imagenes/${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`;
       const ab = await uriToArrayBuffer(asset.uri);
+      if (ab.byteLength > 10 * 1024 * 1024) throw new Error("La imagen excede 10 MB.");
 
       const contentType =
         ext === "png" ? "image/png" : ext === "heic" ? "image/heic" : "image/jpeg";

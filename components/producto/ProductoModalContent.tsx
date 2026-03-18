@@ -24,6 +24,7 @@ import { getCached, setCached, LoteDetalle, ProductoDetalle, ProductoHead } from
 import { useRole } from "../../lib/useRole";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { AppButton } from "../ui/app-button";
+import { fmtDate } from "../../lib/utils/format";
 import { HEADER_BG } from "../../src/theme/headerColors";
 
 const BUCKET = "productos";
@@ -32,10 +33,6 @@ type Props = {
   productoId: number;
   onClose: () => void;
 };
-
-function fmtDate(iso: string | null) {
-  return iso ? iso.slice(0, 10) : "—";
-}
 
 function extFromUrl(url: string) {
   const clean = String(url).split("?")[0];
