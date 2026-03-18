@@ -33,9 +33,7 @@ if (Platform.OS === "web") {
 }
 
 
-// iOS: avoid rare initial hit-testing issues with react-native-screens
-// in nested navigators right after auth transitions.
-enableScreens(Platform.OS !== "ios");
+enableScreens(true);
 
 if (Platform.OS !== "web") {
   Notifications.setNotificationHandler({

@@ -8,6 +8,7 @@ import {
   Alert,
   Image,
   Keyboard,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
@@ -524,7 +525,7 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
         })),
         comentarios: comentarios?.trim() || null,
       }, {
-        fileName: `cotizacion-${cliente?.nombre?.replace(/[^a-zA-Z0-9]/g, "-") ?? "cliente"}`,
+        fileName: (() => { const d = new Date(); const meses = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"]; const dd = String(d.getDate()).padStart(2,"0"); const mm = meses[d.getMonth()]; const yyyy = d.getFullYear(); return `cotizacion-${cliente?.nombre?.replace(/[^a-zA-Z0-9]/g, "-") ?? "cliente"}-${dd}-${mm}-${yyyy}`; })(),
       }).then(() => {
         setSaving(false);
         reset();
@@ -618,11 +619,17 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
 
   return (
     <>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+      >
       <ScrollView
         style={[styles.scroll, { backgroundColor: C.bg }]}
         contentContainerStyle={{ paddingTop: 12, paddingBottom: 20 }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
+        automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
       >
         {/* Client */}
         <Text style={[styles.label, { color: C.text }]}>Cliente</Text>
@@ -800,7 +807,7 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
                             <Pressable
                               key={String(p.id)}
                               onPressIn={() => {
-                                if (!inStock) return;
+                                if (!inStock && mode !== "cotizacion") return;
                                 setProductoEnLinea({
                                   lineKey: l.key,
                                   producto_id: Number(p.id),
@@ -817,16 +824,16 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
                               style={({ pressed }) => [
                                 styles.dropdownItem,
                                 { borderBottomColor: C.border },
-                                !inStock
+                                !inStock && mode !== "cotizacion"
                                   ? { opacity: 0.45, cursor: "not-allowed" as any }
                                   : pressed ? { backgroundColor: C.blue } : null,
                               ]}
                             >
-                              <Text style={[styles.dropdownItemText, { color: inStock ? C.text : C.sub }]} numberOfLines={1}>
+                              <Text style={[styles.dropdownItemText, { color: inStock || mode === "cotizacion" ? C.text : C.sub }]} numberOfLines={1}>
                                 {p.nombre ?? ""}
                               </Text>
-                              <Text style={[styles.dropdownItemSub, { color: inStock ? C.sub : C.danger }]}>
-                                {p.marca ? `${p.marca} • ` : ""}Stock: {pStock}{inStock ? ` • Min: ${fmtQ(p.precio_min_venta)}` : " unidades"}
+                              <Text style={[styles.dropdownItemSub, { color: inStock || mode === "cotizacion" ? C.sub : C.danger }]}>
+                                {p.marca ? `${p.marca} • ` : ""}Stock: {pStock}{inStock ? ` • Min: ${fmtQ(p.precio_min_venta)}` : mode === "cotizacion" ? ` • Min: ${fmtQ(p.precio_min_venta)}` : " unidades"}
                               </Text>
                             </Pressable>
                           );
@@ -943,6 +950,7 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
           style={[styles.saveBtn, { backgroundColor: C.blueText, marginBottom: 10 }] as any}
         />
       </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* Add-client inline modal */}
       {addClienteOpen ? (

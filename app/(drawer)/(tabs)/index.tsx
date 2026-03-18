@@ -1117,9 +1117,11 @@ export default function Inicio() {
           pressed && clickable ? { opacity: 0.85 } : null,
         ]}
       >
-        <Text style={[s.kpiLabel, { color: C.sub }]}>
-          {props.label}
-        </Text>
+        <View style={{ minHeight: 30 }}>
+          <Text style={[s.kpiLabel, { color: C.sub }]}>
+            {props.label}
+          </Text>
+        </View>
         <Text
           style={[s.kpiValue, { color: valColor }, props.valueSize ? { fontSize: props.valueSize } : null]}
           numberOfLines={1}
@@ -1200,7 +1202,6 @@ export default function Inicio() {
             {renderKpi({
               label: `Ventas ${mon}`,
               value: d ? fmtQ(d.ventasMesTotal) : "—",
-              hint: "Global del mes",
               style: { flexBasis: "31%" },
               valueSize: 14,
             })}

@@ -3,7 +3,6 @@ import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Animated,
   Modal,
   Platform,
   Pressable,
@@ -489,17 +488,6 @@ export default function Ventas() {
     timestamp: number;
   }>({ data: null, timestamp: 0 });
 
-  const [verseOpen, setVerseOpen] = useState(false);
-  const verseOpacity = useRef(new Animated.Value(0)).current;
-  const verseTranslateY = useRef(new Animated.Value(18)).current;
-  const verseScale = useRef(new Animated.Value(0.96)).current;
-  const verseAnimRef = useRef<Animated.CompositeAnimation | null>(null);
-
-  React.useEffect(() => {
-    return () => {
-      verseAnimRef.current?.stop();
-    };
-  }, []);
 
   const [revalidating, setRevalidating] = useState(false);
   const [revalidatingEstado, setRevalidatingEstado] = useState<Estado | null>(null);
@@ -708,6 +696,11 @@ export default function Ventas() {
   // Realtime: escucha cambios en ventas de esta empresa y refresca automáticamente
   useEffect(() => {
     if (!empresaActivaId) return;
+    const forceRefresh = () => {
+      dotsCacheRef.current = { data: null, timestamp: 0 };
+      void fetchVentas(estado, { silent: true });
+      void refreshDots();
+    };
     const channel = supabase
       .channel(`ventas_realtime_${empresaActivaId}`)
       .on(
@@ -730,9 +723,28 @@ export default function Ventas() {
         { event: "UPDATE", schema: "public", table: "ventas_tags", filter: `empresa_id=eq.${empresaActivaId}` },
         () => { emitVentaEstadoChanged(); }
       )
-      .subscribe();
+      .subscribe((status) => {
+        // Si el canal se cierra o falla en web, forzar recarga para no quedar desactualizado
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          forceRefresh();
+        }
+      });
     return () => { supabase.removeChannel(channel); };
-  }, [empresaActivaId]);
+  }, [empresaActivaId, estado, fetchVentas, refreshDots]);
+
+  // En web: cuando el tab vuelve a ser visible, refrescar datos porque el WebSocket pudo haberse caído
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const handleVisibility = () => {
+      if (!document.hidden) {
+        dotsCacheRef.current = { data: null, timestamp: 0 };
+        void fetchVentas(estado, { silent: true });
+        void refreshDots();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [estado, fetchVentas, refreshDots]);
 
   useEffect(() => onVentaEstadoChanged(() => {
     delete cacheRef.current[estado];
@@ -1009,65 +1021,34 @@ export default function Ventas() {
   return (
     <SafeAreaView style={[s.safe, { backgroundColor: C.bg }]} edges={["bottom"]}>
       <View style={[s.header, { backgroundColor: C.bg, borderBottomColor: C.border }]}>
-        <View style={s.topRow}>
-          <Pressable
-            onPress={() => {
-              setVerseOpen(true);
-              verseOpacity.setValue(0);
-              verseTranslateY.setValue(18);
-              verseScale.setValue(0.96);
-              verseAnimRef.current = Animated.parallel([
-                Animated.timing(verseOpacity, {
-                  toValue: 1,
-                  duration: 180,
-                  useNativeDriver: true,
-                }),
-                Animated.timing(verseTranslateY, {
-                  toValue: 0,
-                  duration: 220,
-                  useNativeDriver: true,
-                }),
-                Animated.timing(verseScale, {
-                  toValue: 1,
-                  duration: 220,
-                  useNativeDriver: true,
-                }),
-              ]);
-              verseAnimRef.current.start();
-            }}
-            style={({ pressed }) => [pressed ? { opacity: 0.85 } : null]}
-          >
-            <Text style={[s.title, { color: C.text }]}>Mateo 7:7</Text>
-          </Pressable>
-          {canCreate ? (
-            <View style={{ flexDirection: "row", gap: 8 }}>
-              <AppButton
-                title="+ Cotización"
-                size="sm"
-                variant="ghost"
-                onPress={() => {
-                  if (Platform.OS === "web") {
-                    setCotizacionOpen(true);
-                  } else {
-                    router.push("/cotizacion-nueva" as any);
-                  }
-                }}
-              />
-              <AppButton
-                title="+ Nueva venta"
-                size="sm"
-                onPress={() => {
-                  if (Platform.OS === "web") {
-                    setEditingVentaId(null);
-                    setNuevaVentaOpen(true);
-                  } else {
-                    router.push("/venta-nueva" as any);
-                  }
-                }}
-              />
-            </View>
-          ) : null}
-        </View>
+        {canCreate ? (
+          <View style={s.topRow}>
+            <AppButton
+              title="+ Cotización"
+              size="sm"
+              variant="ghost"
+              onPress={() => {
+                if (Platform.OS === "web") {
+                  setCotizacionOpen(true);
+                } else {
+                  router.push("/cotizacion-nueva" as any);
+                }
+              }}
+            />
+            <AppButton
+              title="+ Nueva venta"
+              size="sm"
+              onPress={() => {
+                if (Platform.OS === "web") {
+                  setEditingVentaId(null);
+                  setNuevaVentaOpen(true);
+                } else {
+                  router.push("/venta-nueva" as any);
+                }
+              }}
+            />
+          </View>
+        ) : null}
 
         <View style={s.tabsRow}>
           {tabs.map((t) => {
@@ -1425,76 +1406,6 @@ export default function Ventas() {
           </View>
         </Modal>
 
-      <Modal
-        visible={verseOpen}
-        transparent
-        animationType="none"
-        onRequestClose={() => {
-          Animated.parallel([
-              Animated.timing(verseOpacity, { toValue: 0, duration: 120, useNativeDriver: true }),
-              Animated.timing(verseTranslateY, { toValue: 18, duration: 150, useNativeDriver: true }),
-              Animated.timing(verseScale, { toValue: 0.96, duration: 150, useNativeDriver: true }),
-            ]).start(() => setVerseOpen(false));
-          }}
-        >
-          <Pressable
-            style={[s.verseBackdrop, { backgroundColor: isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.35)" }]}
-            onPress={() => {
-              Animated.parallel([
-                Animated.timing(verseOpacity, { toValue: 0, duration: 120, useNativeDriver: true }),
-                Animated.timing(verseTranslateY, { toValue: 18, duration: 150, useNativeDriver: true }),
-                Animated.timing(verseScale, { toValue: 0.96, duration: 150, useNativeDriver: true }),
-              ]).start(() => setVerseOpen(false));
-            }}
-          />
-
-          <View
-            pointerEvents="box-none"
-            style={Platform.OS === "web"
-              ? { position: "fixed" as any, top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" }
-              : { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }
-            }
-          >
-          <Animated.View
-            style={[
-              s.verseCard,
-              {
-                backgroundColor: C.card,
-                borderColor: C.border,
-                opacity: verseOpacity,
-                transform: [{ translateY: verseTranslateY }, { scale: verseScale }],
-              },
-              Platform.OS === "web" ? { position: "relative", top: undefined, left: undefined, right: undefined, width: 420 } : null,
-            ]}
-          >
-          <Text style={[s.verseKicker, { color: C.sub }]}>Versiculo del dia</Text>
-          <Text style={[s.verseTitle, { color: C.text }]}>Mateo 7:7</Text>
-
-          <View style={s.verseQuoteBlock}>
-            <View style={{ flex: 1 }}>
-              <Text style={[s.verseText, { color: C.text }]}>Pidan a Dios, y el les dara.</Text>
-              <Text style={[s.verseText, { color: C.text }]}>Hablen con Dios, y encontraran lo que buscan.</Text>
-              <Text style={[s.verseText, { color: C.text }]}>Llamenlo y el los atendera.</Text>
-            </View>
-          </View>
-
-          <View style={{ height: 12 }} />
-          <AppButton
-            title="Cerrar"
-            variant="outline"
-            size="sm"
-            onPress={() => {
-              Animated.parallel([
-                Animated.timing(verseOpacity, { toValue: 0, duration: 120, useNativeDriver: true }),
-                Animated.timing(verseTranslateY, { toValue: 18, duration: 150, useNativeDriver: true }),
-                Animated.timing(verseScale, { toValue: 0.96, duration: 150, useNativeDriver: true }),
-              ]).start(() => setVerseOpen(false));
-            }}
-          />
-          </Animated.View>
-          </View>
-        </Modal>
-
       <VentaNuevaModal
         visible={nuevaVentaOpen}
         onClose={() => { setNuevaVentaOpen(false); setEditingVentaId(null); }}
@@ -1642,25 +1553,4 @@ const s = StyleSheet.create({
   dateTxt: { fontSize: 16, fontWeight: "700" },
   iosPickerWrap: { marginTop: 10, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
   modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 12, marginTop: 16 },
-
-  verseBackdrop: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 },
-  verseCard: {
-    position: "absolute",
-    left: 18,
-    right: 18,
-    top: "28%",
-    borderWidth: 1,
-    borderRadius: 20,
-    padding: 18,
-    shadowColor: "#000",
-    shadowOpacity: 0.18,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 10,
-  },
-
-  verseKicker: { fontSize: 12, fontWeight: "900", letterSpacing: 0.6, textTransform: "uppercase" },
-  verseTitle: { marginTop: 6, fontSize: 20, fontWeight: "900" },
-  verseQuoteBlock: { marginTop: 14 },
-  verseText: { fontSize: 15, fontWeight: "700", lineHeight: 22, marginTop: 6 },
 });

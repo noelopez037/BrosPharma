@@ -154,9 +154,9 @@ export default function ClienteDetalle() {
       if (error) throw error;
       if (!data || typeof data !== "object") throw new Error("Respuesta invalida del RPC");
 
-      const iso = new Date().toISOString();
-      const stamp = iso.slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
-      const fileName = `estado-cuenta-cliente-${row.id}-${stamp}`;
+      const _d = new Date(); const _meses = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"]; const fecha = `${String(_d.getDate()).padStart(2,"0")}-${_meses[_d.getMonth()]}-${_d.getFullYear()}`;
+      const clienteSlug = row.nombre.replace(/[^a-zA-Z0-9]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+      const fileName = `Estado-de-cuenta-${clienteSlug}-${fecha}`;
       await generarEstadoCuentaClientePdf(data as any, { fileName });
     } catch (e: any) {
       Alert.alert("Error", e?.message ?? "No se pudo generar el PDF");
