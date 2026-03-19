@@ -244,6 +244,12 @@ export default function Layout() {
 
     void clearBadge();
 
+    // Iniciar auto-refresh de tokens al montar — imprescindible en React Native
+    // porque no existe el evento `visibilitychange` del navegador.
+    // Sin esto, el access token expira silenciosamente si la app nunca va a background.
+    if (__DEV__) console.log("[resume] startAutoRefresh (mount)");
+    void supabase.auth.startAutoRefresh();
+
     // Estado de resume diferido (sesión no disponible inmediatamente tras foreground).
     let deferredSub: ReturnType<typeof supabase.auth.onAuthStateChange> | null = null;
     let deferredTimer: ReturnType<typeof setTimeout> | null = null;
@@ -261,71 +267,101 @@ export default function Layout() {
 
     // Emite resume de forma segura: espera empresa lista + tick de React antes de notificar.
     async function doEmitResume() {
-      // Esperar empresa antes de emitir para que los callbacks tengan empresaActivaId válido.
+      if (__DEV__) console.log("[resume] doEmitResume — refreshing empresa");
       await refreshEmpresaActiva().catch(() => {});
       // Pequeño delay para que React procese el cambio de estado y actualice los refs.
       await new Promise((r) => setTimeout(r, 80));
+      if (__DEV__) console.log("[resume] emitAppResumed");
       emitAppResumed();
     }
 
     function scheduleDeferredResume() {
       cancelDeferred();
+      if (__DEV__) console.log("[resume] scheduleDeferredResume — listening for auth events");
       // Escuchar el siguiente TOKEN_REFRESHED o SIGNED_IN para emitir resume.
       deferredSub = supabase.auth.onAuthStateChange(async (event) => {
+        if (__DEV__) console.log("[resume] deferred auth event:", event);
+        if (event === "SIGNED_OUT") {
+          // Sesión realmente expirada — cancelar espera y dejar que
+          // _layout_root.tsx maneje la redirección a login.
+          if (__DEV__) console.warn("[resume] deferred got SIGNED_OUT — cancelling");
+          cancelDeferred();
+          return;
+        }
         if (event !== "TOKEN_REFRESHED" && event !== "SIGNED_IN") return;
         cancelDeferred();
         invalidateAll();
         await doEmitResume();
       });
-      // Cancelar si la sesión no se recupera en 60 s.
-      deferredTimer = setTimeout(cancelDeferred, 60_000);
+      // Fallback: si no llega evento en 30s, intentar emitir resume de todas formas
+      // con sesión local (evita que la app quede en estado zombie).
+      deferredTimer = setTimeout(() => {
+        if (__DEV__) console.warn("[resume] deferred timeout — forcing resume with local session");
+        cancelDeferred();
+        void (async () => {
+          const { data } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
+          if (data?.session) {
+            invalidateAll();
+            await doEmitResume();
+          }
+        })();
+      }, 30_000);
     }
 
     const sub = AppState.addEventListener("change", (nextState: AppStateStatus) => {
+      if (__DEV__) console.log("[resume] AppState →", nextState);
+
       if (nextState === "active") {
         void clearBadge();
         markAppResumed();
-        void (async () => {
-          // iOS puede tardar 1-2s en reconectar WiFi/celular tras background prolongado.
-          await new Promise((r) => setTimeout(r, 1200));
+        cancelDeferred();
 
-          // Intentar obtener sesion valida antes de emitir resume a las pantallas.
-          // 5 reintentos × 2 s = hasta 11 s adicionales para que la red se estabilice.
-          // NOTA: startAutoRefresh se llama solo DESPUÉS de confirmar sesión para evitar
-          // que el SDK intente un refresh fallido y limpie la sesión cuando no hay red.
+        // Reactivar auto-refresh INMEDIATAMENTE al volver a foreground.
+        // Esto permite que el SDK renueve el token en paralelo mientras esperamos la red.
+        if (__DEV__) console.log("[resume] startAutoRefresh (foreground)");
+        void supabase.auth.startAutoRefresh();
+
+        void (async () => {
+          // Breve espera para que iOS reconecte WiFi/celular tras background.
+          await new Promise((r) => setTimeout(r, 500));
+
+          // Verificar sesión con getUser() (llamada real de red).
+          // 3 reintentos × 1.5s = hasta ~5s para que la red se estabilice.
           let hasSession = false;
-          for (let attempt = 0; attempt < 5; attempt++) {
+          for (let attempt = 0; attempt < 3; attempt++) {
             try {
-              const { data } = await supabase.auth.getSession();
-              if (data?.session) {
+              if (__DEV__) console.log("[resume] getUser attempt", attempt + 1);
+              const { data, error } = await supabase.auth.getUser();
+              if (data?.user && !error) {
                 hasSession = true;
+                if (__DEV__) console.log("[resume] getUser OK");
                 break;
               }
-            } catch {
-              // ignorar — reintentar
+              if (__DEV__ && error) console.warn("[resume] getUser error:", error.message);
+            } catch (e: any) {
+              if (__DEV__) console.warn("[resume] getUser exception:", e?.message ?? e);
             }
-            if (attempt < 4) await new Promise((r) => setTimeout(r, 2000));
+            if (attempt < 2) await new Promise((r) => setTimeout(r, 1500));
           }
 
-          // Activar auto-refresh tras intentar recuperar sesión manualmente.
-          // Se llama siempre (no solo si hasSession) porque scheduleDeferredResume
-          // depende de los eventos TOKEN_REFRESHED/SIGNED_IN que emite el auto-refresh.
-          void supabase.auth.startAutoRefresh();
           invalidateAll();
 
           if (hasSession) {
-            // Sesión disponible: esperar empresa + emitir.
+            // Red + sesión confirmados: esperar empresa + emitir resume a pantallas.
             await doEmitResume();
           } else {
-            // Red aún no lista: diferir el resume hasta que la sesión se recupere.
-            if (__DEV__) {
-              console.warn("[resume] sesión no recuperada tras reintentos — diferiendo emitAppResumed");
-            }
+            // Red aún no lista tras reintentos: emitir resume de todas formas con
+            // sesión local para que las pantallas intenten cargar (muchas RPCs pueden
+            // funcionar si el SDK logra refrescar el token en paralelo).
+            // También escuchar TOKEN_REFRESHED como respaldo.
+            if (__DEV__) console.warn("[resume] red no lista tras reintentos — emitiendo resume + deferred");
+            await doEmitResume();
             scheduleDeferredResume();
           }
         })();
       } else if (nextState === "background") {
         cancelDeferred();
+        if (__DEV__) console.log("[resume] stopAutoRefresh (background)");
         void supabase.auth.stopAutoRefresh();
       }
     });

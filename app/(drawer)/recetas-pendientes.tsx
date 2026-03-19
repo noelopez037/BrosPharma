@@ -700,8 +700,8 @@ const s = StyleSheet.create({
   ddTxt: { fontSize: 16, fontWeight: "600" },
 
   card: { borderWidth: 1, borderRadius: 16, padding: 14, marginBottom: 12 },
-  cardTitle: { fontSize: 16, fontWeight: "900" },
-  cardSub: { marginTop: 6, fontSize: 13, fontWeight: "700" },
+  cardTitle: { fontSize: 13, fontWeight: "900" },
+  cardSub: { marginTop: 6, fontSize: 11, fontWeight: "700" },
   chipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
   chip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
   chipText: { fontSize: 12, fontWeight: "900" },

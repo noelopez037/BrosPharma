@@ -331,7 +331,17 @@ export default function ComisionesScreen() {
     }, [fetchRows, fetchVentasPagadas, fVendedorId, isAdmin, isAllowed, isReady, uid])
   );
 
-  useResumeLoad(empresaActivaId, () => { void fetchRows(); }, () => { void fetchVentasPagadas(); });
+  useResumeLoad(empresaActivaId, () => {
+    void (async () => {
+      try {
+        const [next, paid] = await Promise.all([fetchRows(), fetchVentasPagadas()]);
+        setRowsRaw(next);
+        setVentasPagadasRaw(paid);
+      } catch (e: any) {
+        if (__DEV__) console.warn("[comisiones] resume fetch error:", e?.message ?? e);
+      }
+    })();
+  });
 
   // Filtrado por rol (defensivo; el backend ya aplica seguridad)
   const rows = useMemo(() => {
@@ -884,8 +894,8 @@ const styles = (colors: any) =>
       marginBottom: 10,
     },
     row: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
-    title: { color: colors.text, fontSize: 16, fontWeight: "800" },
-    sub: { color: colors.text + "AA", marginTop: 6, fontSize: 12 },
+    title: { color: colors.text, fontSize: 13, fontWeight: "800" },
+    sub: { color: colors.text + "AA", marginTop: 6, fontSize: 11 },
     total: { color: colors.text, fontWeight: "900", marginTop: 10, fontSize: 14 },
 
     sectionTitle: { color: colors.text, fontSize: 15, fontWeight: "900" },

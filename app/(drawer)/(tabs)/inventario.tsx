@@ -114,6 +114,14 @@ export default function InventarioScreen() {
   const pageRef = useRef(0);
   const requestSeq = useRef(0);
 
+  // Ref para siempre tener la última versión de loadFirst sin que useFocusEffect se re-dispare
+  const loadFirstRef = useRef(loadFirst);
+  useEffect(() => { loadFirstRef.current = loadFirst; });
+
+  // Para que el useEffect de filtros no cargue en el primer render (useFocusEffect lo hace)
+  const screenFocused = useRef(false);
+  const filterEffectMounted = useRef(false);
+
   React.useEffect(() => {
     if (!isAdmin) setShowInactive(false);
   }, [isAdmin]);
@@ -188,17 +196,29 @@ export default function InventarioScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      screenFocused.current = true;
       void refreshRole();
-      loadFirst();
+      void loadFirstRef.current();
       return () => {
+        screenFocused.current = false;
         setQ("");
         setProductoOpen(false);
         setProductoId(null);
       };
-    }, [refreshRole, loadFirst])
+    }, [refreshRole]) // ← sin loadFirst: evita re-disparo cuando cambia debouncedQ
   );
 
-  useResumeLoad(empresaActivaId, () => { void refreshRole(); }, () => { loadFirst(); });
+  // Recarga cuando cambian filtros, pero solo si ya está montado y la pantalla está activa
+  useEffect(() => {
+    if (!filterEffectMounted.current) {
+      filterEffectMounted.current = true;
+      return;
+    }
+    if (!screenFocused.current) return;
+    void loadFirstRef.current();
+  }, [debouncedQ, showInactive]);
+
+  useResumeLoad(empresaActivaId, () => { void refreshRole(); }, () => { void loadFirstRef.current(); });
 
   const loadMore = useCallback(async () => {
     if (debouncedQ || !hasMore || loadingMoreRef.current || initialLoading) return;
@@ -417,7 +437,7 @@ const styles = (colors: any) =>
     inactiveLabel: {
       color: colors.text,
       fontWeight: "700",
-      fontSize: Platform.OS === "android" ? 15 : 16,
+      fontSize: 13,
     },
 
     center: { flex: 1, alignItems: "center", justifyContent: "center" },

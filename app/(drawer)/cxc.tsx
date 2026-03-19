@@ -350,7 +350,16 @@ export default function CuentasPorCobrarScreen() {
     }, [fetchRows, isReady, uid])
   );
 
-  useResumeLoad(empresaActivaId, () => { void fetchRows(); });
+  useResumeLoad(empresaActivaId, () => {
+    void (async () => {
+      try {
+        const next = await fetchRows();
+        setRowsRaw(next);
+      } catch (e: any) {
+        if (__DEV__) console.warn("[cxc] resume fetch error:", e?.message ?? e);
+      }
+    })();
+  });
 
   const badge = (c: CxCRow) => {
     const saldoNum = Number(c.saldo);
@@ -891,7 +900,7 @@ export default function CuentasPorCobrarScreen() {
 function DDRow({ label, selected, onPress, isDark, M }: { label: string; selected: boolean; onPress: () => void; isDark: boolean; M: { text: string; primary: any; divider: string } }) {
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [{ paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: M.divider, backgroundColor: selected ? (isDark ? "rgba(0,122,255,0.22)" : "rgba(0,122,255,0.12)") : "transparent" }, pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null]}>
-      <Text style={{ fontSize: 16, fontWeight: "600", color: selected ? M.primary : M.text }} numberOfLines={1}>{label}</Text>
+      <Text style={{ fontSize: Platform.OS === "web" ? 16 : 13, fontWeight: "600", color: selected ? M.primary : M.text }} numberOfLines={1}>{label}</Text>
     </Pressable>
   );
 }
@@ -938,28 +947,28 @@ const styles = (colors: any) =>
     sectionHeaderText: { fontSize: 13, fontWeight: "900", textAlign: "right" },
     card: { borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12, borderRadius: 14, marginBottom: 10 },
     row: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
-    title: { color: colors.text, fontSize: 16, fontWeight: "800" },
-    sub: { color: colors.text + "AA", marginTop: 6, fontSize: 12 },
+    title: { color: colors.text, fontSize: 13, fontWeight: "700" },
+    sub: { color: colors.text + "AA", marginTop: 6, fontSize: 11 },
     badge: { borderWidth: 1, borderColor: colors.border, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, fontSize: 12, fontWeight: "900", color: colors.text, overflow: "hidden" },
     badgeWarn: { borderColor: "#ffe868", backgroundColor: "#fffd7f", color: "#111111" },
     badgeOverdue: { borderColor: "#ff7e77", backgroundColor: "#FFB3AE", color: "#111111" },
     badgeOk: { borderColor: "#7bfd9b", backgroundColor: "#BBF7D0", color: "#0a2213" },
     badgeMuted: { color: colors.text + "AA", backgroundColor: "transparent" },
-    total: { color: colors.text, fontWeight: "900", marginTop: 10, fontSize: 14 },
+    total: { color: colors.text, fontWeight: "900", marginTop: 10, fontSize: Platform.OS === "web" ? 14 : 13 },
     modalBackdrop: { ...StyleSheet.absoluteFillObject },
     modalCard: { marginHorizontal: 14, borderRadius: 18, padding: 16, borderWidth: 1 },
     modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-    modalTitle: { fontSize: 22, fontWeight: "800" },
-    modalClose: { fontSize: 15, fontWeight: "700" },
-    sectionLabel: { marginTop: 12, fontSize: 15, fontWeight: "800" },
+    modalTitle: { fontSize: Platform.OS === "web" ? 22 : 13, fontWeight: "800" },
+    modalClose: { fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "700" },
+    sectionLabel: { marginTop: 12, fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "800" },
     dropdownInput: { marginTop: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-    dropdownText: { fontSize: 16, fontWeight: "600", flex: 1, paddingRight: 10 },
-    dropdownCaret: { fontSize: 14, fontWeight: "900" },
+    dropdownText: { fontSize: Platform.OS === "web" ? 16 : 13, fontWeight: "600", flex: 1, paddingRight: 10 },
+    dropdownCaret: { fontSize: Platform.OS === "web" ? 14 : 13, fontWeight: "900" },
     dropdownPanel: { marginTop: 10, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
     clientSearchInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 },
     twoCols: { flexDirection: "row", marginTop: 8 },
     dateBox: { marginTop: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12 },
-    dateTxt: { fontSize: 16, fontWeight: "700" },
+    dateTxt: { fontSize: Platform.OS === "web" ? 16 : 13, fontWeight: "700" },
     iosPickerWrap: { marginTop: 10, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
     chipsRow: { flexDirection: "row", flexWrap: "wrap", marginTop: 10 },
     modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 12, marginTop: 16 },

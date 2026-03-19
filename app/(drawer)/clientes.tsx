@@ -584,7 +584,7 @@ const styles = (colors: any) =>
     inactiveLabel: {
       color: colors.text,
       fontWeight: "700",
-      fontSize: Platform.OS === "android" ? 15 : 16,
+      fontSize: 13,
     },
 
     empty: { color: colors.text + "AA", fontWeight: "700" },
@@ -598,8 +598,8 @@ const styles = (colors: any) =>
       marginBottom: 10,
     },
     row: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
-    title: { color: colors.text, fontSize: 16, fontWeight: "800" },
-    sub: { color: colors.text + "AA", marginTop: 6, fontSize: 12 },
+    title: { color: colors.text, fontSize: 13, fontWeight: "700" },
+    sub: { color: colors.text + "AA", marginTop: 6, fontSize: 11 },
     rightCol: { alignItems: "flex-end", gap: 8, maxWidth: 160 },
     vendedorPill: {
       borderWidth: 1,

@@ -1122,8 +1122,8 @@ const styles = (colors: any) =>
     },
 
     row: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
-    title: { color: colors.text, fontSize: 16, fontWeight: "800" },
-    sub: { color: colors.text + "AA", marginTop: 6, fontSize: 12 },
+    title: { color: colors.text, fontSize: 13, fontWeight: "700" },
+    sub: { color: colors.text + "AA", marginTop: 6, fontSize: 11 },
 
     badge: {
       borderWidth: 1,
@@ -1145,7 +1145,7 @@ const styles = (colors: any) =>
 
     total: { color: colors.text, fontWeight: "900", marginTop: 10, fontSize: 14 },
 
-    saldo: { color: colors.text + "AA", marginTop: 4, fontSize: 12, fontWeight: "800" },
+    saldo: { color: colors.text + "AA", marginTop: 4, fontSize: 11, fontWeight: "800" },
 
     splitWrap: { flex: 1, flexDirection: "row" as const },
     splitListPane: { width: 420, maxWidth: 420, borderRightWidth: StyleSheet.hairlineWidth },

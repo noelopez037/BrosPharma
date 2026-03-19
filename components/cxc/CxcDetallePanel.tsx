@@ -32,6 +32,7 @@ import { useThemePref } from "../../lib/themePreference";
 import { alphaColor } from "../../lib/ui";
 import { emitSolicitudesChanged } from "../../lib/solicitudesEvents";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
+import { useResumeLoad } from "../../lib/useResumeLoad";
 import { useRole } from "../../lib/useRole";
 import { fmtQ, fmtDate } from "../../lib/utils/format";
 import { normalizeUpper } from "../../lib/utils/text";
@@ -356,6 +357,12 @@ function CxcDetallePanelContent({
   }, [id, canLoadPagosReportados, empresaActivaId]);
 
   useFocusEffect(useCallback(() => { fetchAll(); }, [fetchAll]));
+
+  useResumeLoad(empresaActivaId, () => {
+    void refreshRole("resume:cxc-detalle-panel");
+  }, () => {
+    void fetchAll();
+  });
 
   useEffect(() => {
     const vid = row?.vendedor_id ?? null;
@@ -902,7 +909,6 @@ function CxcDetallePanelContent({
                   const nombre = d.productos?.nombre ?? `Producto #${d.producto_id}`;
                   const marca =
                     d.productos?.marcas?.nombre ?? d.productos?.marcas?.[0]?.nombre ?? null;
-                  const title = `${String(nombre ?? "—")}${marca ? ` • ${marca}` : ""}`;
                   const lote = d.producto_lotes?.lote ?? "—";
                   const venc = fmtDate(d.producto_lotes?.fecha_exp);
                   const cant = safeNumber(d.cantidad);
@@ -913,9 +919,12 @@ function CxcDetallePanelContent({
                       style={[styles.tableRow, { borderTopColor: C.divider }]}
                     >
                       <View style={{ flex: 1, paddingRight: 10, minWidth: 0 }}>
-                        <Text style={[styles.td, { color: C.text }]} numberOfLines={1}>
-                          {title}
+                        <Text style={[styles.td, { color: C.text }]}>
+                          {nombre}
                         </Text>
+                        {marca ? (
+                          <Text style={[styles.tdSub, { color: C.sub }]}>{marca}</Text>
+                        ) : null}
                         <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
                           Lote: {lote}
                         </Text>
@@ -1733,16 +1742,16 @@ function CxcDetallePanelContent({
             style={{ ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", padding: 24 }}
           >
             <View style={{ backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 18, padding: 20, width: "100%", maxWidth: 360 }}>
-              <Text style={{ color: C.text, fontWeight: "800", fontSize: 16, marginBottom: 6 }}>
+              <Text style={{ color: C.text, fontWeight: "800", fontSize: Platform.OS === "web" ? 16 : 13, marginBottom: 6 }}>
                 Eliminar pago
               </Text>
-              <Text style={{ color: C.sub, fontSize: 14, marginBottom: 4 }}>
+              <Text style={{ color: C.sub, fontSize: Platform.OS === "web" ? 14 : 13, marginBottom: 4 }}>
                 {fmtDate(confirmDeletePagoData?.fecha)} · {fmtQ(confirmDeletePagoData?.monto)}
               </Text>
               {confirmDeletePagoData?.referencia ? (
-                <Text style={{ color: C.sub, fontSize: 13, marginBottom: 4 }}>Ref: {confirmDeletePagoData.referencia}</Text>
+                <Text style={{ color: C.sub, fontSize: Platform.OS === "web" ? 13 : 11, marginBottom: 4 }}>Ref: {confirmDeletePagoData.referencia}</Text>
               ) : null}
-              <Text style={{ color: C.sub, fontSize: 13, marginBottom: 20 }}>
+              <Text style={{ color: C.sub, fontSize: Platform.OS === "web" ? 13 : 11, marginBottom: 20 }}>
                 Esta acción no se puede deshacer.
               </Text>
               <View style={{ flexDirection: "row", gap: 10 }}>
@@ -1751,14 +1760,14 @@ function CxcDetallePanelContent({
                   disabled={deletingPago}
                   style={({ pressed }) => [{ flex: 1, alignItems: "center", borderWidth: 1, borderColor: C.border, borderRadius: 10, paddingVertical: 10 }, pressed ? { opacity: 0.7 } : null]}
                 >
-                  <Text style={{ color: C.text, fontWeight: "700", fontSize: 14 }}>Cancelar</Text>
+                  <Text style={{ color: C.text, fontWeight: "700", fontSize: Platform.OS === "web" ? 14 : 13 }}>Cancelar</Text>
                 </Pressable>
                 <Pressable
                   onPress={doDeletePago}
                   disabled={deletingPago}
                   style={({ pressed }) => [{ flex: 1, alignItems: "center", borderWidth: 1, borderColor: "#ef4444", backgroundColor: "#ef4444", borderRadius: 10, paddingVertical: 10 }, pressed || deletingPago ? { opacity: 0.7 } : null]}
                 >
-                  <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>
+                  <Text style={{ color: "#fff", fontWeight: "700", fontSize: Platform.OS === "web" ? 14 : 13 }}>
                     {deletingPago ? "Eliminando..." : "Sí, eliminar"}
                   </Text>
                 </Pressable>
@@ -1792,7 +1801,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 10,
   },
-  h1: { fontSize: 20, fontWeight: "700", letterSpacing: -0.2, lineHeight: 24 },
+  h1: { fontSize: Platform.OS === "web" ? 20 : 13, fontWeight: "700", letterSpacing: -0.2, lineHeight: 24 },
   badgePill: {
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 10,
@@ -1809,8 +1818,8 @@ const styles = StyleSheet.create({
   kvGrid: { flexDirection: "row", gap: 16, flexWrap: "wrap" },
   kv: { minWidth: 140, flexBasis: 140, flexGrow: 1 },
   k: { fontSize: 12, fontWeight: "600" },
-  v: { marginTop: 3, fontSize: 14, fontWeight: "600", lineHeight: 18 },
-  sectionTitle: { marginTop: 18, fontSize: 18, fontWeight: "700", letterSpacing: -0.2 },
+  v: { marginTop: 3, fontSize: Platform.OS === "web" ? 14 : 11, fontWeight: "600", lineHeight: 18 },
+  sectionTitle: { marginTop: 18, fontSize: Platform.OS === "web" ? 18 : 13, fontWeight: "700", letterSpacing: -0.2 },
   rowBetween: {
     flexDirection: "row",
     alignItems: "center",
@@ -1838,11 +1847,11 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   th: { fontSize: 11, fontWeight: "800", letterSpacing: 0.7, textTransform: "uppercase" },
-  td: { fontSize: 13, fontWeight: "800" },
+  td: { fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: "800" },
   tdSub: { marginTop: 2, fontSize: 12, fontWeight: "700" },
   divider: { height: StyleSheet.hairlineWidth, marginVertical: 14 },
-  payTitle: { fontSize: 14, fontWeight: "700", flex: 1, paddingRight: 8 },
-  payAmount: { fontSize: 14, fontWeight: "800" },
+  payTitle: { fontSize: Platform.OS === "web" ? 14 : 13, fontWeight: "700", flex: 1, paddingRight: 8 },
+  payAmount: { fontSize: Platform.OS === "web" ? 14 : 13, fontWeight: "800" },
   payMeta: { marginTop: 4, fontSize: 12, fontWeight: "600" },
   modalBg: { flex: 1, alignItems: "center", justifyContent: "center", padding: 18 },
   modalCard: {
@@ -1851,9 +1860,9 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 16,
   },
-  modalTitle: { fontSize: 18, fontWeight: "800", letterSpacing: -0.2 },
-  modalSub: { marginTop: 4, fontSize: 13, fontWeight: "600" },
-  inputLabel: { fontSize: 13, fontWeight: "700", marginTop: 8 },
+  modalTitle: { fontSize: Platform.OS === "web" ? 18 : 13, fontWeight: "800", letterSpacing: -0.2 },
+  modalSub: { marginTop: 4, fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: "600" },
+  inputLabel: { fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: "700", marginTop: 8 },
   input: {
     marginTop: 6,
     borderWidth: StyleSheet.hairlineWidth,
@@ -1891,7 +1900,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: StyleSheet.hairlineWidth,
   },
-  comprobanteBadgeText: { fontSize: 15, fontWeight: "900" },
+  comprobanteBadgeText: { fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "900" },
   comprobanteThumb: {
     width: 44,
     height: 44,
@@ -1916,5 +1925,5 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 999,
   },
-  viewerTopBtnText: { color: "#fff", fontWeight: "800", fontSize: 16 },
+  viewerTopBtnText: { color: "#fff", fontWeight: "800", fontSize: Platform.OS === "web" ? 16 : 13 },
 });

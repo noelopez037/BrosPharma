@@ -35,6 +35,7 @@ import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { alphaColor } from "../../lib/ui";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
+import { useResumeLoad } from "../../lib/useResumeLoad";
 import { useRole } from "../../lib/useRole";
 import { uriToArrayBuffer } from "../../lib/utils/file";
 import { fmtQ, fmtDate } from "../../lib/utils/format";
@@ -667,6 +668,10 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     }, [fetchAll])
   );
 
+  useResumeLoad(empresaActivaId, () => {
+    void fetchAll().catch(() => {});
+  });
+
   // Cuando el padre incremente refreshKey (ej: después de editar desde modal web),
   // volver a cargar todos los datos del panel.
   React.useEffect(() => {
@@ -1177,6 +1182,17 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       return;
     }
 
+    // Validar que la suma de montos de las facturas coincida con el total de la venta.
+    const sumaFacturas = payload.reduce((acc: number, f: any) => acc + (Number(f.monto_total) || 0), 0);
+    const diff = Math.abs(sumaFacturas - total);
+    if (diff > 0.02) {
+      Alert.alert(
+        "Monto no coincide",
+        `El total de las facturas (Q ${sumaFacturas.toFixed(2)}) no coincide con el total de la venta (Q ${total.toFixed(2)}). Verifica que las facturas sean correctas.`,
+      );
+      return;
+    }
+
     setFacturando(true);
     try {
       const { error } = await supabase.rpc("rpc_venta_facturar", {
@@ -1195,7 +1211,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     } finally {
       setFacturando(false);
     }
-  }, [buildFacturaPayload, canFacturar, empresaActivaId, facturando, fetchFacturas, fetchVenta, venta]);
+  }, [buildFacturaPayload, canFacturar, empresaActivaId, facturando, fetchFacturas, fetchVenta, total, venta]);
 
   const pasarEnRuta = useCallback(
     async (nota?: string) => {
@@ -1392,6 +1408,16 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       return;
     }
 
+    const sumaFacturas = payload.reduce((acc: number, f: any) => acc + (Number(f.monto_total) || 0), 0);
+    const diff = Math.abs(sumaFacturas - total);
+    if (diff > 0.02) {
+      Alert.alert(
+        "Monto no coincide",
+        `El total de las facturas (Q ${sumaFacturas.toFixed(2)}) no coincide con el total de la venta (Q ${total.toFixed(2)}). Verifica que las facturas sean correctas.`,
+      );
+      return;
+    }
+
     setAnulando(true);
     try {
       // Guardar/upsert de facturas solo si hubo cambios (evita eventos extra).
@@ -1417,7 +1443,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     } finally {
       setAnulando(false);
     }
-  }, [anulando, buildFacturaPayload, canAnular, empresaActivaId, empresaReady, facturaDraftComplete, facturaHasChanges, facturando, fetchFacturas, isFacturado, uploadingPdfTipo, venta]);
+  }, [anulando, buildFacturaPayload, canAnular, empresaActivaId, empresaReady, facturaDraftComplete, facturaHasChanges, facturando, fetchFacturas, isFacturado, total, uploadingPdfTipo, venta]);
 
   const confirmAnular = useCallback(() => {
     if (!venta) return;
@@ -2648,15 +2674,15 @@ const styles = StyleSheet.create({
   scroll: { flex: 1, paddingHorizontal: 16 },
 
   card: { borderWidth: 1, borderRadius: 16, padding: 14, marginTop: 10 },
-  title: { fontSize: 18, fontWeight: "800" },
-  clientName: { fontSize: 16, fontWeight: "800" },
-  clientNit: { marginTop: 4, fontSize: 13, fontWeight: "700" },
-  sub: { marginTop: 6, fontSize: 13, fontWeight: "700" },
-  note: { marginTop: 10, fontSize: 13, fontWeight: "600", lineHeight: 18 },
+  title: { fontSize: Platform.OS === "web" ? 18 : 13, fontWeight: "800" },
+  clientName: { fontSize: Platform.OS === "web" ? 16 : 13, fontWeight: "800" },
+  clientNit: { marginTop: 4, fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: "700" },
+  sub: { marginTop: 6, fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: "700" },
+  note: { marginTop: 10, fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: "600", lineHeight: 18 },
 
   metaRow: { marginTop: 8, flexDirection: "row", alignItems: "center", gap: 8 },
-  metaText: { fontSize: 13, fontWeight: "700" },
-  metaDot: { fontSize: 13, fontWeight: "900" },
+  metaText: { fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: "700" },
+  metaDot: { fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: "900" },
 
   chipsRow: { marginTop: 10, flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
@@ -2667,16 +2693,16 @@ const styles = StyleSheet.create({
 
   kvGrid: { marginTop: 10, flexDirection: "row", flexWrap: "wrap", gap: 14 },
   kv: { minWidth: 140, flexBasis: 140, flexGrow: 1 },
-  k: { fontSize: 12, fontWeight: "800" },
-  v: { marginTop: 3, fontSize: 14, fontWeight: "800" },
+  k: { fontSize: 11, fontWeight: "800" },
+  v: { marginTop: 3, fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: "800" },
 
-  sectionTitle: { fontSize: 15, fontWeight: "900" },
-  sectionTotal: { fontSize: 15, fontWeight: "900" },
+  sectionTitle: { fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "900" },
+  sectionTotal: { fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "900" },
   blockTitle: { marginTop: 10, fontSize: 12, fontWeight: "900", letterSpacing: 0.6, textTransform: "uppercase" },
   groupLabel: { marginTop: 12, fontSize: 12, fontWeight: "900", letterSpacing: 0.6, textTransform: "uppercase" },
   divider: { height: StyleSheet.hairlineWidth, marginTop: 14, marginBottom: 10 },
 
-  label: { marginTop: 10, marginBottom: 6, fontSize: 13, fontWeight: "800" },
+  label: { marginTop: 10, marginBottom: 6, fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: "800" },
   input: {
     borderWidth: 1,
     borderRadius: 12,
@@ -2689,29 +2715,29 @@ const styles = StyleSheet.create({
   warnText: { fontSize: 12, fontWeight: "900" },
 
   notifBanner: { marginTop: 4, borderWidth: 1, borderRadius: 14, padding: 12 },
-  notifTitle: { fontSize: 13, fontWeight: "900" },
-  notifSub: { marginTop: 8, fontSize: 13, fontWeight: "700", lineHeight: 18 },
-  notifMeta: { marginTop: 8, fontSize: 12, fontWeight: "700" },
+  notifTitle: { fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: "900" },
+  notifSub: { marginTop: 8, fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: "700", lineHeight: 18 },
+  notifMeta: { marginTop: 8, fontSize: 11, fontWeight: "700" },
   notifClose: { paddingHorizontal: 8, paddingVertical: 6, borderRadius: 10 },
-  notifCloseText: { fontSize: 14, fontWeight: "900", includeFontPadding: false },
+  notifCloseText: { fontSize: Platform.OS === "web" ? 14 : 13, fontWeight: "900", includeFontPadding: false },
 
   lineRow: { paddingTop: 12, marginTop: 12, borderTopWidth: 1, flexDirection: "row", gap: 12 },
-  lineTitle: { fontSize: 14, fontWeight: "800" },
-  lineSub: { marginTop: 4, fontSize: 12, fontWeight: "700" },
-  lineAmt: { fontSize: 13, fontWeight: "800" },
+  lineTitle: { fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: "800" },
+  lineSub: { marginTop: 4, fontSize: 11, fontWeight: "700" },
+  lineAmt: { fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: "800" },
 
   tableWrap: { marginTop: 10, borderWidth: 1, borderRadius: 14, overflow: "hidden" },
   tableHeaderRow: { flexDirection: "row", paddingHorizontal: 10, paddingVertical: 10, borderBottomWidth: 1 },
   tableRow: { flexDirection: "row", alignItems: "flex-start", paddingHorizontal: 10, paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth },
   tableFooterRow: { flexDirection: "row", paddingHorizontal: 10, paddingVertical: 12, borderTopWidth: 1 },
   th: { fontSize: 11, fontWeight: "900", letterSpacing: 0.6, textTransform: "uppercase" },
-  td: { fontSize: 13, fontWeight: "800" },
-  tdSub: { marginTop: 2, fontSize: 12, fontWeight: "700" },
+  td: { fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: "800" },
+  tdSub: { marginTop: 2, fontSize: 11, fontWeight: "700" },
 
 
   totalRow: { marginTop: 14, paddingTop: 12, borderTopWidth: 1, flexDirection: "row", justifyContent: "space-between" },
-  totalLabel: { fontSize: 15, fontWeight: "900" },
-  totalValue: { fontSize: 15, fontWeight: "900" },
+  totalLabel: { fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "900" },
+  totalValue: { fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "900" },
 
   rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 },
   recetaRow: { borderWidth: 1, borderRadius: 14, padding: 10, flexDirection: "row", alignItems: "center", gap: 10 },
@@ -2719,9 +2745,9 @@ const styles = StyleSheet.create({
   deleteBtn: { paddingHorizontal: 10, paddingVertical: 8 },
 
   facturaCard: { marginTop: 12, borderWidth: 1, borderRadius: 14, padding: 12 },
-  facturaTitle: { fontSize: 14, fontWeight: "900" },
-  facturaMeta: { marginTop: 8, fontSize: 12, fontWeight: "800" },
-  facturasFlat: { marginTop: 10, fontSize: 16, fontWeight: "900" },
+  facturaTitle: { fontSize: Platform.OS === "web" ? 14 : 13, fontWeight: "900" },
+  facturaMeta: { marginTop: 8, fontSize: 11, fontWeight: "800" },
+  facturasFlat: { marginTop: 10, fontSize: Platform.OS === "web" ? 16 : 13, fontWeight: "900" },
 
   facturaInputsRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   facturaMontoCol: { width: 150 },
@@ -2737,10 +2763,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   pdfThumbText: { fontSize: 12, fontWeight: "900", color: "#F02849" },
-  pdfOpenTitle: { fontSize: 14, fontWeight: "900" },
-  pdfOpenSub: { marginTop: 2, fontSize: 12, fontWeight: "700" },
+  pdfOpenTitle: { fontSize: Platform.OS === "web" ? 14 : 13, fontWeight: "900" },
+  pdfOpenSub: { marginTop: 2, fontSize: 11, fontWeight: "700" },
   pdfDelete: { paddingHorizontal: 10, paddingVertical: 8 },
-  pdfDeleteText: { fontSize: 13, fontWeight: "900" },
+  pdfDeleteText: { fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: "900" },
 
   viewerBackdrop: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 },
   viewerFull: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 },
@@ -2759,7 +2785,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 14,
   },
-  viewerTopBtnText: { color: "#fff", fontWeight: "900", fontSize: 16 },
+  viewerTopBtnText: { color: "#fff", fontWeight: "900", fontSize: Platform.OS === "web" ? 16 : 13 },
   viewerCard: {
     position: "absolute",
     left: 14,
@@ -2771,7 +2797,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   viewerTop: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 10, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  viewerTitle: { fontSize: 16, fontWeight: "900" },
+  viewerTitle: { fontSize: Platform.OS === "web" ? 16 : 13, fontWeight: "900" },
   viewerImgWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.06)" },
   viewerImg: { width: "100%", height: "100%" },
   viewerBtns: { padding: 14, flexDirection: "row", justifyContent: "flex-end", alignItems: "center" },

@@ -20,6 +20,7 @@ import {
 import ImageViewer from "react-native-image-zoom-viewer";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useEmpresaActiva } from "../lib/useEmpresaActiva";
+import { useResumeLoad } from "../lib/useResumeLoad";
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { AppButton } from "../components/ui/app-button";
@@ -310,6 +311,8 @@ export default function ProductoModal() {
       };
     }, [fetchAll, translateY])
   );
+
+  useResumeLoad(empresaActivaId, () => { void fetchAll(); });
 
   useEffect(() => {
     const {

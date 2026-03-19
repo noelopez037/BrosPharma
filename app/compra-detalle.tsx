@@ -32,6 +32,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import ImageViewer from "react-native-image-zoom-viewer";
 import { useEmpresaActiva } from "../lib/useEmpresaActiva";
+import { useResumeLoad } from "../lib/useResumeLoad";
 import { useRole } from "../lib/useRole";
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
@@ -515,6 +516,8 @@ export default function CompraDetalleScreen() {
     }, [fetchAll])
   );
 
+  useResumeLoad(empresaActivaId, () => { void fetchAll(); });
+
   const eliminarCompra = async () => {
     if (!compra) return;
     if (deleting) return;
@@ -922,7 +925,6 @@ export default function CompraDetalleScreen() {
 
                 {lineas.map((d: any, idx: number) => {
                   const nombre = d.producto_nombre ?? `Producto #${d.producto_id}`;
-                  const title = `${String(nombre ?? "—")}${d.producto_marca ? ` • ${d.producto_marca}` : ""}`;
                   const lote = String(d.lote ?? "—");
                   const venc = fmtDate(d.fecha_exp);
                   const cant = safeNumber(d.cantidad);
@@ -931,9 +933,12 @@ export default function CompraDetalleScreen() {
                   return (
                     <View key={String(d.detalle_id ?? idx)} style={[styles.tableRow, { borderTopColor: C.divider }]}>
                       <View style={{ flex: 1, paddingRight: 10, minWidth: 0 }}>
-                        <Text style={[styles.td, { color: C.text }]} numberOfLines={1}>
-                          {idx + 1}. {title}
+                        <Text style={[styles.td, { color: C.text }]}>
+                          {idx + 1}. {nombre}
                         </Text>
+                        {d.producto_marca ? (
+                          <Text style={[styles.tdSub, { color: C.sub }]}>{d.producto_marca}</Text>
+                        ) : null}
                         <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
                           Lote: {lote}
                         </Text>
@@ -1399,17 +1404,17 @@ const styles = StyleSheet.create({
   kvGrid: { flexDirection: "row", gap: 16, flexWrap: "wrap" },
   kv: { minWidth: 140, flexBasis: 140, flexGrow: 1 },
 
-  k: { fontSize: 12, fontWeight: "600" },
-  v: { marginTop: 3, fontSize: 14, fontWeight: "600", lineHeight: 18 },
+  k: { fontSize: 11, fontWeight: "600" },
+  v: { marginTop: 3, fontSize: 13, fontWeight: "600", lineHeight: 18 },
   note: { marginTop: 6, fontSize: 14, fontWeight: "600", lineHeight: 20 },
 
   divider: { height: StyleSheet.hairlineWidth, marginVertical: 14 },
 
   totalRow: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" },
-  total: { fontSize: 26, fontWeight: "800", marginTop: 4, letterSpacing: -0.5 },
-  totalSmall: { fontSize: 17, fontWeight: "800", marginTop: 4 },
+  total: { fontSize: Platform.OS === "web" ? 26 : 18, fontWeight: "800", marginTop: 4, letterSpacing: -0.5 },
+  totalSmall: { fontSize: Platform.OS === "web" ? 17 : 13, fontWeight: "800", marginTop: 4 },
 
-  sectionTitle: { marginTop: 18, fontSize: 18, fontWeight: "700", letterSpacing: -0.2 },
+  sectionTitle: { marginTop: 18, fontSize: Platform.OS === "web" ? 18 : 13, fontWeight: "700", letterSpacing: -0.2 },
 
   rowBetween: {
     flexDirection: "row",
@@ -1418,8 +1423,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
 
-  cardTitle: { fontSize: 16, fontWeight: "700", flex: 1, paddingRight: 10, lineHeight: 20 },
-  brand: { fontSize: 13, fontWeight: "600", lineHeight: 16 },
+  cardTitle: { fontSize: 13, fontWeight: "700", flex: 1, paddingRight: 10, lineHeight: 20 },
+  brand: { fontSize: 11, fontWeight: "600", lineHeight: 16 },
 
   productBody: { marginTop: 12, flexDirection: "row", gap: 12, alignItems: "flex-start" },
 
@@ -1434,8 +1439,8 @@ const styles = StyleSheet.create({
   },
 
   miniRow: { flexDirection: "row", justifyContent: "space-between", gap: 10, marginBottom: 6 },
-  miniK: { fontSize: 12, fontWeight: "600", minWidth: 56 },
-  miniV: { fontSize: 13, fontWeight: "600", flex: 1, textAlign: "right" },
+  miniK: { fontSize: 11, fontWeight: "600", minWidth: 56 },
+  miniV: { fontSize: 11, fontWeight: "600", flex: 1, textAlign: "right" },
 
   subtotalPill: {
     marginTop: 12,
@@ -1452,7 +1457,7 @@ const styles = StyleSheet.create({
   tableFooterRow: { flexDirection: "row", paddingHorizontal: 16, paddingVertical: 14, borderTopWidth: StyleSheet.hairlineWidth },
   th: { fontSize: 11, fontWeight: "800", letterSpacing: 0.7, textTransform: "uppercase" },
   td: { fontSize: 13, fontWeight: "800" },
-  tdSub: { marginTop: 2, fontSize: 12, fontWeight: "700" },
+  tdSub: { marginTop: 2, fontSize: 11, fontWeight: "700" },
 
   bottomBar: {
     position: "absolute",
@@ -1493,7 +1498,7 @@ const styles = StyleSheet.create({
   // Pagos
   payTitle: { fontSize: 14, fontWeight: "700", flex: 1, paddingRight: 8 },
   payAmount: { fontSize: 14, fontWeight: "800" },
-  payMeta: { marginTop: 4, fontSize: 12, fontWeight: "600" },
+  payMeta: { marginTop: 4, fontSize: 11, fontWeight: "600" },
 
   linkBtn: {
     marginTop: 10,

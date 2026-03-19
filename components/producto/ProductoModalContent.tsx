@@ -23,6 +23,7 @@ import { useThemePref } from "../../lib/themePreference";
 import { getCached, setCached, LoteDetalle, ProductoDetalle, ProductoHead } from "../../lib/productoCache";
 import { useRole } from "../../lib/useRole";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
+import { useResumeLoad } from "../../lib/useResumeLoad";
 import { AppButton } from "../ui/app-button";
 import { fmtDate } from "../../lib/utils/format";
 import { HEADER_BG } from "../../src/theme/headerColors";
@@ -277,6 +278,10 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
     };
   }, [fetchAll, productoId, translateY]);
 
+  useResumeLoad(empresaActivaId, () => {
+    void fetchAll().catch(() => {});
+  });
+
   useEffect(() => {
     const {
       data: { subscription },
@@ -382,8 +387,10 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
               <View style={{ flex: 1 }}>
                 <Text style={s.title} numberOfLines={2}>
                   {displayNombre}
-                  {displayMarca ? ` • ${displayMarca}` : ""}
                 </Text>
+                {displayMarca ? (
+                  <Text style={s.marca} numberOfLines={1}>{displayMarca}</Text>
+                ) : null}
 
                 <View style={s.metaRow}>
                   <Text style={s.metaKey}>Disponibles</Text>
@@ -539,8 +546,13 @@ const styles = (C: SysColors) =>
 
     title: {
       color: C.LABEL as any,
-      fontSize: 18,
+      fontSize: Platform.OS === "web" ? 18 : 13,
       fontWeight: Platform.OS === "ios" ? "600" : "700",
+    },
+    marca: {
+      color: C.SECONDARY as any,
+      fontSize: Platform.OS === "web" ? 14 : 11,
+      marginTop: 2,
     },
 
     metaRow: {
@@ -550,10 +562,10 @@ const styles = (C: SysColors) =>
       gap: 8,
       flexWrap: "wrap",
     },
-    metaKey: { color: C.SECONDARY as any, fontSize: 13 },
+    metaKey: { color: C.SECONDARY as any, fontSize: Platform.OS === "web" ? 13 : 11 },
     metaVal: {
       color: C.LABEL as any,
-      fontSize: 14,
+      fontSize: Platform.OS === "web" ? 13 : 11,
       fontWeight: Platform.OS === "ios" ? "600" : "700",
     },
 
@@ -581,7 +593,7 @@ const styles = (C: SysColors) =>
       fontWeight: Platform.OS === "ios" ? "600" : "700",
       marginTop: 14,
       marginBottom: 10,
-      fontSize: 15,
+      fontSize: Platform.OS === "web" ? 15 : 13,
     },
 
     loteCard: {
@@ -597,13 +609,13 @@ const styles = (C: SysColors) =>
     loteTitle: {
       color: C.LABEL as any,
       fontWeight: Platform.OS === "ios" ? "600" : "700",
-      fontSize: 16,
+      fontSize: Platform.OS === "web" ? 16 : 13,
     },
-    loteSub: { color: C.SECONDARY as any, marginTop: 4, fontSize: 12 },
+    loteSub: { color: C.SECONDARY as any, marginTop: 4, fontSize: 11 },
     loteNum: {
       color: C.LABEL as any,
       fontWeight: Platform.OS === "ios" ? "700" : "800",
-      fontSize: 20,
+      fontSize: Platform.OS === "web" ? 20 : 18,
     },
 
     viewerTopBar: {

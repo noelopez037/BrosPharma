@@ -24,6 +24,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import ImageViewer from "react-native-image-zoom-viewer";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
+import { useResumeLoad } from "../../lib/useResumeLoad";
 import { useRole } from "../../lib/useRole";
 import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
@@ -518,6 +519,8 @@ function CompraDetallePanelContent({ embedded, compraIdProp, onRefresh, onDelete
       fetchAll();
     }, [fetchAll])
   );
+
+  useResumeLoad(empresaActivaId, () => { void fetchAll(); });
 
   const doEliminarCompra = async () => {
     if (!compra) return;

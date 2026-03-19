@@ -1511,8 +1511,8 @@ const s = StyleSheet.create({
 
   card: { borderWidth: 1, borderRadius: 16, padding: 14, marginBottom: 12 },
   cardTopRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
-  cardTitle: { fontSize: 16, fontWeight: "900" },
-  cardSub: { marginTop: 6, fontSize: 13, fontWeight: "700" },
+  cardTitle: { fontSize: 13, fontWeight: "700" },
+  cardSub: { marginTop: 6, fontSize: 11, fontWeight: "700" },
 
   vendedorPill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, maxWidth: 140 },
   vendedorPillText: { fontSize: 12, fontWeight: "900" },

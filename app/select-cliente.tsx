@@ -411,7 +411,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   content: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, gap: 12 },
   row: { flexDirection: "row", gap: 12, alignItems: "center" },
-  label: { marginTop: 6, marginBottom: 6, fontSize: 13, fontWeight: "600" },
+  label: { marginTop: 6, marginBottom: 6, fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: "600" },
   input: {
     borderWidth: 1,
     borderRadius: 12,
@@ -426,6 +426,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderTopWidth: 1,
   },
-  itemTitle: { fontSize: 16, fontWeight: "600" },
-  itemSub: { marginTop: 4, fontSize: 13 },
+  itemTitle: { fontSize: Platform.OS === "web" ? 16 : 13, fontWeight: "600" },
+  itemSub: { marginTop: 4, fontSize: Platform.OS === "web" ? 13 : 11 },
 });

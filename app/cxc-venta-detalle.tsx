@@ -30,6 +30,7 @@ import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { alphaColor } from "../lib/ui";
 import { useEmpresaActiva } from "../lib/useEmpresaActiva";
+import { useResumeLoad } from "../lib/useResumeLoad";
 import { useRole } from "../lib/useRole";
 import { fmtQ, fmtDate } from "../lib/utils/format";
 import { normalizeUpper } from "../lib/utils/text";
@@ -299,6 +300,12 @@ export default function CxcVentaDetalle() {
   }, [id, canLoadPagosReportados, empresaActivaId]);
 
   useFocusEffect(useCallback(() => { fetchAll(); }, [fetchAll]));
+
+  useResumeLoad(empresaActivaId, () => {
+    void refreshRole("resume:cxc-venta-detalle");
+  }, () => {
+    void fetchAll();
+  });
 
   useEffect(() => {
     const vid = row?.vendedor_id ?? null;
@@ -832,7 +839,6 @@ export default function CxcVentaDetalle() {
                 {lineas.map((d: any) => {
                   const nombre = d.productos?.nombre ?? `Producto #${d.producto_id}`;
                   const marca = d.productos?.marcas?.nombre ?? d.productos?.marcas?.[0]?.nombre ?? null;
-                  const title = `${String(nombre ?? "—")}${marca ? ` • ${marca}` : ""}`;
                   const lote = d.producto_lotes?.lote ?? "—";
                   const venc = fmtDate(d.producto_lotes?.fecha_exp);
                   const cant = safeNumber(d.cantidad);
@@ -841,9 +847,12 @@ export default function CxcVentaDetalle() {
                   return (
                     <View key={String(d.id)} style={[styles.tableRow, { borderTopColor: C.divider }]}>
                       <View style={{ flex: 1, paddingRight: 10, minWidth: 0 }}>
-                        <Text style={[styles.td, { color: C.text }]} numberOfLines={1}>
-                          {title}
+                        <Text style={[styles.td, { color: C.text }]}>
+                          {nombre}
                         </Text>
+                        {marca ? (
+                          <Text style={[styles.tdSub, { color: C.sub }]}>{marca}</Text>
+                        ) : null}
                         <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
                           Lote: {lote}
                         </Text>
@@ -1268,7 +1277,7 @@ export default function CxcVentaDetalle() {
                                 </View>
 
                                 <View style={{ flex: 1, minWidth: 0 }}>
-                                  <Text style={{ color: C.text, fontWeight: "900", fontSize: 14 }} numberOfLines={1}>
+                                  <Text style={{ color: C.text, fontWeight: "900", fontSize: Platform.OS === "web" ? 14 : 13 }} numberOfLines={1}>
                                     {pagoImg?.uri ? "Comprobante adjunto" : "Agregar comprobante"}
                                   </Text>
                                   <Text style={{ color: C.sub, marginTop: 2, fontWeight: "700", fontSize: 12 }} numberOfLines={2}>
@@ -1375,41 +1384,41 @@ const styles = StyleSheet.create({
   shadowCard: Platform.select({ ios: { shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } }, android: { elevation: 2 }, default: {} }),
   headerCard: { padding: 16 },
   headerTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
-  h1: { fontSize: 20, fontWeight: '700', letterSpacing: -0.2, lineHeight: 24 },
+  h1: { fontSize: Platform.OS === "web" ? 20 : 13, fontWeight: '700', letterSpacing: -0.2, lineHeight: 24 },
   metaK: { fontSize: 12, fontWeight: '600' },
-  metaV: { marginTop: 2, fontSize: 14, fontWeight: '600', lineHeight: 18 },
+  metaV: { marginTop: 2, fontSize: Platform.OS === "web" ? 14 : 11, fontWeight: '600', lineHeight: 18 },
   badgePill: { borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, alignSelf: 'flex-start' },
   badgeText: { fontSize: 12, fontWeight: '800', letterSpacing: 0.6, textTransform: 'uppercase' },
   kvGrid: { flexDirection: 'row', gap: 16, flexWrap: 'wrap' },
   kv: { minWidth: 140, flexBasis: 140, flexGrow: 1 },
   k: { fontSize: 12, fontWeight: '600' },
-  v: { marginTop: 3, fontSize: 14, fontWeight: '600', lineHeight: 18 },
-  sectionTitle: { marginTop: 18, fontSize: 18, fontWeight: '700', letterSpacing: -0.2 },
+  v: { marginTop: 3, fontSize: Platform.OS === "web" ? 14 : 11, fontWeight: '600', lineHeight: 18 },
+  sectionTitle: { marginTop: 18, fontSize: Platform.OS === "web" ? 18 : 13, fontWeight: '700', letterSpacing: -0.2 },
   rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
-  cardTitle: { fontSize: 16, fontWeight: '700', flex: 1, paddingRight: 10, lineHeight: 20 },
-  lineAmt: { fontSize: 14, fontWeight: '800' },
+  cardTitle: { fontSize: Platform.OS === "web" ? 16 : 13, fontWeight: '700', flex: 1, paddingRight: 10, lineHeight: 20 },
+  lineAmt: { fontSize: Platform.OS === "web" ? 14 : 13, fontWeight: '800' },
   lineRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth },
   lineSub: { fontSize: 12, fontWeight: '700' },
   lineSubV: { fontSize: 12, fontWeight: '800' },
   miniK: { fontSize: 12, fontWeight: '600', minWidth: 56 },
-  miniV: { fontSize: 13, fontWeight: '600', flex: 1, textAlign: 'right' },
+  miniV: { fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: '600', flex: 1, textAlign: 'right' },
 
   tableWrap: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 18, overflow: 'hidden' },
   tableHeaderRow: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
   tableRow: { flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: StyleSheet.hairlineWidth },
   tableFooterRow: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 14, borderTopWidth: StyleSheet.hairlineWidth },
   th: { fontSize: 11, fontWeight: '800', letterSpacing: 0.7, textTransform: 'uppercase' },
-  td: { fontSize: 13, fontWeight: '800' },
+  td: { fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: '800' },
   tdSub: { marginTop: 2, fontSize: 12, fontWeight: '700' },
   divider: { height: StyleSheet.hairlineWidth, marginVertical: 14 },
-  payTitle: { fontSize: 14, fontWeight: '700', flex: 1, paddingRight: 8 },
-  payAmount: { fontSize: 14, fontWeight: '800' },
+  payTitle: { fontSize: Platform.OS === "web" ? 14 : 13, fontWeight: '700', flex: 1, paddingRight: 8 },
+  payAmount: { fontSize: Platform.OS === "web" ? 14 : 13, fontWeight: '800' },
   payMeta: { marginTop: 4, fontSize: 12, fontWeight: '600' },
   modalBg: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 18 },
   modalCard: { width: '100%', borderWidth: StyleSheet.hairlineWidth, borderRadius: 18, padding: 16 },
-  modalTitle: { fontSize: 18, fontWeight: '800', letterSpacing: -0.2 },
-  modalSub: { marginTop: 4, fontSize: 13, fontWeight: '600' },
-  inputLabel: { fontSize: 13, fontWeight: '700', marginTop: 8 },
+  modalTitle: { fontSize: Platform.OS === "web" ? 18 : 13, fontWeight: '800', letterSpacing: -0.2 },
+  modalSub: { marginTop: 4, fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: '600' },
+  inputLabel: { fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: '700', marginTop: 8 },
   input: { marginTop: 6, borderWidth: StyleSheet.hairlineWidth, borderRadius: 12, paddingHorizontal: 12, paddingVertical: Platform.OS === "web" ? 10 : 13, fontSize: 16 },
   chip: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 8 },
   linkBtnSmall: { borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 12 },
@@ -1417,7 +1426,7 @@ const styles = StyleSheet.create({
   comprobanteCta: { marginTop: 8, borderWidth: StyleSheet.hairlineWidth, borderRadius: 16, padding: 12, borderStyle: 'dashed' },
   comprobanteCtaInner: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   comprobanteBadge: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth },
-  comprobanteBadgeText: { fontSize: 15, fontWeight: '900' },
+  comprobanteBadgeText: { fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: '900' },
   comprobanteThumb: { width: 44, height: 44, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, backgroundColor: 'rgba(0,0,0,0.08)' },
   viewerBg: { flex: 1 },
   viewerCard: { width: '100%', height: '100%' },
@@ -1436,5 +1445,5 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 999,
   },
-  viewerTopBtnText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+  viewerTopBtnText: { color: '#fff', fontWeight: '800', fontSize: Platform.OS === "web" ? 16 : 13 },
 });

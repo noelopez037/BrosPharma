@@ -17,6 +17,7 @@ import { generarEstadoCuentaClientePdf } from "../../lib/estadoCuentaClientePdf"
 import { supabase } from "../../lib/supabase";
 import { useRole } from "../../lib/useRole";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
+import { useResumeLoad } from "../../lib/useResumeLoad";
 import { normalizeUpper } from "../../lib/utils/text";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
@@ -159,6 +160,12 @@ function ClienteDetallePanelContent({
       });
     }, [loadAll])
   );
+
+  useResumeLoad(empresaActivaId, () => {
+    void refreshRole("resume:cliente-detalle-panel");
+  }, () => {
+    void loadAll().catch(() => {});
+  });
 
   const onDelete = useCallback(() => {
     if (!canDelete || !row) return;

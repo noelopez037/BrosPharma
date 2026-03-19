@@ -1,6 +1,6 @@
 import { useTheme } from "@react-navigation/native";
 import React, { ReactNode, useMemo } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Platform, StyleSheet, Text, View } from "react-native";
 
 import { AppButton } from "@/components/ui/app-button";
 
@@ -94,12 +94,12 @@ const makeStyles = (colors: any) =>
       gap: 4,
     },
     title: {
-      fontSize: 20,
+      fontSize: Platform.OS === "web" ? 20 : 13,
       fontWeight: "700",
       color: colors.text,
     },
     description: {
-      fontSize: 14,
+      fontSize: Platform.OS === "web" ? 14 : 13,
       color: colors.text + "AA",
     },
     body: {

@@ -14,6 +14,7 @@ import { generarEstadoCuentaClientePdf } from "../lib/estadoCuentaClientePdf";
 import { supabase } from "../lib/supabase";
 import { useRole } from "../lib/useRole";
 import { useEmpresaActiva } from "../lib/useEmpresaActiva";
+import { useResumeLoad } from "../lib/useResumeLoad";
 import { normalizeUpper } from "../lib/utils/text";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
@@ -115,6 +116,12 @@ export default function ClienteDetalle() {
       });
     }, [loadAll])
   );
+
+  useResumeLoad(empresaActivaId, () => {
+    void refreshRole("resume:cliente-detalle");
+  }, () => {
+    void loadAll().catch(() => {});
+  });
 
   const onDelete = useCallback(() => {
     if (!canDelete || !row) return;
@@ -272,8 +279,8 @@ const styles = (colors: any) =>
     },
 
     kvRow: { marginTop: 12 },
-    k: { color: colors.text + "AA", fontSize: 12, fontWeight: "800" },
-    v: { color: colors.text, fontSize: 16, fontWeight: "600", marginTop: 6 },
+    k: { color: colors.text + "AA", fontSize: 11, fontWeight: "800" },
+    v: { color: colors.text, fontSize: 13, fontWeight: "600", marginTop: 6 },
 
     // Buttons handled by AppButton
   });

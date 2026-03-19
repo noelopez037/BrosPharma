@@ -73,7 +73,8 @@ class LargeSecureStore implements StorageLike {
       const encrypted = await AsyncStorage.getItem(key);
       if (!encrypted) return null;
       return await this._decrypt(key, encrypted);
-    } catch {
+    } catch (e) {
+      if (__DEV__) console.warn("[supabase] LargeSecureStore.getItem failed:", key, e);
       return null;
     }
   }
@@ -82,8 +83,9 @@ class LargeSecureStore implements StorageLike {
     try {
       const encrypted = await this._encrypt(key, value);
       await AsyncStorage.setItem(key, encrypted);
-    } catch {
-      // ignorar — evita crashear; la sesión se recuperará vía refresh_token
+    } catch (e) {
+      // No crashear; la sesión se recuperará vía refresh_token
+      if (__DEV__) console.warn("[supabase] LargeSecureStore.setItem failed:", key, e);
     }
   }
 
@@ -91,8 +93,8 @@ class LargeSecureStore implements StorageLike {
     try {
       await AsyncStorage.removeItem(key);
       await SecureStore.deleteItemAsync(key);
-    } catch {
-      // ignorar
+    } catch (e) {
+      if (__DEV__) console.warn("[supabase] LargeSecureStore.removeItem failed:", key, e);
     }
   }
 }

@@ -38,8 +38,12 @@ export default function RootLayout({ children }: { children?: ReactNode }) {
       return;
     }
 
-    const inAuthGroup = first === "(drawer)" || first === "(tabs)";
-    if (!inAuthGroup) router.replace("/(drawer)/(tabs)" as any);
+    // Solo redirigir al drawer si el usuario está en login, index, o segmento vacío.
+    // Cualquier otra pantalla (venta-detalle, cliente-detalle, etc.) es una ruta
+    // autenticada válida — no tocar el stack para no romper el botón "atrás".
+    if (first === "login" || first === "index" || !first) {
+      router.replace("/(drawer)/(tabs)" as any);
+    }
   };
 
   useEffect(() => {

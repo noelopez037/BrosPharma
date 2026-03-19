@@ -1244,7 +1244,7 @@ const makeStyles = (colors: any) =>
       borderColor: colors.primary,
     },
     minDiasButtonText: {
-      fontSize: 14,
+      fontSize: Platform.OS === "web" ? 14 : 13,
       fontWeight: "600",
       color: colors.text,
     },
@@ -1262,7 +1262,7 @@ const makeStyles = (colors: any) =>
       justifyContent: "center",
     },
     dateText: {
-      fontSize: 15,
+      fontSize: Platform.OS === "web" ? 15 : 13,
       fontWeight: "600",
       color: colors.text,
     },
@@ -1271,7 +1271,7 @@ const makeStyles = (colors: any) =>
       color: colors.text + "88",
     },
     status: {
-      fontSize: 13,
+      fontSize: Platform.OS === "web" ? 13 : 11,
       fontWeight: "600",
       marginTop: 6,
     },
@@ -1299,7 +1299,7 @@ const makeStyles = (colors: any) =>
       gap: 16,
     },
     modalTitle: {
-      fontSize: 16,
+      fontSize: Platform.OS === "web" ? 16 : 13,
       fontWeight: "600",
       color: colors.text,
       textAlign: "center",
@@ -1321,17 +1321,17 @@ const makeStyles = (colors: any) =>
       alignItems: "center",
     },
     globalSummaryKey: {
-      fontSize: 13,
+      fontSize: Platform.OS === "web" ? 13 : 11,
       fontWeight: "600",
       color: colors.text + "AA",
     },
     globalSummaryVal: {
-      fontSize: 13,
+      fontSize: Platform.OS === "web" ? 13 : 11,
       fontWeight: "700",
       color: colors.text,
     },
     globalSummaryFallback: {
-      fontSize: 13,
+      fontSize: Platform.OS === "web" ? 13 : 11,
       color: colors.text + "88",
       fontStyle: "italic",
     },

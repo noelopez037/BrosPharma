@@ -975,7 +975,7 @@ const styles = (colors: any, isDark: boolean) =>
     deniedSub: { color: colors.text + "AA", marginTop: 10, textAlign: "center", fontWeight: "700" },
 
     label: { color: colors.text, marginTop: 8, fontSize: 13, fontWeight: "800" },
-    sub: { color: colors.text + "AA", marginTop: 6, fontSize: 12, fontWeight: "700" },
+    sub: { color: colors.text + "AA", marginTop: 6, fontSize: 11, fontWeight: "700" },
 
     filtersCard: {
       borderWidth: 1,

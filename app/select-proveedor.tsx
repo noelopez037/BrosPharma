@@ -326,7 +326,7 @@ const styles = StyleSheet.create({
 
   row: { flexDirection: "row", gap: 12, alignItems: "center" },
 
-  label: { marginTop: 6, marginBottom: 6, fontSize: 13, fontWeight: "600" },
+  label: { marginTop: 6, marginBottom: 6, fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: "600" },
 
   input: {
     borderWidth: 1,
@@ -346,6 +346,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderTopWidth: 1,
   },
-  itemTitle: { fontSize: 16, fontWeight: "600" },
-  itemSub: { marginTop: 4, fontSize: 13 },
+  itemTitle: { fontSize: Platform.OS === "web" ? 16 : 13, fontWeight: "600" },
+  itemSub: { marginTop: 4, fontSize: Platform.OS === "web" ? 13 : 11 },
 });
