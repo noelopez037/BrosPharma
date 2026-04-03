@@ -314,11 +314,11 @@ export default function InventarioScreen() {
           automaticallyAdjustKeyboardInsets
           onEndReachedThreshold={0.4}
           onEndReached={loadMore}
-          initialNumToRender={10}
-          maxToRenderPerBatch={10}
+          initialNumToRender={Platform.OS === "web" ? 999 : 10}
+          maxToRenderPerBatch={Platform.OS === "web" ? 999 : 10}
           updateCellsBatchingPeriod={50}
-          windowSize={7}
-          removeClippedSubviews
+          windowSize={Platform.OS === "web" ? 999 : 7}
+          removeClippedSubviews={Platform.OS === "android"}
           contentContainerStyle={{
             paddingLeft: 12,
             paddingRight: 16, // espacio para que el scroll indicator no se monte

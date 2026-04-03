@@ -640,15 +640,15 @@ export default function CuentasPorCobrarScreen() {
                 sections={sections}
                 keyExtractor={(it) => String(it.venta_id)}
                 renderItem={renderItem}
-                stickySectionHeadersEnabled
+                stickySectionHeadersEnabled={Platform.OS !== "web"}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
                 automaticallyAdjustKeyboardInsets
                 contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 16 + insets.bottom }}
-                initialNumToRender={12}
-                maxToRenderPerBatch={10}
+                initialNumToRender={Platform.OS === "web" ? 999 : 12}
+                maxToRenderPerBatch={Platform.OS === "web" ? 999 : 10}
                 updateCellsBatchingPeriod={50}
-                windowSize={7}
+                windowSize={Platform.OS === "web" ? 999 : 7}
                 removeClippedSubviews={Platform.OS === "android"}
                 renderSectionHeader={({ section }) => (
                   <View style={[s.sectionHeader, { backgroundColor: colors.background, alignItems: "flex-end" }]}>
@@ -684,15 +684,15 @@ export default function CuentasPorCobrarScreen() {
               sections={sections}
               keyExtractor={(it) => String(it.venta_id)}
               renderItem={renderItem}
-              stickySectionHeadersEnabled
+              stickySectionHeadersEnabled={Platform.OS !== "web"}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
               automaticallyAdjustKeyboardInsets
               contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 16 + insets.bottom }}
-              initialNumToRender={12}
-              maxToRenderPerBatch={10}
+              initialNumToRender={Platform.OS === "web" ? 999 : 12}
+              maxToRenderPerBatch={Platform.OS === "web" ? 999 : 10}
               updateCellsBatchingPeriod={50}
-              windowSize={7}
+              windowSize={Platform.OS === "web" ? 999 : 7}
               removeClippedSubviews={Platform.OS === "android"}
               renderSectionHeader={({ section }) => (
                 <View style={[s.sectionHeader, { backgroundColor: colors.background, alignItems: "flex-end" }]}>

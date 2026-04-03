@@ -617,10 +617,10 @@ export default function ComprasScreen() {
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
                 automaticallyAdjustKeyboardInsets
-                stickySectionHeadersEnabled={true}
-                initialNumToRender={12}
-                maxToRenderPerBatch={12}
-                windowSize={7}
+                stickySectionHeadersEnabled={Platform.OS !== "web"}
+                initialNumToRender={Platform.OS === "web" ? 999 : 12}
+                maxToRenderPerBatch={Platform.OS === "web" ? 999 : 12}
+                windowSize={Platform.OS === "web" ? 999 : 7}
                 updateCellsBatchingPeriod={50}
                 removeClippedSubviews={Platform.OS === "android"}
                 onEndReached={loadMoreCompras}

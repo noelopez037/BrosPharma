@@ -424,12 +424,12 @@ export default function VentasAnuladasScreen() {
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
                 automaticallyAdjustKeyboardInsets
-                stickySectionHeadersEnabled={true}
+                stickySectionHeadersEnabled={Platform.OS !== "web"}
                 contentContainerStyle={{ paddingBottom: 24, paddingTop: 6 }}
-                initialNumToRender={10}
-                maxToRenderPerBatch={10}
+                initialNumToRender={Platform.OS === "web" ? 999 : 10}
+                maxToRenderPerBatch={Platform.OS === "web" ? 999 : 10}
                 updateCellsBatchingPeriod={50}
-                windowSize={7}
+                windowSize={Platform.OS === "web" ? 999 : 7}
                 removeClippedSubviews={Platform.OS === "android"}
                 onEndReached={loadMoreAnuladas}
                 onEndReachedThreshold={0.3}

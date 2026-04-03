@@ -663,10 +663,10 @@ export default function RecetasPendientesScreen() {
         automaticallyAdjustKeyboardInsets
         refreshing={refreshing}
         onRefresh={onRefresh}
-        initialNumToRender={12}
-        maxToRenderPerBatch={10}
+        initialNumToRender={Platform.OS === "web" ? 999 : 12}
+        maxToRenderPerBatch={Platform.OS === "web" ? 999 : 10}
         updateCellsBatchingPeriod={50}
-        windowSize={7}
+        windowSize={Platform.OS === "web" ? 999 : 7}
         removeClippedSubviews={Platform.OS === "android"}
         renderItem={renderRecetaItem}
         ListEmptyComponent={

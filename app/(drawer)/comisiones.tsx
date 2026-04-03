@@ -627,7 +627,7 @@ export default function ComisionesScreen() {
                   keyExtractor={(item) => String(item.venta_id)}
                   renderItem={renderVentaPagada}
                   renderSectionHeader={renderSectionHeader}
-                  stickySectionHeadersEnabled={true}
+                  stickySectionHeadersEnabled={Platform.OS !== "web"}
                   keyboardShouldPersistTaps="handled"
                   keyboardDismissMode="on-drag"
                   automaticallyAdjustKeyboardInsets
@@ -638,9 +638,9 @@ export default function ComisionesScreen() {
                   }}
                   ListHeaderComponent={ListHeader}
                   removeClippedSubviews={Platform.OS === "android"}
-                  initialNumToRender={14}
-                  maxToRenderPerBatch={14}
-                  windowSize={9}
+                  initialNumToRender={Platform.OS === "web" ? 999 : 14}
+                  maxToRenderPerBatch={Platform.OS === "web" ? 999 : 14}
+                  windowSize={Platform.OS === "web" ? 999 : 9}
                   updateCellsBatchingPeriod={50}
                 />
               </View>
@@ -667,7 +667,7 @@ export default function ComisionesScreen() {
               keyExtractor={(item) => String(item.venta_id)}
               renderItem={renderVentaPagada}
               renderSectionHeader={renderSectionHeader}
-              stickySectionHeadersEnabled={true}
+              stickySectionHeadersEnabled={Platform.OS !== "web"}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
               automaticallyAdjustKeyboardInsets
@@ -678,9 +678,9 @@ export default function ComisionesScreen() {
               }}
               ListHeaderComponent={ListHeader}
               removeClippedSubviews={Platform.OS === "android"}
-              initialNumToRender={14}
-              maxToRenderPerBatch={14}
-              windowSize={9}
+              initialNumToRender={Platform.OS === "web" ? 999 : 14}
+              maxToRenderPerBatch={Platform.OS === "web" ? 999 : 14}
+              windowSize={Platform.OS === "web" ? 999 : 9}
               updateCellsBatchingPeriod={50}
             />
           )}

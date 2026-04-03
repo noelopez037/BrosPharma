@@ -440,10 +440,10 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
               automaticallyAdjustKeyboardInsets
               renderItem={renderItem}
               ListEmptyComponent={listEmpty}
-              initialNumToRender={8}
-              maxToRenderPerBatch={10}
+              initialNumToRender={Platform.OS === "web" ? 999 : 8}
+              maxToRenderPerBatch={Platform.OS === "web" ? 999 : 10}
               updateCellsBatchingPeriod={40}
-              windowSize={7}
+              windowSize={Platform.OS === "web" ? 999 : 7}
               removeClippedSubviews={Platform.OS === "android"}
             />
           </>

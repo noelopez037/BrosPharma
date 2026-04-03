@@ -629,10 +629,10 @@ export default function KardexScreen() {
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
             automaticallyAdjustKeyboardInsets
-            initialNumToRender={15}
-            maxToRenderPerBatch={10}
+            initialNumToRender={Platform.OS === "web" ? 999 : 15}
+            maxToRenderPerBatch={Platform.OS === "web" ? 999 : 10}
             updateCellsBatchingPeriod={50}
-            windowSize={7}
+            windowSize={Platform.OS === "web" ? 999 : 7}
             removeClippedSubviews={Platform.OS === "android"}
             contentContainerStyle={{
               paddingHorizontal: 12,
@@ -923,10 +923,10 @@ export default function KardexScreen() {
                         data={prodRows}
                         keyExtractor={(it) => String(it.id)}
                         keyboardShouldPersistTaps="handled"
-                        initialNumToRender={10}
-                        maxToRenderPerBatch={10}
+                        initialNumToRender={Platform.OS === "web" ? 999 : 10}
+                        maxToRenderPerBatch={Platform.OS === "web" ? 999 : 10}
                         updateCellsBatchingPeriod={50}
-                        windowSize={5}
+                        windowSize={Platform.OS === "web" ? 999 : 5}
                         removeClippedSubviews={Platform.OS === "android"}
                         renderItem={({ item }) => (
                           <Pressable

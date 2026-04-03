@@ -436,10 +436,10 @@ export default function ClientesScreen() {
                   paddingTop: 12,
                   paddingBottom: 16 + bottomRail,
                 }}
-                initialNumToRender={12}
-                maxToRenderPerBatch={10}
+                initialNumToRender={Platform.OS === "web" ? 999 : 12}
+                maxToRenderPerBatch={Platform.OS === "web" ? 999 : 10}
                 updateCellsBatchingPeriod={50}
-                windowSize={7}
+                windowSize={Platform.OS === "web" ? 999 : 7}
                 removeClippedSubviews={Platform.OS === "android"}
                 onEndReached={loadMoreClientes}
                 onEndReachedThreshold={0.3}

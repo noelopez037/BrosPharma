@@ -1041,11 +1041,11 @@ export default function Ventas() {
       keyExtractor={keyExtractor}
       refreshing={pullRefreshing}
       onRefresh={onPullRefresh}
-      stickySectionHeadersEnabled
+      stickySectionHeadersEnabled={Platform.OS !== "web"}
       contentContainerStyle={{ padding: 16, paddingBottom: 28 }}
-      initialNumToRender={8}
-      maxToRenderPerBatch={5}
-      windowSize={7}
+      initialNumToRender={Platform.OS === "web" ? 999 : 8}
+      maxToRenderPerBatch={Platform.OS === "web" ? 999 : 5}
+      windowSize={Platform.OS === "web" ? 999 : 7}
       updateCellsBatchingPeriod={50}
       removeClippedSubviews={Platform.OS === "android"}
       keyboardShouldPersistTaps="handled"
