@@ -776,7 +776,7 @@ export default function CxcVentaDetalle() {
     <>
       <Stack.Screen options={{ headerShown: true, title: "Detalle cuenta", headerBackTitle: "Atrás" }} />
 
-      <RoleGate allow={["ADMIN", "VENTAS"]} deniedText="No tienes permiso para ver esta pantalla." backHref="/(drawer)/(tabs)">
+      <RoleGate allow={["ADMIN", "VENTAS", "MENSAJERO"]} deniedText="No tienes permiso para ver esta pantalla." backHref="/(drawer)/(tabs)">
         <SafeAreaView style={[styles.safe, { backgroundColor: C.bg }]} edges={["bottom"]}>
           {loading ? (
             <View style={styles.center}><Text style={{ color: C.sub, fontWeight: "700" }}>Cargando...</Text></View>

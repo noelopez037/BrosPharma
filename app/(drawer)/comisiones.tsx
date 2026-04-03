@@ -613,7 +613,7 @@ export default function ComisionesScreen() {
       />
 
       <RoleGate
-        allow={["ADMIN", "VENTAS"]}
+        allow={["ADMIN", "VENTAS", "MENSAJERO"]}
         deniedText="No tienes permiso para ver Comisiones."
         backHref="/(drawer)/(tabs)"
       >

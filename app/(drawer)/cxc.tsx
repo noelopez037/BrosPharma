@@ -624,7 +624,7 @@ export default function CuentasPorCobrarScreen() {
       />
 
       <RoleGate
-        allow={["ADMIN", "VENTAS"]}
+        allow={["ADMIN", "VENTAS", "MENSAJERO"]}
         deniedText="No tienes permiso para ver Cuentas por cobrar."
         backHref="/(drawer)/(tabs)"
       >

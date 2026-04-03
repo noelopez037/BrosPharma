@@ -183,7 +183,7 @@ export default function VentasAnuladasScreen() {
         .eq("activo", true)
         .ilike("nombre", `%${safeIlike(term)}%`)
         .limit(20);
-      if (normalizeUpper(role) === "VENTAS" && uid) {
+      if ((normalizeUpper(role) === "VENTAS" || normalizeUpper(role) === "MENSAJERO") && uid) {
         req = req.eq("vendedor_id", uid);
       }
       const { data } = await req;
@@ -210,7 +210,8 @@ export default function VentasAnuladasScreen() {
             currentRole === "ADMIN" ||
             currentRole === "BODEGA" ||
             currentRole === "FACTURACION" ||
-            currentRole === "VENTAS";
+            currentRole === "VENTAS" ||
+            currentRole === "MENSAJERO";
 
           if (!allowed) return;
           if (alive) setInitialLoading(true);
@@ -344,7 +345,7 @@ export default function VentasAnuladasScreen() {
       />
 
       <RoleGate
-        allow={["ADMIN", "BODEGA", "FACTURACION", "VENTAS"]}
+        allow={["ADMIN", "BODEGA", "FACTURACION", "VENTAS", "MENSAJERO"]}
         deniedText="No tienes permiso para ver anuladas."
         backHref="/(drawer)/(tabs)"
       >
