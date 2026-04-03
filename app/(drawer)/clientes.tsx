@@ -159,7 +159,7 @@ export default function ClientesScreen() {
   const { empresaActivaId } = useEmpresaActiva();
   const roleUp = normalizeUpper(role) as Role;
   const isAdmin = roleUp === "ADMIN";
-  const isVentas = roleUp === "VENTAS";
+  const isVentas = roleUp === "VENTAS" || roleUp === "MENSAJERO";
   const isBodega = roleUp === "BODEGA";
   const readOnly = isBodega;
   const canCreate = isAdmin;
@@ -191,7 +191,7 @@ export default function ClientesScreen() {
     if (!effectiveRoleUp) return;
 
     const isAdminNow = effectiveRoleUp === "ADMIN";
-    const isVentasNow = effectiveRoleUp === "VENTAS";
+    const isVentasNow = effectiveRoleUp === "VENTAS" || effectiveRoleUp === "MENSAJERO";
 
     const safeSearch = dq ? safeIlike(dq) : "";
 

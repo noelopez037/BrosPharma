@@ -73,8 +73,8 @@ export default function ClienteForm() {
   const { empresaActivaId, isReady: empresaReady } = useEmpresaActiva();
   const roleUp = String(role ?? "").trim().toUpperCase() as Role;
   const isAdmin = isReady && roleUp === "ADMIN";
-  const isVendedor = isReady && roleUp === "VENTAS";
-  const canEdit = isReady && (roleUp === "ADMIN" || roleUp === "VENTAS");
+  const isVendedor = isReady && (roleUp === "VENTAS" || roleUp === "MENSAJERO");
+  const canEdit = isReady && (roleUp === "ADMIN" || roleUp === "VENTAS" || roleUp === "MENSAJERO");
 
   useFocusEffect(
     useCallback(() => {

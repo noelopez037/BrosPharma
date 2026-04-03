@@ -25,7 +25,7 @@ import { FB_DARK_DANGER } from "../../../src/theme/headerColors";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Role = "ADMIN" | "VENTAS" | "FACTURACION" | "BODEGA" | "";
+type Role = "ADMIN" | "VENTAS" | "FACTURACION" | "BODEGA" | "MENSAJERO" | "";
 
 type VendedorMesTotal = {
   vendedor_id: string | null;
@@ -932,7 +932,7 @@ export default function Inicio() {
 
   const clearOtherRoleData = useCallback((keep: Role) => {
     if (keep !== "ADMIN" && adminRef.current) setAdminData(null);
-    if (keep !== "VENTAS" && ventasRef.current) setVentasData(null);
+    if (keep !== "VENTAS" && keep !== "MENSAJERO" && ventasRef.current) setVentasData(null);
     if (keep !== "FACTURACION" && factRef.current) setFactData(null);
     if (keep !== "BODEGA" && bodegaRef.current) setBodegaData(null);
   }, []);
@@ -963,7 +963,7 @@ export default function Inicio() {
         const now = Date.now();
         if (!force && !skipCache && cached && cached.role === r && now - cached.ts < CACHE_TTL_MS) {
           if (r === "ADMIN") setAdminData(cached.data);
-          if (r === "VENTAS") setVentasData(cached.data);
+          if (r === "VENTAS" || r === "MENSAJERO") setVentasData(cached.data);
           if (r === "FACTURACION") setFactData(cached.data);
           if (r === "BODEGA") setBodegaData(cached.data);
           return;
@@ -978,7 +978,7 @@ export default function Inicio() {
           return;
         }
 
-        if (r === "VENTAS") {
+        if (r === "VENTAS" || r === "MENSAJERO") {
           if (!id) throw new Error("Usuario no autenticado");
           if (!empresaActivaId) throw new Error("Sin empresa activa");
           const data = await loadVentas(id, empresaActivaId);
@@ -1036,7 +1036,7 @@ export default function Inicio() {
             clearOtherRoleData(r);
           }
           if (r === "ADMIN") setAdminData(cached!.data);
-          if (r === "VENTAS") setVentasData(cached!.data);
+          if (r === "VENTAS" || r === "MENSAJERO") setVentasData(cached!.data);
           if (r === "FACTURACION") setFactData(cached!.data);
           if (r === "BODEGA") setBodegaData(cached!.data);
           setInitialLoading(false);
@@ -1619,7 +1619,7 @@ export default function Inicio() {
     const hasData =
       roleUp === "ADMIN"
         ? !!adminData
-        : roleUp === "VENTAS"
+        : roleUp === "VENTAS" || roleUp === "MENSAJERO"
           ? !!ventasData
           : roleUp === "FACTURACION"
             ? !!factData
@@ -1652,7 +1652,7 @@ export default function Inicio() {
     }
 
     if (roleUp === "ADMIN") return renderAdmin();
-    if (roleUp === "VENTAS") return renderVentas();
+    if (roleUp === "VENTAS" || roleUp === "MENSAJERO") return renderVentas();
     if (roleUp === "FACTURACION") return renderFacturacion();
     if (roleUp === "BODEGA") return renderBodega();
 
@@ -1671,7 +1671,7 @@ export default function Inicio() {
   const roleUp = normalizeUpper(role) as Role;
 
   const greetText = useMemo(() => {
-    if (roleUp === "VENTAS") return buildGreeting(userLabel, "VENTAS", ventasData?.misVentasHoy);
+    if (roleUp === "VENTAS" || roleUp === "MENSAJERO") return buildGreeting(userLabel, "VENTAS", ventasData?.misVentasHoy);
     return buildGreeting(userLabel, roleUp);
   }, [roleUp, userLabel, ventasData?.misVentasHoy]);
 

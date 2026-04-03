@@ -106,12 +106,16 @@ function ClienteDetallePanelContent({
     }
   }, []);
 
-  const { role, isReady, refreshRole } = useRole();
+  const { role, uid, isReady, refreshRole } = useRole();
   const { empresaActivaId } = useEmpresaActiva();
   const roleUp = String(role ?? "").trim().toUpperCase() as Role;
   const canEdit = isReady && roleUp === "ADMIN" && !readOnly;
   const canDelete = isReady && roleUp === "ADMIN" && !readOnly;
-  const canGenerarEstadoCuentaPdf = isReady && (roleUp === "ADMIN" || roleUp === "VENTAS");
+  const canGenerarEstadoCuentaPdf =
+    isReady &&
+    (roleUp === "ADMIN" ||
+      roleUp === "VENTAS" ||
+      (roleUp === "MENSAJERO" && !!row && row.vendedor_id === uid));
 
   const [loading, setLoading] = useState(true);
   const [row, setRow] = useState<ClienteRow | null>(null);

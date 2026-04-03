@@ -104,7 +104,7 @@ export default function RecetasPendientesScreen() {
   const { empresaActivaId } = useEmpresaActiva();
   const roleUp = String(role ?? "").trim().toUpperCase();
   const isAdmin = isReady && roleUp === "ADMIN";
-  const isVentas = isReady && roleUp === "VENTAS";
+  const isVentas = isReady && (roleUp === "VENTAS" || roleUp === "MENSAJERO");
 
   useFocusEffect(
     useCallback(() => {
@@ -206,7 +206,7 @@ export default function RecetasPendientesScreen() {
             out = (p ?? [])
               .filter((x: any) => {
                 const r = normalizeUpper(x?.role);
-                return r === "ADMIN" || r === "VENTAS";
+                return r === "ADMIN" || r === "VENTAS" || r === "MENSAJERO";
               })
               .map((x: any) => {
                 const id = String(x.id ?? "").trim();

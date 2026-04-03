@@ -134,7 +134,7 @@ export default function ComisionesScreen() {
   const { empresaActivaId } = useEmpresaActiva();
   const roleUp = normalizeUpper(role);
   const isAdmin = roleUp === "ADMIN";
-  const isVentas = roleUp === "VENTAS";
+  const isVentas = roleUp === "VENTAS" || roleUp === "MENSAJERO";
   const isAllowed = isReady && (isAdmin || isVentas);
 
   useFocusEffect(
@@ -215,7 +215,7 @@ export default function ComisionesScreen() {
 
     const roleUp = normalizeUpper(role);
     const isAdminLocal = roleUp === "ADMIN";
-    const isVentasLocal = roleUp === "VENTAS";
+    const isVentasLocal = roleUp === "VENTAS" || roleUp === "MENSAJERO";
 
     const params: any = {};
     params.p_empresa_id = empresaActivaId;

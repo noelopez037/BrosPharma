@@ -62,16 +62,20 @@ export default function ClienteDetalle() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const clienteId = Number(id);
 
-  const { role, isReady, refreshRole } = useRole();
+  const { role, uid, isReady, refreshRole } = useRole();
   const { empresaActivaId } = useEmpresaActiva();
   const roleUp = String(role ?? "").trim().toUpperCase() as Role;
   const canEdit = isReady && roleUp === "ADMIN";
   const canDelete = isReady && roleUp === "ADMIN";
-  const canGenerarEstadoCuentaPdf = isReady && (roleUp === "ADMIN" || roleUp === "VENTAS");
 
   const [loading, setLoading] = useState(true);
   const [row, setRow] = useState<ClienteRow | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const canGenerarEstadoCuentaPdf =
+    isReady &&
+    (roleUp === "ADMIN" ||
+      roleUp === "VENTAS" ||
+      (roleUp === "MENSAJERO" && !!row && row.vendedor_id === uid));
 
   const loadCliente = useCallback(async () => {
     if (!Number.isFinite(clienteId) || clienteId <= 0) {

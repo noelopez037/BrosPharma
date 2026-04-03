@@ -270,7 +270,7 @@ function CxcDetallePanelContent({
   const { role, refreshRole } = useRole();
   const { empresaActivaId, isReady: empresaReady } = useEmpresaActiva();
   const roleNormalized = normalizeUpper(role);
-  const canLoadPagosReportados = roleNormalized === "ADMIN" || roleNormalized === "VENTAS";
+  const canLoadPagosReportados = roleNormalized === "ADMIN" || roleNormalized === "VENTAS" || roleNormalized === "MENSAJERO";
 
   useFocusEffect(
     useCallback(() => {

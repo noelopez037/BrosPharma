@@ -71,7 +71,8 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
   const { cliente, comentarios, lineas, receta_uri } = draft;
   const { empresaActivaId, empresas, isReady: empresaReady } = useEmpresaActiva();
   const { role, uid, isReady: roleReady } = useRole();
-  const isVentas = roleReady && String(role ?? "").trim().toUpperCase() === "VENTAS";
+  const roleUpNF = String(role ?? "").trim().toUpperCase();
+  const isVentas = roleReady && (roleUpNF === "VENTAS" || roleUpNF === "MENSAJERO");
 
   const isEdit = mode === "edit" && !!ventaId;
   const [saving, setSaving] = useState(false);
