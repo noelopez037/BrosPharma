@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ClienteFormModal } from "../../components/clientes/ClienteFormModal";
 import { useThemePref } from "../../lib/themePreference";
 import {
+  ActivityIndicator,
   FlatList,
   Platform,
   Pressable,
@@ -173,6 +174,12 @@ export default function ClientesScreen() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const PAGE_SIZE = 50;
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadingMoreRef = useRef(false);
+  const rawOffsetRef = useRef(0);
+
   const hasLoadedOnceRef = useRef(false);
   const hasAnyRowsRef = useRef(false);
   useEffect(() => {
@@ -195,6 +202,8 @@ export default function ClientesScreen() {
 
     const safeSearch = dq ? safeIlike(dq) : "";
 
+    rawOffsetRef.current = 0;
+
     const buildQuery = (includeSearch: boolean) => {
       let req = supabase
         .from("clientes")
@@ -203,7 +212,7 @@ export default function ClientesScreen() {
         )
         .eq("empresa_id", empresaActivaId)
         .order("nombre", { ascending: true })
-        .limit(300);
+        .range(0, PAGE_SIZE - 1);
 
       if (!isAdminNow || !showInactive) req = req.eq("activo", true);
 
@@ -257,8 +266,47 @@ export default function ClientesScreen() {
       return;
     }
 
-    setRows((data ?? []) as any);
+    const fetched = (data ?? []) as ClienteRow[];
+    rawOffsetRef.current = fetched.length;
+    setHasMore(!safeSearch && fetched.length === PAGE_SIZE);
+    setRows(fetched);
   }, [dq, isReady, roleUp, showInactive, uid, empresaActivaId]);
+
+  const loadMoreClientes = useCallback(async () => {
+    if (loadingMoreRef.current || !hasMore || !empresaActivaId || !isReady) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const from = rawOffsetRef.current;
+      const to = from + PAGE_SIZE - 1;
+      let req = supabase
+        .from("clientes")
+        .select(
+          "id,nombre,nit,telefono,direccion,activo,vendedor_id,vendedor:profiles!clientes_vendedor_id_fkey(id,full_name,role)"
+        )
+        .eq("empresa_id", empresaActivaId)
+        .order("nombre", { ascending: true })
+        .range(from, to);
+
+      if (!isAdmin || !showInactive) req = req.eq("activo", true);
+      if (isVentas) {
+        if (!uid) return;
+        req = req.eq("vendedor_id", uid);
+      }
+
+      const { data, error } = await req;
+      if (error) throw error;
+      const fetched = (data ?? []) as ClienteRow[];
+      rawOffsetRef.current += fetched.length;
+      setHasMore(fetched.length === PAGE_SIZE);
+      setRows((prev) => [...prev, ...fetched]);
+    } catch {
+      // silently ignore
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [hasMore, empresaActivaId, isReady, isAdmin, showInactive, isVentas, uid]);
 
   // UX: swipe-back / back siempre regresa a Inicio.
   useGoHomeOnBack(true, "/(drawer)/(tabs)");
@@ -393,6 +441,9 @@ export default function ClientesScreen() {
                 updateCellsBatchingPeriod={50}
                 windowSize={7}
                 removeClippedSubviews={Platform.OS === "android"}
+                onEndReached={loadMoreClientes}
+                onEndReachedThreshold={0.3}
+                ListFooterComponent={loadingMore ? <ActivityIndicator style={{ margin: 16 }} /> : null}
               />
             </View>
             <View style={s.splitDetailPane}>
@@ -490,6 +541,9 @@ export default function ClientesScreen() {
               updateCellsBatchingPeriod={50}
               windowSize={7}
               removeClippedSubviews={Platform.OS === "android"}
+              onEndReached={loadMoreClientes}
+              onEndReachedThreshold={0.3}
+              ListFooterComponent={loadingMore ? <ActivityIndicator style={{ margin: 16 }} /> : null}
             />
           </>
         )}

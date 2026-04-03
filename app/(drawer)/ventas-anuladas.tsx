@@ -1,7 +1,7 @@
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
-import React, { useCallback, useMemo, useState, useEffect } from "react";
-import { Alert, SectionList, Platform, Pressable, StyleSheet, Text, TextInput, View, Modal, ScrollView, useWindowDimensions } from "react-native";
+import React, { useCallback, useMemo, useState, useEffect, useRef } from "react";
+import { ActivityIndicator, Alert, SectionList, Platform, Pressable, StyleSheet, Text, TextInput, View, Modal, ScrollView, useWindowDimensions } from "react-native";
 import { VentasAnuladasDetallePanel } from "../../components/ventas/VentasAnuladasDetallePanel";
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -147,8 +147,15 @@ export default function VentasAnuladasScreen() {
   const [rowsRaw, setRowsRaw] = useState<VentaRow[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
 
+  const PAGE_SIZE = 50;
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadingMoreRef = useRef(false);
+  const rawOffsetRef = useRef(0);
+
   const fetchAnuladas = useCallback(async () => {
     if (!empresaActivaId) return;
+    rawOffsetRef.current = 0;
     const { data, error } = await supabase
       .from("ventas_tags")
       .select("created_at, ventas:venta_id ( id, fecha, estado, cliente_nombre, vendedor_id, vendedor_codigo )")
@@ -156,16 +163,46 @@ export default function VentasAnuladasScreen() {
       .eq("tag", "ANULADO")
       .is("removed_at", null)
       .order("created_at", { ascending: false })
-      .limit(300);
+      .range(0, PAGE_SIZE - 1);
 
     if (error) throw error;
 
-    const rows = (data ?? [])
-      .map((r: any) => r.ventas)
-      .filter(Boolean) as VentaRow[];
-
+    const fetched = data ?? [];
+    const rows = fetched.map((r: any) => r.ventas).filter(Boolean) as VentaRow[];
+    rawOffsetRef.current = fetched.length;
+    setHasMore(fetched.length === PAGE_SIZE);
     setRowsRaw(rows);
   }, [empresaActivaId]);
+
+  const loadMoreAnuladas = useCallback(async () => {
+    if (loadingMoreRef.current || !hasMore || !empresaActivaId) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const from = rawOffsetRef.current;
+      const to = from + PAGE_SIZE - 1;
+      const { data, error } = await supabase
+        .from("ventas_tags")
+        .select("created_at, ventas:venta_id ( id, fecha, estado, cliente_nombre, vendedor_id, vendedor_codigo )")
+        .eq("empresa_id", empresaActivaId)
+        .eq("tag", "ANULADO")
+        .is("removed_at", null)
+        .order("created_at", { ascending: false })
+        .range(from, to);
+
+      if (error) throw error;
+      const fetched = data ?? [];
+      const moreRows = fetched.map((r: any) => r.ventas).filter(Boolean) as VentaRow[];
+      rawOffsetRef.current += fetched.length;
+      setHasMore(fetched.length === PAGE_SIZE);
+      setRowsRaw((prev) => [...prev, ...moreRows]);
+    } catch {
+      // silently ignore load-more errors
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [hasMore, empresaActivaId]);
 
   const searchClientes = useCallback(async (term: string) => {
     if (term.trim().length < 2) {
@@ -394,6 +431,8 @@ export default function VentasAnuladasScreen() {
                 updateCellsBatchingPeriod={50}
                 windowSize={7}
                 removeClippedSubviews={Platform.OS === "android"}
+                onEndReached={loadMoreAnuladas}
+                onEndReachedThreshold={0.3}
                 renderSectionHeader={({ section }) => (
                   <View style={[styles.sectionHeader, { backgroundColor: C.bg, alignItems: "flex-end" }]}>
                     <Text style={[styles.sectionHeaderText, { color: C.sub, textAlign: "right" }]}>
@@ -407,6 +446,7 @@ export default function VentasAnuladasScreen() {
                     {initialLoading ? "Cargando..." : "Sin anuladas"}
                   </Text>
                 }
+                ListFooterComponent={loadingMore ? <ActivityIndicator style={{ margin: 16 }} /> : null}
               />
             </View>
             <View style={styles.splitDetailPane}>
@@ -464,6 +504,8 @@ export default function VentasAnuladasScreen() {
               updateCellsBatchingPeriod={50}
               windowSize={7}
               removeClippedSubviews={Platform.OS === "android"}
+              onEndReached={loadMoreAnuladas}
+              onEndReachedThreshold={0.3}
               renderSectionHeader={({ section }) => (
                 <View style={[styles.sectionHeader, { backgroundColor: C.bg, alignItems: "flex-end" }]}>
                   <Text style={[styles.sectionHeaderText, { color: C.sub, textAlign: "right" }]}>
@@ -477,6 +519,7 @@ export default function VentasAnuladasScreen() {
                   {initialLoading ? "Cargando..." : "Sin anuladas"}
                 </Text>
               }
+              ListFooterComponent={loadingMore ? <ActivityIndicator style={{ margin: 16 }} /> : null}
             />
           </>
         )}

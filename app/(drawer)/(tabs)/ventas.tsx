@@ -3,6 +3,7 @@ import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Modal,
   Platform,
   Pressable,
@@ -455,6 +456,10 @@ export default function Ventas() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [listLoading, setListLoading] = useState(false);
   const [pullRefreshing, setPullRefreshing] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadingMoreRef = useRef(false);
+  const PAGE_SIZE = 50;
 
   // [búsqueda server-side] estado separado para no interferir con listLoading
   const [searchLoading, setSearchLoading] = useState(false);
@@ -560,7 +565,7 @@ export default function Ventas() {
           .eq("empresa_id", empresaActivaId)
           .eq("estado", targetEstado)
           .order("fecha", { ascending: false })
-          .limit(50);
+          .range(0, PAGE_SIZE - 1);
         if (mySeq !== reqSeq.current) return;
         if (error) throw error;
 
@@ -570,6 +575,7 @@ export default function Ventas() {
         if (!sameRowsQuick(prev, rows)) {
           setRowsRaw(rows);
         }
+        setHasMore(raw.length === PAGE_SIZE);
 
         const tagMap: Record<string, string[]> = {};
         const facturasMap: Record<string, string[]> = {};
@@ -604,6 +610,61 @@ export default function Ventas() {
     },
     [empresaActivaId]
   );
+
+  const loadMoreVentas = useCallback(async () => {
+    if (!hasMore || loadingMoreRef.current || debouncedQ.trim()) return;
+    if (!empresaActivaId) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    const offset = rowsRawRef.current.length;
+    const currentEstado = loadedEstadoRef.current;
+    try {
+      const { data, error } = await supabase
+        .from("ventas")
+        .select(
+          `id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada,
+          ventas_tags!ventas_tags_venta_id_fkey(tag,removed_at),
+          ventas_facturas!ventas_facturas_venta_id_fkey(numero_factura)`
+        )
+        .eq("empresa_id", empresaActivaId)
+        .eq("estado", currentEstado!)
+        .order("fecha", { ascending: false })
+        .range(offset, offset + PAGE_SIZE - 1);
+      if (error) throw error;
+
+      const raw = (data ?? []) as any[];
+      const newRows: VentaRow[] = raw.map(({ ventas_tags: _t, ventas_facturas: _f, ...rest }) => rest as VentaRow);
+
+      const newTagMap: Record<string, string[]> = {};
+      const newFacturasMap: Record<string, string[]> = {};
+      raw.forEach((r: any) => {
+        const vid = String(r.id);
+        (r.ventas_tags ?? []).forEach((tr: any) => {
+          if (tr.removed_at != null) return;
+          const tg = String(tr.tag ?? "").trim().toUpperCase();
+          if (!tg) return;
+          if (!newTagMap[vid]) newTagMap[vid] = [];
+          newTagMap[vid].push(tg);
+        });
+        (r.ventas_facturas ?? []).forEach((fr: any) => {
+          const num = String(fr.numero_factura ?? "").trim();
+          if (!num) return;
+          const bucket = newFacturasMap[vid] ?? (newFacturasMap[vid] = []);
+          if (!bucket.includes(num)) bucket.push(num);
+        });
+      });
+
+      setRowsRaw((prev) => [...prev, ...newRows]);
+      setTagsByVenta((prev) => ({ ...prev, ...newTagMap }));
+      setFacturasByVenta((prev) => ({ ...prev, ...newFacturasMap }));
+      setHasMore(raw.length === PAGE_SIZE);
+    } catch {
+      // silencioso — el usuario puede seguir viendo lo que ya cargó
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [hasMore, debouncedQ, empresaActivaId, PAGE_SIZE]);
 
   const loadEstado = useCallback(
     (targetEstado: Estado): Promise<void> => {
@@ -992,6 +1053,13 @@ export default function Ventas() {
       automaticallyAdjustKeyboardInsets
       renderItem={renderItem}
       renderSectionHeader={renderSectionHeader}
+      onEndReached={loadMoreVentas}
+      onEndReachedThreshold={0.3}
+      ListFooterComponent={
+        loadingMore ? (
+          <ActivityIndicator size="small" color={C.tint} style={{ marginVertical: 16 }} />
+        ) : null
+      }
       ListHeaderComponent={
         <View pointerEvents="none" style={{ height: 18, marginBottom: 8, justifyContent: "center" }}>
           <Text

@@ -17,6 +17,7 @@ import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   SectionList,
   Modal,
   Platform,
@@ -232,6 +233,12 @@ export default function ComprasScreen() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const PAGE_SIZE = 50;
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadingMoreRef = useRef(false);
+  const rawOffsetRef = useRef(0);
+
   const hasLoadedOnceRef = useRef(false);
   const hasAnyRowsRef = useRef(false);
   // ─── Protección contra respuestas fuera de orden ──────────────────────────
@@ -316,6 +323,8 @@ export default function ComprasScreen() {
     const mySeq = requestSeqRef.current;
 
     if (!empresaActivaId) return;
+    rawOffsetRef.current = 0;
+
     let req = supabase
       .from("compras")
       .select(
@@ -323,7 +332,7 @@ export default function ComprasScreen() {
       )
       .eq("empresa_id", empresaActivaId)
       .order("fecha", { ascending: false })
-      .limit(300);
+      .range(0, PAGE_SIZE - 1);
 
     if (dq) { const safe = safeIlike(dq); req = req.or(`proveedor.ilike.%${safe}%,numero_factura.ilike.%${safe}%`); }
 
@@ -342,8 +351,46 @@ export default function ComprasScreen() {
       return;
     }
     setErrorMsg(null);
-    setRowsRaw((data ?? []) as CompraRow[]);
+    const fetched = (data ?? []) as CompraRow[];
+    rawOffsetRef.current = fetched.length;
+    setHasMore(fetched.length === PAGE_SIZE);
+    setRowsRaw(fetched);
   }, [dq, fProveedorId, fDesde, fHasta, empresaActivaId]);
+
+  const loadMoreCompras = useCallback(async () => {
+    if (loadingMoreRef.current || !hasMore || !empresaActivaId) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const from = rawOffsetRef.current;
+      const to = from + PAGE_SIZE - 1;
+      let req = supabase
+        .from("compras")
+        .select(
+          "id,fecha,proveedor,proveedor_id,numero_factura,tipo_pago,fecha_vencimiento,monto_total,saldo_pendiente,estado"
+        )
+        .eq("empresa_id", empresaActivaId)
+        .order("fecha", { ascending: false })
+        .range(from, to);
+
+      if (dq) { const safe = safeIlike(dq); req = req.or(`proveedor.ilike.%${safe}%,numero_factura.ilike.%${safe}%`); }
+      if (fProveedorId) req = req.eq("proveedor_id", fProveedorId);
+      if (fDesde) req = req.gte("fecha", startOfDay(fDesde).toISOString());
+      if (fHasta) req = req.lte("fecha", endOfDay(fHasta).toISOString());
+
+      const { data, error } = await req;
+      if (error) throw error;
+      const fetched = (data ?? []) as CompraRow[];
+      rawOffsetRef.current += fetched.length;
+      setHasMore(fetched.length === PAGE_SIZE);
+      setRowsRaw((prev) => [...prev, ...fetched]);
+    } catch {
+      // silently ignore
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [hasMore, empresaActivaId, dq, fProveedorId, fDesde, fHasta]);
 
   useFocusEffect(
     useCallback(() => {
@@ -576,6 +623,8 @@ export default function ComprasScreen() {
                 windowSize={7}
                 updateCellsBatchingPeriod={50}
                 removeClippedSubviews={Platform.OS === "android"}
+                onEndReached={loadMoreCompras}
+                onEndReachedThreshold={0.3}
                 contentContainerStyle={{
                   paddingHorizontal: 12,
                   paddingTop: 12,
@@ -589,6 +638,7 @@ export default function ComprasScreen() {
                     </View>
                   ) : null
                 }
+                ListFooterComponent={loadingMore ? <ActivityIndicator style={{ margin: 16 }} /> : null}
               />
               {canManage ? (
                 <Pressable
@@ -671,6 +721,8 @@ export default function ComprasScreen() {
               maxToRenderPerBatch={12}
               windowSize={7}
               updateCellsBatchingPeriod={50}
+              onEndReached={loadMoreCompras}
+              onEndReachedThreshold={0.3}
               contentContainerStyle={{
                 paddingHorizontal: 12,
                 paddingTop: 12,
@@ -684,6 +736,7 @@ export default function ComprasScreen() {
                   </View>
                 ) : null
               }
+              ListFooterComponent={loadingMore ? <ActivityIndicator style={{ margin: 16 }} /> : null}
             />
           </>
         )}
