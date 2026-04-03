@@ -115,7 +115,7 @@ export default function InventarioScreen() {
   const requestSeq = useRef(0);
 
   // Ref para siempre tener la última versión de loadFirst sin que useFocusEffect se re-dispare
-  const loadFirstRef = useRef(loadFirst);
+  const loadFirstRef = useRef<() => Promise<void>>(async () => {});
   useEffect(() => { loadFirstRef.current = loadFirst; });
 
   // Para que el useEffect de filtros no cargue en el primer render (useFocusEffect lo hace)
