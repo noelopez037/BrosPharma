@@ -42,7 +42,7 @@ import { fmtQ, fmtDate } from "../../lib/utils/format";
 import { normalizeUpper } from "../../lib/utils/text";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
-type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
+type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "MENSAJERO" | "";
 
 type Venta = {
   id: number;
@@ -408,19 +408,19 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
   const [enRutaLoading, setEnRutaLoading] = useState(false);
   const [entregarLoading, setEntregarLoading] = useState(false);
 
-  const canViewRecetaTools = roleUp === "ADMIN" || roleUp === "FACTURACION" || roleUp === "VENTAS";
+  const canViewRecetaTools = roleUp === "ADMIN" || roleUp === "FACTURACION" || roleUp === "VENTAS" || roleUp === "MENSAJERO";
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerUrl, setViewerUrl] = useState<string | null>(null);
   const viewerOpacity = useRef(new Animated.Value(0)).current;
   const viewerScale = useRef(new Animated.Value(0.98)).current;
 
   const canSplitIva = roleUp === "ADMIN" || roleUp === "FACTURACION";
-  const canEditRecetas = roleUp === "ADMIN" || roleUp === "VENTAS";
+  const canEditRecetas = roleUp === "ADMIN" || roleUp === "VENTAS" || roleUp === "MENSAJERO";
   const canFacturar = roleUp === "ADMIN" || roleUp === "FACTURACION";
-  const canVerFacturas = roleUp === "ADMIN" || roleUp === "FACTURACION" || roleUp === "VENTAS";
+  const canVerFacturas = roleUp === "ADMIN" || roleUp === "FACTURACION" || roleUp === "VENTAS" || roleUp === "MENSAJERO";
   const canBodega = roleUp === "ADMIN" || roleUp === "BODEGA";
-  const canEntregar = roleUp === "ADMIN" || roleUp === "BODEGA" || roleUp === "VENTAS";
-  const canSolicitar = roleUp === "VENTAS" || roleUp === "ADMIN";
+  const canEntregar = roleUp === "ADMIN" || roleUp === "BODEGA" || roleUp === "VENTAS" || roleUp === "MENSAJERO";
+  const canSolicitar = roleUp === "VENTAS" || roleUp === "ADMIN" || roleUp === "MENSAJERO";
 
   // When venta status changes (after actions), return to Ventas list.
   const lastEstadoRef = useRef<string | null>(null);

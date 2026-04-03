@@ -246,11 +246,11 @@ export default function DrawerLayout() {
   // Mostrar "Solicitudes" solo a administradores.
   // Antes se mostraba también a VENTAS; cambiar para que solo ADMIN lo vea.
   const showSolicitudes = role === "ADMIN";
-  const showAnuladas = role === "ADMIN" || role === "BODEGA" || role === "FACTURACION" || role === "VENTAS";
-  const showCuentasPorCobrar = role === "ADMIN" || role === "VENTAS";
-  const showComisiones = role === "ADMIN" || role === "VENTAS";
+  const showAnuladas = role === "ADMIN" || role === "BODEGA" || role === "FACTURACION" || role === "VENTAS" || role === "MENSAJERO";
+  const showCuentasPorCobrar = role === "ADMIN" || role === "VENTAS" || role === "MENSAJERO";
+  const showComisiones = role === "ADMIN" || role === "VENTAS" || role === "MENSAJERO";
   const showReportes = role === "ADMIN";
-  const canSeeRecetas = role === "ADMIN" || role === "VENTAS";
+  const canSeeRecetas = role === "ADMIN" || role === "VENTAS" || role === "MENSAJERO";
 
   const webNavItems = useMemo(() => {
     const items = [

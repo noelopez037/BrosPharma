@@ -36,7 +36,7 @@ import { FB_DARK_DANGER } from "../src/theme/headerColors";
 
 const BUCKET_VENTAS_DOCS = "Ventas-Docs";
 
-type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
+type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "MENSAJERO" | "";
 
 export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {}) {
   const DONE_ID = "doneAccessory";
@@ -403,7 +403,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
   );
 
   const roleUp = normalizeUpper(role) as Role;
-  const canCreate = roleUp === "VENTAS" || roleUp === "ADMIN";
+  const canCreate = roleUp === "VENTAS" || roleUp === "ADMIN" || roleUp === "MENSAJERO";
   const canEditNow = !loadingEdit && !saving;
 
   React.useEffect(() => {

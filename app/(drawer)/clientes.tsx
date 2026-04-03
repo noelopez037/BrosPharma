@@ -23,7 +23,7 @@ import { useResumeLoad } from "../../lib/useResumeLoad";
 import { ClienteDetallePanel } from "../../components/clientes/ClienteDetallePanel";
 import { normalizeUpper, safeIlike } from "../../lib/utils/text";
 
-type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
+type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "MENSAJERO" | "";
 
 type ClienteRow = {
   id: number;
@@ -203,7 +203,7 @@ export default function ClientesScreen() {
         )
         .eq("empresa_id", empresaActivaId)
         .order("nombre", { ascending: true })
-        .limit(500);
+        .limit(300);
 
       if (!isAdminNow || !showInactive) req = req.eq("activo", true);
 
@@ -388,6 +388,11 @@ export default function ClientesScreen() {
                   paddingTop: 12,
                   paddingBottom: 16 + bottomRail,
                 }}
+                initialNumToRender={12}
+                maxToRenderPerBatch={10}
+                updateCellsBatchingPeriod={50}
+                windowSize={7}
+                removeClippedSubviews={Platform.OS === "android"}
               />
             </View>
             <View style={s.splitDetailPane}>
@@ -480,6 +485,11 @@ export default function ClientesScreen() {
                 paddingTop: 12,
                 paddingBottom: 16 + bottomRail,
               }}
+              initialNumToRender={12}
+              maxToRenderPerBatch={10}
+              updateCellsBatchingPeriod={50}
+              windowSize={7}
+              removeClippedSubviews={Platform.OS === "android"}
             />
           </>
         )}

@@ -20,7 +20,7 @@ import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../lib/useResumeLoad";
 import { normalizeUpper } from "../../lib/utils/text";
 
-type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
+type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "MENSAJERO" | "";
 
 type ClienteRow = {
   id: number;

@@ -322,7 +322,8 @@ export default function ComprasScreen() {
         "id,fecha,proveedor,proveedor_id,numero_factura,tipo_pago,fecha_vencimiento,monto_total,saldo_pendiente,estado"
       )
       .eq("empresa_id", empresaActivaId)
-      .order("fecha", { ascending: false });
+      .order("fecha", { ascending: false })
+      .limit(300);
 
     if (dq) { const safe = safeIlike(dq); req = req.or(`proveedor.ilike.%${safe}%,numero_factura.ilike.%${safe}%`); }
 
@@ -574,6 +575,7 @@ export default function ComprasScreen() {
                 maxToRenderPerBatch={12}
                 windowSize={7}
                 updateCellsBatchingPeriod={50}
+                removeClippedSubviews={Platform.OS === "android"}
                 contentContainerStyle={{
                   paddingHorizontal: 12,
                   paddingTop: 12,

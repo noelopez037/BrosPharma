@@ -28,7 +28,7 @@ import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../lib/useResumeLoad";
 import { normalizeUpper, safeIlike } from "../../lib/utils/text";
 
-type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "";
+type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "MENSAJERO" | "";
 
 type ProductoPick = {
   id: number;
@@ -629,6 +629,11 @@ export default function KardexScreen() {
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
             automaticallyAdjustKeyboardInsets
+            initialNumToRender={15}
+            maxToRenderPerBatch={10}
+            updateCellsBatchingPeriod={50}
+            windowSize={7}
+            removeClippedSubviews={Platform.OS === "android"}
             contentContainerStyle={{
               paddingHorizontal: 12,
               paddingTop: 12,
@@ -918,6 +923,11 @@ export default function KardexScreen() {
                         data={prodRows}
                         keyExtractor={(it) => String(it.id)}
                         keyboardShouldPersistTaps="handled"
+                        initialNumToRender={10}
+                        maxToRenderPerBatch={10}
+                        updateCellsBatchingPeriod={50}
+                        windowSize={5}
+                        removeClippedSubviews={Platform.OS === "android"}
                         renderItem={({ item }) => (
                           <Pressable
                             onPress={() => {

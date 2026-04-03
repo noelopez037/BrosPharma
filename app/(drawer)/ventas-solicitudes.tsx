@@ -31,7 +31,7 @@ import { fmtQ, fmtDateTime } from "../../lib/utils/format";
 import { normalizeUpper } from "../../lib/utils/text";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
-type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "";
+type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "MENSAJERO" | "";
 
 type SolicitudRow = {
   venta_id: number;
@@ -679,6 +679,11 @@ export default function VentasSolicitudesScreen() {
         keyboardDismissMode="on-drag"
         automaticallyAdjustKeyboardInsets
         contentContainerStyle={{ paddingBottom: 24, paddingTop: 4 }}
+        initialNumToRender={12}
+        maxToRenderPerBatch={10}
+        updateCellsBatchingPeriod={50}
+        windowSize={7}
+        removeClippedSubviews={Platform.OS === "android"}
         renderItem={renderItem}
         ListEmptyComponent={
           <Text style={{ padding: 16, color: C.sub, fontWeight: "700" }}>

@@ -70,8 +70,15 @@
         }
       ],
       "@react-native-community/datetimepicker",
-      "expo-asset"
+      "expo-asset",
+      "expo-updates"
     ],
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/80650541-9f6c-4199-b66f-ae8286935589"
+    },
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": false

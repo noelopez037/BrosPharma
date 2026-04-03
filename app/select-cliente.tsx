@@ -26,7 +26,7 @@ import { goBackSafe } from "../lib/goBackSafe";
 import { normalizeUpper, safeIlike } from "../lib/utils/text";
 import { getHeaderColors } from "../src/theme/headerColors";
 
-type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
+type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "MENSAJERO" | "";
 
 type ClienteRow = {
   id: number;
@@ -86,8 +86,8 @@ export default function SelectCliente() {
   const { role, uid, isReady, refreshRole } = useRole();
   const { empresaActivaId } = useEmpresaActiva();
   const roleUp = String(role ?? "").trim().toUpperCase() as Role;
-  const isVentas = isReady && roleUp === "VENTAS";
-  const canCreateCliente = isReady && (roleUp === "ADMIN" || roleUp === "VENTAS");
+  const isVentas = isReady && (roleUp === "VENTAS" || roleUp === "MENSAJERO");
+  const canCreateCliente = isReady && (roleUp === "ADMIN" || roleUp === "VENTAS" || roleUp === "MENSAJERO");
 
   const [mode, setMode] = useState<"LISTA" | "CREAR">("LISTA");
   const [newNombre, setNewNombre] = useState("");

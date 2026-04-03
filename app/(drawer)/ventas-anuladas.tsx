@@ -18,7 +18,7 @@ import { useResumeLoad } from "../../lib/useResumeLoad";
 import { fmtDateLongEs } from "../../lib/utils/format";
 import { normalizeUpper, safeIlike } from "../../lib/utils/text";
 
-type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "";
+type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "MENSAJERO" | "";
 
 type VentaRow = {
   id: number;
@@ -388,6 +388,11 @@ export default function VentasAnuladasScreen() {
                 automaticallyAdjustKeyboardInsets
                 stickySectionHeadersEnabled={true}
                 contentContainerStyle={{ paddingBottom: 24, paddingTop: 6 }}
+                initialNumToRender={10}
+                maxToRenderPerBatch={10}
+                updateCellsBatchingPeriod={50}
+                windowSize={7}
+                removeClippedSubviews={Platform.OS === "android"}
                 renderSectionHeader={({ section }) => (
                   <View style={[styles.sectionHeader, { backgroundColor: C.bg, alignItems: "flex-end" }]}>
                     <Text style={[styles.sectionHeaderText, { color: C.sub, textAlign: "right" }]}>
@@ -453,6 +458,11 @@ export default function VentasAnuladasScreen() {
               automaticallyAdjustKeyboardInsets
               stickySectionHeadersEnabled={true}
               contentContainerStyle={{ paddingBottom: 24, paddingTop: 6 }}
+              initialNumToRender={10}
+              maxToRenderPerBatch={10}
+              updateCellsBatchingPeriod={50}
+              windowSize={7}
+              removeClippedSubviews={Platform.OS === "android"}
               renderSectionHeader={({ section }) => (
                 <View style={[styles.sectionHeader, { backgroundColor: C.bg, alignItems: "flex-end" }]}>
                   <Text style={[styles.sectionHeaderText, { color: C.sub, textAlign: "right" }]}>

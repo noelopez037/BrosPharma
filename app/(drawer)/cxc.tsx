@@ -645,6 +645,11 @@ export default function CuentasPorCobrarScreen() {
                 keyboardDismissMode="on-drag"
                 automaticallyAdjustKeyboardInsets
                 contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 16 + insets.bottom }}
+                initialNumToRender={12}
+                maxToRenderPerBatch={10}
+                updateCellsBatchingPeriod={50}
+                windowSize={7}
+                removeClippedSubviews={Platform.OS === "android"}
                 renderSectionHeader={({ section }) => (
                   <View style={[s.sectionHeader, { backgroundColor: colors.background, alignItems: "flex-end" }]}>
                     <Text style={[s.sectionHeaderText, { color: M.sub, textAlign: "right" }]}>
@@ -684,6 +689,11 @@ export default function CuentasPorCobrarScreen() {
               keyboardDismissMode="on-drag"
               automaticallyAdjustKeyboardInsets
               contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: 16 + insets.bottom }}
+              initialNumToRender={12}
+              maxToRenderPerBatch={10}
+              updateCellsBatchingPeriod={50}
+              windowSize={7}
+              removeClippedSubviews={Platform.OS === "android"}
               renderSectionHeader={({ section }) => (
                 <View style={[s.sectionHeader, { backgroundColor: colors.background, alignItems: "flex-end" }]}>
                   <Text style={[s.sectionHeaderText, { color: M.sub, textAlign: "right" }]}>

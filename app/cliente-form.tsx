@@ -26,7 +26,7 @@ import { goBackSafe } from "../lib/goBackSafe";
 import { normalizeUpper } from "../lib/utils/text";
 import { FB_DARK_DANGER } from "../src/theme/headerColors";
 
-type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
+type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "MENSAJERO" | "";
 
 type ClienteRow = {
   id: number;

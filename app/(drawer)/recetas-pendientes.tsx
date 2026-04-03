@@ -663,6 +663,11 @@ export default function RecetasPendientesScreen() {
         automaticallyAdjustKeyboardInsets
         refreshing={refreshing}
         onRefresh={onRefresh}
+        initialNumToRender={12}
+        maxToRenderPerBatch={10}
+        updateCellsBatchingPeriod={50}
+        windowSize={7}
+        removeClippedSubviews={Platform.OS === "android"}
         renderItem={renderRecetaItem}
         ListEmptyComponent={
           <Text style={{ padding: 16, color: C.sub, fontWeight: "700" }}>{initialLoading || listLoading ? "Cargando..." : "Sin ventas"}</Text>

@@ -30,7 +30,7 @@ import { normalizeUpper, safeIlike } from "../../../lib/utils/text";
 import { fmtDate } from "../../../lib/utils/format";
 import { FB_DARK_DANGER } from "../../../src/theme/headerColors";
 
-type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "";
+type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "MENSAJERO" | "";
 type Estado = "NUEVO" | "FACTURADO" | "EN_RUTA" | "ENTREGADO";
 
 type Chip = { label: string; tone: "neutral" | "red" | "amber" };
@@ -322,7 +322,7 @@ export default function Ventas() {
   const { role, refreshRole } = useRole();
   const { empresaActivaId } = useEmpresaActiva();
   const roleUp = normalizeUpper(role) as Role;
-  const canCreate = roleUp === "VENTAS" || roleUp === "ADMIN";
+  const canCreate = roleUp === "VENTAS" || roleUp === "ADMIN" || roleUp === "MENSAJERO";
 
   const [estado, setEstado] = useState<Estado>("NUEVO");
   const [q, setQ] = useState("");
