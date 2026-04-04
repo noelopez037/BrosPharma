@@ -280,14 +280,11 @@ export default function CuentasPorCobrarScreen() {
   const fetchRows = useCallback(async (): Promise<CxCRow[]> => {
     if (!uid) return [];
 
-    const { data, error } =
-      roleUp === "ADMIN"
-        ? await supabase.rpc("rpc_cxc_ventas", { p_empresa_id: empresaActivaId, p_vendedor_id: fVendedorId })
-        : await supabase.rpc("rpc_cxc_ventas", { p_empresa_id: empresaActivaId });
+    const { data, error } = await supabase.rpc("rpc_cxc_ventas", { p_empresa_id: empresaActivaId });
 
     if (error) throw error;
     return (data ?? []) as CxCRow[];
-  }, [empresaActivaId, fVendedorId, roleUp, uid]);
+  }, [empresaActivaId, roleUp, uid]);
 
   useFocusEffect(
     useCallback(() => {
@@ -366,6 +363,7 @@ export default function CuentasPorCobrarScreen() {
     const hastaMs = fHasta ? endOfDay(fHasta).getTime() : null;
 
     const filtered = rowsRaw.filter((r) => {
+      if (fVendedorId && String(r.vendedor_id ?? "") !== fVendedorId) return false;
       if (fClienteId && Number(r.cliente_id ?? 0) !== fClienteId) return false;
 
       const rowDateMs = r.fecha ? new Date(r.fecha).getTime() : null;
@@ -400,7 +398,7 @@ export default function CuentasPorCobrarScreen() {
     }
 
     return result;
-  }, [rowsRaw, fPago, fClienteId, fDesde, fHasta, dq]);
+  }, [rowsRaw, fVendedorId, fPago, fClienteId, fDesde, fHasta, dq]);
 
   const sections = useMemo<CxcSection[]>(() => {
     const map = new Map<string, CxCRow[]>();
