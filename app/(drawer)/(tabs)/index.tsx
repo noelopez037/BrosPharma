@@ -1101,13 +1101,15 @@ export default function Inicio() {
         ]}
       >
         <View style={{ minHeight: 30 }}>
-          <Text style={[s.kpiLabel, { color: C.sub }]}>
+          <Text style={[s.kpiLabel, { color: C.sub }]} numberOfLines={2}>
             {props.label}
           </Text>
         </View>
         <Text
           style={[s.kpiValue, { color: valColor }, props.valueSize ? { fontSize: props.valueSize } : null]}
           numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.55}
         >
           {props.value}
         </Text>
