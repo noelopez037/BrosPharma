@@ -3,7 +3,7 @@ export function fmtQ(n: string | number | null | undefined): string {
   if (n == null) return "—";
   const x = Number(n);
   if (!Number.isFinite(x)) return "—";
-  return `Q ${x.toFixed(2)}`;
+  return `Q ${x.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 /** Extrae YYYY-MM-DD de un ISO string. Retorna "—" si vacío. */
