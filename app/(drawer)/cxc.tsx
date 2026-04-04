@@ -3,7 +3,6 @@ import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Modal,
   Platform,
@@ -138,24 +137,17 @@ export default function CuentasPorCobrarScreen() {
   const [q, setQ] = useState("");
   const dq = useDebouncedValue(q.trim(), 250);
 
-  const PAGE_SIZE = 100;
-
   const [rowsRaw, setRowsRaw] = useState<CxCRow[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
 
   const fetchTokenRef = useRef(0);
-  const loadingMoreRef = useRef(false);
-  const rowsRawRef = useRef<CxCRow[]>([]);
 
   const hasLoadedOnceRef = useRef(false);
   const hasAnyRowsRef = useRef(false);
   useEffect(() => {
-    rowsRawRef.current = rowsRaw;
     hasAnyRowsRef.current = rowsRaw.length > 0;
-  }, [rowsRaw]);
+  }, [rowsRaw.length]);
 
   // filters
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -285,17 +277,17 @@ export default function CuentasPorCobrarScreen() {
     return (clientes ?? []).filter((c) => String(c.nombre ?? "").toLowerCase().includes(q) || String(c.id ?? "").includes(q));
   }, [clientes, fClienteQ]);
 
-  const fetchRows = useCallback(async (offset: number = 0): Promise<CxCRow[]> => {
+  const fetchRows = useCallback(async (): Promise<CxCRow[]> => {
     if (!uid) return [];
 
     const { data, error } =
       roleUp === "ADMIN"
-        ? await supabase.rpc("rpc_cxc_ventas", { p_empresa_id: empresaActivaId, p_vendedor_id: fVendedorId, p_limit: PAGE_SIZE, p_offset: offset })
-        : await supabase.rpc("rpc_cxc_ventas", { p_empresa_id: empresaActivaId, p_limit: PAGE_SIZE, p_offset: offset });
+        ? await supabase.rpc("rpc_cxc_ventas", { p_empresa_id: empresaActivaId, p_vendedor_id: fVendedorId })
+        : await supabase.rpc("rpc_cxc_ventas", { p_empresa_id: empresaActivaId });
 
     if (error) throw error;
     return (data ?? []) as CxCRow[];
-  }, [empresaActivaId, fVendedorId, roleUp, uid, PAGE_SIZE]);
+  }, [empresaActivaId, fVendedorId, roleUp, uid]);
 
   useFocusEffect(
     useCallback(() => {
@@ -323,11 +315,9 @@ export default function CuentasPorCobrarScreen() {
         try {
           if (showLoading) setInitialLoading(true);
           setLoadError(null);
-          setHasMore(false);
-          const next = await fetchRows(0);
+          const next = await fetchRows();
           if (fetchTokenRef.current !== token) return;
           setRowsRaw(next);
-          setHasMore(next.length === PAGE_SIZE);
           hasLoadedOnceRef.current = true;
         } finally {
           if (fetchTokenRef.current === token) setInitialLoading(false);
@@ -349,31 +339,13 @@ export default function CuentasPorCobrarScreen() {
   useResumeLoad(empresaActivaId, () => {
     void (async () => {
       try {
-        const next = await fetchRows(0);
+        const next = await fetchRows();
         setRowsRaw(next);
-        setHasMore(next.length === PAGE_SIZE);
       } catch (e: any) {
         if (__DEV__) console.warn("[cxc] resume fetch error:", e?.message ?? e);
       }
     })();
   });
-
-  const loadMoreRows = useCallback(async () => {
-    if (!hasMore || loadingMoreRef.current || dq) return;
-    loadingMoreRef.current = true;
-    setLoadingMore(true);
-    const offset = rowsRawRef.current.length;
-    try {
-      const next = await fetchRows(offset);
-      setRowsRaw((prev) => [...prev, ...next]);
-      setHasMore(next.length === PAGE_SIZE);
-    } catch {
-      // silencioso — el usuario puede seguir viendo lo que ya cargó
-    } finally {
-      loadingMoreRef.current = false;
-      setLoadingMore(false);
-    }
-  }, [hasMore, dq, fetchRows, PAGE_SIZE]);
 
   const badge = (c: CxCRow) => {
     const saldoNum = Number(c.saldo);
@@ -645,7 +617,7 @@ export default function CuentasPorCobrarScreen() {
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
         {canSplit ? (
           <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.background }}>
-            <View style={{ width: 420, maxWidth: 420, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: colors.border, backgroundColor: colors.background }}>
+            <View style={{ width: 420, maxWidth: 420, flex: 1, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: colors.border, backgroundColor: colors.background }}>
               <View style={[s.stickyTop, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
                 {stickyTopContent}
               </View>
@@ -664,9 +636,7 @@ export default function CuentasPorCobrarScreen() {
                 updateCellsBatchingPeriod={50}
                 windowSize={Platform.OS === "web" ? 999 : 21}
                 removeClippedSubviews={Platform.OS === "android"}
-                onEndReached={loadMoreRows}
-                onEndReachedThreshold={0.3}
-                ListFooterComponent={loadingMore ? <ActivityIndicator style={{ margin: 16 }} /> : null}
+
                 renderSectionHeader={({ section }) => (
                   <View style={[s.sectionHeader, { backgroundColor: colors.background, alignItems: "flex-end" }]}>
                     <Text style={[s.sectionHeaderText, { color: M.sub, textAlign: "right" }]}>
@@ -711,9 +681,6 @@ export default function CuentasPorCobrarScreen() {
               updateCellsBatchingPeriod={50}
               windowSize={Platform.OS === "web" ? 999 : 21}
               removeClippedSubviews={Platform.OS === "android"}
-              onEndReached={loadMoreRows}
-              onEndReachedThreshold={0.3}
-              ListFooterComponent={loadingMore ? <ActivityIndicator style={{ margin: 16 }} /> : null}
               renderSectionHeader={({ section }) => (
                 <View style={[s.sectionHeader, { backgroundColor: colors.background, alignItems: "flex-end" }]}>
                   <Text style={[s.sectionHeaderText, { color: M.sub, textAlign: "right" }]}>
