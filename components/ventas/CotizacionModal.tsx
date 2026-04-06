@@ -104,7 +104,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     flex: 1,
-    fontSize: 17,
+    fontSize: Platform.OS === "web" ? 17 : 15,
     fontWeight: "700",
     textAlign: "center",
   },
@@ -113,7 +113,7 @@ const styles = StyleSheet.create({
   },
   closeBtnPlaceholder: { width: 32 },
   closeText: {
-    fontSize: 16,
+    fontSize: Platform.OS === "web" ? 16 : 14,
     fontWeight: "600",
   },
 });

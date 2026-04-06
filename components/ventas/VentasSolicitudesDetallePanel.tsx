@@ -942,7 +942,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 10,
   },
-  h1: { fontSize: 20, fontWeight: "700", letterSpacing: -0.2, lineHeight: 24 },
+  h1: { fontSize: Platform.OS === "web" ? 20 : 16, fontWeight: "700", letterSpacing: -0.2, lineHeight: 24 },
   badgePill: {
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 10,
@@ -962,7 +962,7 @@ const styles = StyleSheet.create({
   v: { marginTop: 3, fontSize: 14, fontWeight: "600", lineHeight: 18 },
   sectionTitle: {
     marginTop: 18,
-    fontSize: 18,
+    fontSize: Platform.OS === "web" ? 18 : 15,
     fontWeight: "700",
     letterSpacing: -0.2,
   },

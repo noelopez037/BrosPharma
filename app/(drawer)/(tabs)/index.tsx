@@ -19,7 +19,7 @@ import { alphaColor } from "../../../lib/ui";
 import { useRole } from "../../../lib/useRole";
 import { useEmpresaActiva } from "../../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../../lib/useResumeLoad";
-import { fmtQ, fmtDate, pad2 } from "../../../lib/utils/format";
+import { fmtQ, fmtDate, pad2, toGTDateKey } from "../../../lib/utils/format";
 import { normalizeUpper } from "../../../lib/utils/text";
 import { FB_DARK_DANGER } from "../../../src/theme/headerColors";
 
@@ -662,7 +662,7 @@ export default function Inicio() {
     const year = now.getFullYear();
     const inicioAno = new Date(year, 0, 1).toISOString();
     const finAno = new Date(year + 1, 0, 1).toISOString();
-    const hoyStr = now.toISOString().split("T")[0];
+    const hoyStr = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Guatemala" }).format(now);
 
     // 1. Ventas del año para calcular misVentasHoy y el gráfico de 12 meses
     const { data: ventasAnoRaw, error: v1Err } = await supabase
@@ -690,7 +690,7 @@ export default function Inicio() {
     const ventasAno = (ventasAnoRaw ?? []).filter((v: any) => !anuladasIds.has(Number(v.id)));
 
     const misVentasHoy = ventasAno.filter(
-      (v: any) => String(v.fecha ?? "").slice(0, 10) === hoyStr
+      (v: any) => toGTDateKey(v.fecha ?? "") === hoyStr
     ).length;
 
     const ventasIds = ventasAno.map((v: any) => Number(v.id));
@@ -712,7 +712,7 @@ export default function Inicio() {
       (detalles ?? []).forEach((d: any) => {
         const fecha = fechaMap[Number(d.venta_id)];
         if (!fecha) return;
-        const m = new Date(fecha).getMonth(); // 0-indexed
+        const m = new Date(`${toGTDateKey(fecha) || fecha.slice(0, 10)}T12:00:00`).getMonth(); // 0-indexed, GT
         if (m >= 0 && m < 12) ventasMes[m] += Number(d.subtotal ?? 0);
       });
     }
@@ -1515,7 +1515,7 @@ export default function Inicio() {
               renderRowLink({
                 k: `pend-${v.id}`,
                 title: v.cliente_nombre ?? "—",
-                sub: `${fmtDate(v.fecha)} • ${v.vendedor_codigo ?? "—"}`,
+                sub: `${toGTDateKey(v.fecha) || "—"} • ${v.vendedor_codigo ?? "—"}`,
                 onPress: () =>
                   router.push({
                     pathname: "/venta-detalle",

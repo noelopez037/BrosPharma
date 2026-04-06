@@ -105,8 +105,8 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  headerTitle: { flex: 1, fontSize: 17, fontWeight: "700", textAlign: "center" },
+  headerTitle: { flex: 1, fontSize: Platform.OS === "web" ? 17 : 15, fontWeight: "700", textAlign: "center" },
   closeBtn: { padding: 8 },
   closeBtnPlaceholder: { width: 32 },
-  closeText: { fontSize: 16, fontWeight: "600" },
+  closeText: { fontSize: Platform.OS === "web" ? 16 : 14, fontWeight: "600" },
 });

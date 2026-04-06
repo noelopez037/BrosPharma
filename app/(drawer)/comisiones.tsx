@@ -24,7 +24,7 @@ import { useThemePref } from "../../lib/themePreference";
 import { useRole } from "../../lib/useRole";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../lib/useResumeLoad";
-import { fmtQ, fmtDateLongEs, pad2 } from "../../lib/utils/format";
+import { fmtQ, fmtDateLongEs, pad2, toGTDateKey } from "../../lib/utils/format";
 import { normalizeUpper } from "../../lib/utils/text";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
@@ -428,7 +428,7 @@ export default function ComisionesScreen() {
 
     const grouped = new Map<string, CxCVentaRow[]>();
     ventasPagadasRaw.forEach((venta) => {
-      const ymd = venta?.fecha_ultimo_pago ? String(venta.fecha_ultimo_pago).slice(0, 10) : "SIN_FECHA";
+      const ymd = venta?.fecha_ultimo_pago ? toGTDateKey(venta.fecha_ultimo_pago) || "SIN_FECHA" : "SIN_FECHA";
       if (!grouped.has(ymd)) grouped.set(ymd, []);
       grouped.get(ymd)!.push(venta);
     });
@@ -627,7 +627,7 @@ export default function ComisionesScreen() {
                   keyExtractor={(item) => String(item.venta_id)}
                   renderItem={renderVentaPagada}
                   renderSectionHeader={renderSectionHeader}
-                  stickySectionHeadersEnabled={Platform.OS !== "web"}
+                  stickySectionHeadersEnabled={false}
                   keyboardShouldPersistTaps="handled"
                   keyboardDismissMode="on-drag"
                   automaticallyAdjustKeyboardInsets
@@ -667,7 +667,7 @@ export default function ComisionesScreen() {
               keyExtractor={(item) => String(item.venta_id)}
               renderItem={renderVentaPagada}
               renderSectionHeader={renderSectionHeader}
-              stickySectionHeadersEnabled={Platform.OS !== "web"}
+              stickySectionHeadersEnabled={false}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
               automaticallyAdjustKeyboardInsets
@@ -844,7 +844,7 @@ function DDRow({
         pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
       ]}
     >
-      <Text style={{ fontSize: 16, fontWeight: "600", color: selected ? M.primary : M.text }} numberOfLines={1}>
+      <Text style={{ fontSize: Platform.OS === "web" ? 16 : 13, fontWeight: "600", color: selected ? M.primary : M.text }} numberOfLines={1}>
         {label}
       </Text>
     </Pressable>
@@ -866,7 +866,7 @@ const styles = (colors: any) =>
       alignItems: "center",
       justifyContent: "space-between",
     },
-    monthTxt: { color: colors.text, fontWeight: "800", fontSize: 16, flex: 1, paddingRight: 10 },
+    monthTxt: { color: colors.text, fontWeight: "800", fontSize: Platform.OS === "web" ? 16 : 14, flex: 1, paddingRight: 10 },
     monthCaret: { color: colors.text + "88", fontSize: 14, fontWeight: "900" },
 
     filterBtn: {
@@ -894,11 +894,11 @@ const styles = (colors: any) =>
       marginBottom: 10,
     },
     row: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
-    title: { color: colors.text, fontSize: 13, fontWeight: "800" },
+    title: { color: colors.text, fontSize: Platform.OS === "web" ? 13 : 12, fontWeight: "800" },
     sub: { color: colors.text + "AA", marginTop: 6, fontSize: 11 },
     total: { color: colors.text, fontWeight: "900", marginTop: 10, fontSize: 14 },
 
-    sectionTitle: { color: colors.text, fontSize: 15, fontWeight: "900" },
+    sectionTitle: { color: colors.text, fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "900" },
     sectionHeader: {
       paddingTop: 8,
       paddingBottom: 6,
@@ -929,7 +929,7 @@ const styles = (colors: any) =>
     },
     summaryItem: { flex: 1, paddingVertical: 10, paddingHorizontal: 14 },
     summaryLabel: { fontSize: 12, fontWeight: "700" as const, color: colors.text + "AA" },
-    summaryValue: { fontSize: 16, fontWeight: "900" as const, color: colors.text, marginTop: 2 },
+    summaryValue: { fontSize: Platform.OS === "web" ? 16 : 14, fontWeight: "900" as const, color: colors.text, marginTop: 2 },
     summaryDivider: {
       width: StyleSheet.hairlineWidth,
       backgroundColor: colors.border,
@@ -949,7 +949,7 @@ const styles = (colors: any) =>
       paddingVertical: 6,
       marginBottom: 4,
     },
-    ventasPagadasTitle: { fontSize: 15, fontWeight: "900" as const, color: colors.text },
+    ventasPagadasTitle: { fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "900" as const, color: colors.text },
 
     modalBackdrop: { ...StyleSheet.absoluteFillObject },
     modalCard: {
@@ -959,9 +959,9 @@ const styles = (colors: any) =>
       borderWidth: 1,
     },
     modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-    modalTitle: { fontSize: 22, fontWeight: "800" },
-    modalClose: { fontSize: 15, fontWeight: "700" },
-    sectionLabel: { marginTop: 12, fontSize: 15, fontWeight: "800" },
+    modalTitle: { fontSize: Platform.OS === "web" ? 22 : 18, fontWeight: "800" },
+    modalClose: { fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "700" },
+    sectionLabel: { marginTop: 12, fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "800" },
 
     dropdownInput: {
       marginTop: 8,
@@ -973,7 +973,7 @@ const styles = (colors: any) =>
       alignItems: "center",
       justifyContent: "space-between",
     },
-    dropdownText: { fontSize: 16, fontWeight: "600", flex: 1, paddingRight: 10 },
+    dropdownText: { fontSize: Platform.OS === "web" ? 16 : 14, fontWeight: "600", flex: 1, paddingRight: 10 },
     dropdownCaret: { fontSize: 14, fontWeight: "900" },
     dropdownPanel: { marginTop: 10, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
     iosPickerWrap: { borderWidth: 1, borderRadius: 12, overflow: "hidden" },

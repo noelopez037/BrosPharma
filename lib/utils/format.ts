@@ -12,6 +12,24 @@ export function fmtDate(iso: string | null | undefined): string {
   return String(iso).slice(0, 10);
 }
 
+/** Convierte un timestamp UTC a fecha local Guatemala (YYYY-MM-DD).
+ *  Guatemala siempre es UTC-6 sin DST.
+ *  Normaliza el formato de Supabase ("2026-04-06 03:00:57+00") antes de parsear.
+ */
+export function toGTDateKey(iso: string | null | undefined): string {
+  if (!iso) return "";
+  // Supabase returns "2026-04-06 03:00:57.123456+00" — normalize to valid ISO 8601
+  const normalized = String(iso)
+    .replace(" ", "T")          // space → T
+    .replace(/\+00$/, "+00:00") // +00 → +00:00
+    .replace(/\+00:00:00$/, "+00:00"); // just in case
+  const d = new Date(normalized);
+  if (!Number.isFinite(d.getTime())) return String(iso).slice(0, 10);
+  // Guatemala = UTC-6, no DST — subtract 6 hours then read UTC date
+  const gt = new Date(d.getTime() - 6 * 60 * 60 * 1000);
+  return gt.toISOString().slice(0, 10);
+}
+
 /** Formatea ISO datetime como "YYYY-MM-DD HH:MM". Retorna "—" si vacío. */
 export function fmtDateTime(iso: string | null | undefined): string {
   if (!iso) return "—";

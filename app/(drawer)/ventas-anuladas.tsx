@@ -15,7 +15,7 @@ import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 import { useRole } from "../../lib/useRole";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../lib/useResumeLoad";
-import { fmtDateLongEs } from "../../lib/utils/format";
+import { fmtDateLongEs, toGTDateKey } from "../../lib/utils/format";
 import { normalizeUpper, safeIlike } from "../../lib/utils/text";
 
 type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "MENSAJERO" | "";
@@ -319,7 +319,7 @@ export default function VentasAnuladasScreen() {
       }
 
       // fecha range filter using Date objects
-      const fechaIso = String(r.fecha ?? "").slice(0, 10);
+      const fechaIso = r.fecha ? toGTDateKey(r.fecha) : "";
       const fechaMs = fechaIso ? new Date(`${fechaIso}T12:00:00`).getTime() : null;
       if (fDesde) {
         const desdeMs = startOfDay(fDesde).getTime();
@@ -339,7 +339,7 @@ export default function VentasAnuladasScreen() {
     let lastKey: string | null = null;
 
     rows.forEach((r) => {
-      const ymd = r.fecha ? String(r.fecha).slice(0, 10) : "SIN_FECHA";
+      const ymd = r.fecha ? toGTDateKey(r.fecha) || "SIN_FECHA" : "SIN_FECHA";
       if (ymd !== lastKey) {
         out.push({ title: ymd, data: [] });
         lastKey = ymd;
@@ -351,6 +351,14 @@ export default function VentasAnuladasScreen() {
   }, [rows]);
 
   const hasActiveFilters = !!(fClienteId || fDesde || fHasta);
+
+  const renderAnuladaSectionHeader = useCallback(({ section }: { section: AnuladaSection }) => (
+    <View style={[styles.sectionHeader, { backgroundColor: C.bg, alignItems: "flex-end" }]}>
+      <Text style={[styles.sectionHeaderText, { color: C.sub, textAlign: "right" }]}>
+        {section.title === "SIN_FECHA" ? "Sin fecha" : fmtDateLongEs(section.title)}
+      </Text>
+    </View>
+  ), [C.bg, C.sub]);
 
   const renderAnuladaItem = useCallback(
     ({ item }: { item: VentaRow }) => (
@@ -424,7 +432,7 @@ export default function VentasAnuladasScreen() {
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
                 automaticallyAdjustKeyboardInsets
-                stickySectionHeadersEnabled={Platform.OS !== "web"}
+                stickySectionHeadersEnabled={false}
                 contentContainerStyle={{ paddingBottom: 24, paddingTop: 6 }}
                 initialNumToRender={Platform.OS === "web" ? 999 : 10}
                 maxToRenderPerBatch={Platform.OS === "web" ? 999 : 10}
@@ -433,13 +441,7 @@ export default function VentasAnuladasScreen() {
                 removeClippedSubviews={Platform.OS === "android"}
                 onEndReached={loadMoreAnuladas}
                 onEndReachedThreshold={0.3}
-                renderSectionHeader={({ section }) => (
-                  <View style={[styles.sectionHeader, { backgroundColor: C.bg, alignItems: "flex-end" }]}>
-                    <Text style={[styles.sectionHeaderText, { color: C.sub, textAlign: "right" }]}>
-                      {section.title === "SIN_FECHA" ? "Sin fecha" : fmtDateLongEs(section.title)}
-                    </Text>
-                  </View>
-                )}
+                renderSectionHeader={renderAnuladaSectionHeader}
                 renderItem={renderAnuladaItem}
                 ListEmptyComponent={
                   <Text style={{ padding: 16, color: C.sub, fontWeight: "700" }}>
@@ -497,7 +499,7 @@ export default function VentasAnuladasScreen() {
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
               automaticallyAdjustKeyboardInsets
-              stickySectionHeadersEnabled={true}
+              stickySectionHeadersEnabled={false}
               contentContainerStyle={{ paddingBottom: 24, paddingTop: 6 }}
               initialNumToRender={10}
               maxToRenderPerBatch={10}
@@ -506,13 +508,7 @@ export default function VentasAnuladasScreen() {
               removeClippedSubviews={Platform.OS === "android"}
               onEndReached={loadMoreAnuladas}
               onEndReachedThreshold={0.3}
-              renderSectionHeader={({ section }) => (
-                <View style={[styles.sectionHeader, { backgroundColor: C.bg, alignItems: "flex-end" }]}>
-                  <Text style={[styles.sectionHeaderText, { color: C.sub, textAlign: "right" }]}>
-                    {section.title === "SIN_FECHA" ? "Sin fecha" : fmtDateLongEs(section.title)}
-                  </Text>
-                </View>
-              )}
+              renderSectionHeader={renderAnuladaSectionHeader}
               renderItem={renderAnuladaItem}
               ListEmptyComponent={
                 <Text style={{ padding: 16, color: C.sub, fontWeight: "700" }}>
@@ -604,7 +600,7 @@ export default function VentasAnuladasScreen() {
                           onPress={() => { setFClienteId(c.id); setFClienteNombre(c.nombre); setClienteSearchQ(""); setClienteSearchResults([]); }}
                           style={[styles.ddRow, { borderBottomColor: isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.08)" }]}
                         >
-                          <Text style={{ fontSize: 16, fontWeight: "600", color: C.text }}>{c.nombre}</Text>
+                          <Text style={{ fontSize: Platform.OS === "web" ? 16 : 13, fontWeight: "600", color: C.text }}>{c.nombre}</Text>
                         </Pressable>
                       ))
                     )}
@@ -775,17 +771,17 @@ const styles = StyleSheet.create({
   modalBackdrop: { ...StyleSheet.absoluteFillObject },
   modalCard: { marginHorizontal: 14, borderRadius: 18, padding: 16, borderWidth: 1 },
   modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  modalTitle: { fontSize: 20, fontWeight: "800" },
-  modalClose: { fontSize: 15, fontWeight: "700" },
-  sectionLabel: { marginTop: 12, fontSize: 15, fontWeight: "800" },
+  modalTitle: { fontSize: Platform.OS === "web" ? 20 : 18, fontWeight: "800" },
+  modalClose: { fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "700" },
+  sectionLabel: { marginTop: 12, fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "800" },
   dropdownInput: { marginTop: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  dropdownText: { fontSize: 16, fontWeight: "600", flex: 1, paddingRight: 10 },
+  dropdownText: { fontSize: Platform.OS === "web" ? 16 : 14, fontWeight: "600", flex: 1, paddingRight: 10 },
   dropdownCaret: { fontSize: 14, fontWeight: "900" },
   dropdownPanel: { marginTop: 10, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
   ddRow: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
   twoCols: { flexDirection: "row", marginTop: 8 },
   dateBox: { marginTop: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12 },
-  dateTxt: { fontSize: 16, fontWeight: "700" },
+  dateTxt: { fontSize: Platform.OS === "web" ? 16 : 14, fontWeight: "700" },
   iosPickerWrap: { marginTop: 10, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
   clientSearchInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 },
   modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 12, marginTop: 16 },
@@ -797,7 +793,7 @@ const styles = StyleSheet.create({
   },
   actionBtnText: { fontWeight: "800" },
   card: { marginHorizontal: 16, marginTop: 10, borderWidth: 1, borderRadius: 16, padding: 14 },
-  title: { fontSize: 13, fontWeight: "700", flex: 1, flexShrink: 1, minWidth: 0 },
+  title: { fontSize: Platform.OS === "web" ? 13 : 12, fontWeight: "700", flex: 1, flexShrink: 1, minWidth: 0 },
   sub: { marginTop: 6, fontSize: 11, fontWeight: "700" },
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
   pill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, flexShrink: 0 },

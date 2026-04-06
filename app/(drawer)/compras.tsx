@@ -40,7 +40,7 @@ import { useRole } from "../../lib/useRole";
 import { useResumeLoad } from "../../lib/useResumeLoad";
 import { CompraDetallePanel } from "../../components/compras/CompraDetallePanel";
 import { CompraNuevaModal } from "../../components/compras/CompraNuevaModal";
-import { fmtQ, fmtDate, fmtDateLongEs } from "../../lib/utils/format";
+import { fmtQ, fmtDate, fmtDateLongEs, toGTDateKey } from "../../lib/utils/format";
 import { normalizeUpper, safeIlike } from "../../lib/utils/text";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
@@ -150,7 +150,7 @@ const CompraCard = React.memo(function CompraCard({
         <View style={{ flex: 1 }}>
           <Text style={s.title}>{item.proveedor ?? "Proveedor"}</Text>
           <Text style={s.sub}>Factura: {item.numero_factura ?? "—"}</Text>
-          <Text style={s.sub}>Fecha: {fmtDate(item.fecha)}</Text>
+          <Text style={s.sub}>Fecha: {toGTDateKey(item.fecha) || "—"}</Text>
         </View>
 
         <View style={{ alignItems: "flex-end" }}>
@@ -444,7 +444,7 @@ export default function ComprasScreen() {
     let lastKey: string | null = null;
 
     rows.forEach((item) => {
-      const ymd = item.fecha ? String(item.fecha).slice(0, 10) : "SIN_FECHA";
+      const ymd = item.fecha ? toGTDateKey(item.fecha) || "SIN_FECHA" : "SIN_FECHA";
       if (ymd !== lastKey) {
         out.push({ title: ymd === "SIN_FECHA" ? "Sin fecha" : ymd, data: [] });
         lastKey = ymd;
@@ -480,13 +480,13 @@ export default function ComprasScreen() {
     [s, openCompra, selectedCompraId, M.primary]
   );
 
-  const renderSectionHeader = ({ section }: { section: CompraSection }) => (
+  const renderSectionHeader = useCallback(({ section }: { section: CompraSection }) => (
     <View style={[s.sectionHeader, { backgroundColor: colors.background, alignItems: "flex-end" }]}>
       <Text style={[s.sectionHeaderText, { color: M.sub, textAlign: "right" }]}>
         {section.title === "Sin fecha" ? "Sin fecha" : fmtDateLongEs(section.title)}
       </Text>
     </View>
-  );
+  ), [s, M.sub, colors.background]);
 
   const fabBg =
     Platform.OS === "ios" ? (PlatformColor("systemBlue") as any) : (colors.primary as any);
@@ -617,7 +617,7 @@ export default function ComprasScreen() {
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
                 automaticallyAdjustKeyboardInsets
-                stickySectionHeadersEnabled={Platform.OS !== "web"}
+                stickySectionHeadersEnabled={false}
                 initialNumToRender={Platform.OS === "web" ? 999 : 12}
                 maxToRenderPerBatch={Platform.OS === "web" ? 999 : 12}
                 windowSize={Platform.OS === "web" ? 999 : 7}
@@ -716,7 +716,7 @@ export default function ComprasScreen() {
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
               automaticallyAdjustKeyboardInsets
-              stickySectionHeadersEnabled={true}
+              stickySectionHeadersEnabled={false}
               initialNumToRender={12}
               maxToRenderPerBatch={12}
               windowSize={7}
@@ -1055,7 +1055,7 @@ function DDRow({
         pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
       ]}
     >
-      <Text style={{ fontSize: 16, fontWeight: "600", color: selected ? M.primary : M.text }} numberOfLines={1}>
+      <Text style={{ fontSize: Platform.OS === "web" ? 16 : 13, fontWeight: "600", color: selected ? M.primary : M.text }} numberOfLines={1}>
         {label}
       </Text>
     </Pressable>
@@ -1177,7 +1177,7 @@ const styles = (colors: any) =>
     },
 
     row: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
-    title: { color: colors.text, fontSize: 13, fontWeight: "700" },
+    title: { color: colors.text, fontSize: Platform.OS === "web" ? 13 : 12, fontWeight: "700" },
     sub: { color: colors.text + "AA", marginTop: 6, fontSize: 11 },
 
     badge: {
@@ -1245,10 +1245,10 @@ const styles = (colors: any) =>
 
     modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
 
-    modalTitle: { fontSize: 22, fontWeight: "800" },
-    modalClose: { fontSize: 15, fontWeight: "700" },
+    modalTitle: { fontSize: Platform.OS === "web" ? 22 : 18, fontWeight: "800" },
+    modalClose: { fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "700" },
 
-    sectionLabel: { marginTop: 12, fontSize: 15, fontWeight: "800" },
+    sectionLabel: { marginTop: 12, fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "800" },
 
     dropdownInput: {
       marginTop: 8,
@@ -1260,7 +1260,7 @@ const styles = (colors: any) =>
       alignItems: "center",
       justifyContent: "space-between",
     },
-    dropdownText: { fontSize: 16, fontWeight: "600", flex: 1, paddingRight: 10 },
+    dropdownText: { fontSize: Platform.OS === "web" ? 16 : 14, fontWeight: "600", flex: 1, paddingRight: 10 },
     dropdownCaret: { fontSize: 14, fontWeight: "900" },
 
     dropdownPanel: { marginTop: 10, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
@@ -1273,7 +1273,7 @@ const styles = (colors: any) =>
       paddingHorizontal: 12,
       paddingVertical: 12,
     },
-    dateTxt: { fontSize: 16, fontWeight: "700" },
+    dateTxt: { fontSize: Platform.OS === "web" ? 16 : 14, fontWeight: "700" },
 
     iosPickerWrap: { marginTop: 10, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
 

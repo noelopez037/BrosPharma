@@ -1,6 +1,6 @@
 import { useTheme } from "@react-navigation/native";
 import React from "react";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { AppButton } from "./app-button";
 
@@ -82,7 +82,7 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   title: {
-    fontSize: 17,
+    fontSize: Platform.OS === "web" ? 17 : 15,
     fontWeight: "700",
     marginBottom: 8,
   },

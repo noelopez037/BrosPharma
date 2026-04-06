@@ -12,7 +12,7 @@ import { AppButton } from "../../components/ui/app-button";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useResumeLoad } from "../../lib/useResumeLoad";
 import { normalizeUpper } from "../../lib/utils/text";
-import { fmtDate } from "../../lib/utils/format";
+import { toGTDateKey } from "../../lib/utils/format";
 
 type RecetaColors = {
   bg: string; card: string; text: string; sub: string;
@@ -83,7 +83,7 @@ const RecetaItem = React.memo(function RecetaItem({
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [s.card, { borderColor: C.border, backgroundColor: C.card }, pressed ? { opacity: 0.85 } : null]}>
       <Text style={[s.cardTitle, { color: C.text }]} numberOfLines={2}>{item.cliente_nombre ?? "—"}</Text>
-      <Text style={[s.cardSub, { color: C.sub }]}>Fecha: {fmtDate(item.fecha)}</Text>
+      <Text style={[s.cardSub, { color: C.sub }]}>Fecha: {toGTDateKey(item.fecha) || "—"}</Text>
       <Text style={[s.cardSub, { color: C.sub }]}>Vendedor: {vendedorLabel}</Text>
       {showChip ? (
         <View style={s.chipsRow}><View style={[s.chip, { backgroundColor: C.chipAmberBg, borderColor: C.border }]}><Text style={[s.chipText, { color: C.chipAmberText }]}>Falta receta</Text></View></View>
@@ -689,20 +689,20 @@ const s = StyleSheet.create({
   modalBackdrop: { ...StyleSheet.absoluteFillObject },
   modalCard: { position: "absolute", left: 14, right: 14, top: 90, borderRadius: 18, padding: 16, borderWidth: 1 },
   modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  modalTitle: { fontSize: 22, fontWeight: "800" },
-  modalClose: { fontSize: 15, fontWeight: "700" },
-  sectionLabel: { marginTop: 12, fontSize: 15, fontWeight: "800" },
+  modalTitle: { fontSize: Platform.OS === "web" ? 22 : 18, fontWeight: "800" },
+  modalClose: { fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "700" },
+  sectionLabel: { marginTop: 12, fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "800" },
   twoCols: { flexDirection: "row", marginTop: 8 },
   dateBox: { marginTop: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12 },
-  dateTxt: { fontSize: 16, fontWeight: "700" },
+  dateTxt: { fontSize: Platform.OS === "web" ? 16 : 14, fontWeight: "700" },
   iosPickerWrap: { marginTop: 10, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
   dropdownInput: { marginTop: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  dropdownText: { fontSize: 16, fontWeight: "600", flex: 1, paddingRight: 10 },
+  dropdownText: { fontSize: Platform.OS === "web" ? 16 : 14, fontWeight: "600", flex: 1, paddingRight: 10 },
   dropdownCaret: { fontSize: 14, fontWeight: "900" },
   dropdownPanel: { marginTop: 10, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
   modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 12, marginTop: 16 },
   ddRow: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
-  ddTxt: { fontSize: 16, fontWeight: "600" },
+  ddTxt: { fontSize: Platform.OS === "web" ? 16 : 13, fontWeight: "600" },
 
   card: { borderWidth: 1, borderRadius: 16, padding: 14, marginBottom: 12 },
   cardTitle: { fontSize: 13, fontWeight: "900" },

@@ -40,7 +40,7 @@ import { alphaColor } from "../lib/ui";
 import { AppButton } from "../components/ui/app-button";
 import { DoneAccessory } from "../components/ui/done-accessory";
 import { goBackSafe } from "../lib/goBackSafe";
-import { fmtQ, fmtDate } from "../lib/utils/format";
+import { fmtQ, fmtDate, toGTDateKey } from "../lib/utils/format";
 import { normalizeUpper } from "../lib/utils/text";
 import { FB_DARK_DANGER } from "../src/theme/headerColors";
 
@@ -848,7 +848,7 @@ export default function CompraDetalleScreen() {
                 <View style={styles.kv}>
                   <Text style={[styles.k, { color: C.sub }]}>Fecha</Text>
                   <Text style={[styles.v, { color: C.text }]} numberOfLines={1}>
-                    {fmtDate(compra.fecha)}
+                    {toGTDateKey(compra.fecha) || "—"}
                   </Text>
                 </View>
 
@@ -987,7 +987,7 @@ export default function CompraDetalleScreen() {
                         <View key={String(p.id)} style={{ paddingVertical: 10 }}>
                           <View style={styles.rowBetween}>
                             <Text style={[styles.payTitle, { color: C.text }]} numberOfLines={1}>
-                              {fmtDate(p.fecha)} · {p.metodo ?? "—"}
+                              {toGTDateKey(p.fecha) || "—"} · {p.metodo ?? "—"}
                             </Text>
                             <Text style={[styles.payAmount, { color: C.text }]}>
                               {fmtQ(p.monto)}

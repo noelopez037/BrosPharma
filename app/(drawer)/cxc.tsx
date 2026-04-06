@@ -25,7 +25,7 @@ import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useRole } from "../../lib/useRole";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../lib/useResumeLoad";
-import { fmtQ, fmtDateLongEs } from "../../lib/utils/format";
+import { fmtQ, fmtDateLongEs, toGTDateKey } from "../../lib/utils/format";
 import { normalizeUpper } from "../../lib/utils/text";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
@@ -403,7 +403,7 @@ export default function CuentasPorCobrarScreen() {
   const sections = useMemo<CxcSection[]>(() => {
     const map = new Map<string, CxCRow[]>();
     (rows ?? []).forEach((r) => {
-      const key = r.fecha ? String(r.fecha).slice(0, 10) : "SIN_FECHA";
+      const key = r.fecha ? toGTDateKey(r.fecha) || "SIN_FECHA" : "SIN_FECHA";
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(r);
     });
@@ -439,6 +439,14 @@ export default function CuentasPorCobrarScreen() {
     });
     return map;
   }, [vendedoresDropdown]);
+
+  const renderSectionHeader = useCallback(({ section }: { section: CxcSection }) => (
+    <View style={[s.sectionHeader, { backgroundColor: colors.background, alignItems: "flex-end" }]}>
+      <Text style={[s.sectionHeaderText, { color: M.sub, textAlign: "right" }]}>
+        {section.title === "SIN_FECHA" ? "Sin fecha" : fmtDateLongEs(section.title)}
+      </Text>
+    </View>
+  ), [s, M.sub, colors.background]);
 
   const renderItem = useCallback(({ item }: { item: CxCRow }) => {
     const b = badge(item);
@@ -624,7 +632,7 @@ export default function CuentasPorCobrarScreen() {
                 sections={sections}
                 keyExtractor={(it) => String(it.venta_id)}
                 renderItem={renderItem}
-                stickySectionHeadersEnabled={Platform.OS !== "web"}
+                stickySectionHeadersEnabled={false}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
                 automaticallyAdjustKeyboardInsets
@@ -634,14 +642,7 @@ export default function CuentasPorCobrarScreen() {
                 updateCellsBatchingPeriod={50}
                 windowSize={Platform.OS === "web" ? 999 : 21}
                 removeClippedSubviews={Platform.OS === "android"}
-
-                renderSectionHeader={({ section }) => (
-                  <View style={[s.sectionHeader, { backgroundColor: colors.background, alignItems: "flex-end" }]}>
-                    <Text style={[s.sectionHeaderText, { color: M.sub, textAlign: "right" }]}>
-                      {section.title === "SIN_FECHA" ? "Sin fecha" : fmtDateLongEs(section.title)}
-                    </Text>
-                  </View>
-                )}
+                renderSectionHeader={renderSectionHeader}
                 ListEmptyComponent={!initialLoading && !loadError ? (
                   <View style={s.center}><Text style={s.empty}>Sin cuentas por cobrar</Text></View>
                 ) : null}
@@ -669,7 +670,7 @@ export default function CuentasPorCobrarScreen() {
               sections={sections}
               keyExtractor={(it) => String(it.venta_id)}
               renderItem={renderItem}
-              stickySectionHeadersEnabled={Platform.OS !== "web"}
+              stickySectionHeadersEnabled={false}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
               automaticallyAdjustKeyboardInsets
@@ -679,13 +680,7 @@ export default function CuentasPorCobrarScreen() {
               updateCellsBatchingPeriod={50}
               windowSize={Platform.OS === "web" ? 999 : 21}
               removeClippedSubviews={Platform.OS === "android"}
-              renderSectionHeader={({ section }) => (
-                <View style={[s.sectionHeader, { backgroundColor: colors.background, alignItems: "flex-end" }]}>
-                  <Text style={[s.sectionHeaderText, { color: M.sub, textAlign: "right" }]}>
-                    {section.title === "SIN_FECHA" ? "Sin fecha" : fmtDateLongEs(section.title)}
-                  </Text>
-                </View>
-              )}
+              renderSectionHeader={renderSectionHeader}
               ListEmptyComponent={!initialLoading && !loadError ? (
                 <View style={s.center}><Text style={s.empty}>Sin cuentas por cobrar</Text></View>
               ) : null}
@@ -942,7 +937,7 @@ const styles = (colors: any) =>
     sectionHeaderText: { fontSize: 13, fontWeight: "900", textAlign: "right" },
     card: { borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 12, borderRadius: 14, marginBottom: 10 },
     row: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
-    title: { color: colors.text, fontSize: 13, fontWeight: "700" },
+    title: { color: colors.text, fontSize: Platform.OS === "web" ? 13 : 12, fontWeight: "700" },
     sub: { color: colors.text + "AA", marginTop: 6, fontSize: 11 },
     badge: { borderWidth: 1, borderColor: colors.border, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, fontSize: 12, fontWeight: "900", color: colors.text, overflow: "hidden" },
     badgeWarn: { borderColor: "#ffe868", backgroundColor: "#fffd7f", color: "#111111" },

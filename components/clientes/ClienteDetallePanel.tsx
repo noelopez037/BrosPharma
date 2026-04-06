@@ -339,7 +339,7 @@ const styles = (colors: any) =>
     },
 
     headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-    title: { color: colors.text, fontSize: 18, fontWeight: Platform.OS === "ios" ? "700" : "800", flex: 1 },
+    title: { color: colors.text, fontSize: Platform.OS === "web" ? 18 : 15, fontWeight: Platform.OS === "ios" ? "700" : "800", flex: 1 },
 
     badgeOff: {
       color: colors.text + "AA",
@@ -355,5 +355,5 @@ const styles = (colors: any) =>
 
     kvRow: { marginTop: 12 },
     k: { color: colors.text + "AA", fontSize: 12, fontWeight: "800" },
-    v: { color: colors.text, fontSize: 16, fontWeight: "600", marginTop: 6 },
+    v: { color: colors.text, fontSize: Platform.OS === "web" ? 16 : 14, fontWeight: "600", marginTop: 6 },
   });

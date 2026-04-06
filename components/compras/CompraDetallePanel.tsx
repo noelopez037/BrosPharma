@@ -1514,7 +1514,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
 
-  h1: { fontSize: 20, fontWeight: "700", letterSpacing: -0.2, lineHeight: 24 },
+  h1: { fontSize: Platform.OS === "web" ? 20 : 16, fontWeight: "700", letterSpacing: -0.2, lineHeight: 24 },
 
   badgePill: {
     borderWidth: StyleSheet.hairlineWidth,
@@ -1535,10 +1535,10 @@ const styles = StyleSheet.create({
   divider: { height: StyleSheet.hairlineWidth, marginVertical: 14 },
 
   totalRow: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" },
-  total: { fontSize: 26, fontWeight: "800", marginTop: 4, letterSpacing: -0.5 },
-  totalSmall: { fontSize: 17, fontWeight: "800", marginTop: 4 },
+  total: { fontSize: Platform.OS === "web" ? 26 : 22, fontWeight: "800", marginTop: 4, letterSpacing: -0.5 },
+  totalSmall: { fontSize: Platform.OS === "web" ? 17 : 14, fontWeight: "800", marginTop: 4 },
 
-  sectionTitle: { marginTop: 18, fontSize: 18, fontWeight: "700", letterSpacing: -0.2 },
+  sectionTitle: { marginTop: 18, fontSize: Platform.OS === "web" ? 18 : 15, fontWeight: "700", letterSpacing: -0.2 },
 
   rowBetween: {
     flexDirection: "row",
@@ -1547,7 +1547,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
 
-  cardTitle: { fontSize: 16, fontWeight: "700", flex: 1, paddingRight: 10, lineHeight: 20 },
+  cardTitle: { fontSize: Platform.OS === "web" ? 16 : 13, fontWeight: "700", flex: 1, paddingRight: 10, lineHeight: 20 },
 
   tableWrap: { width: "100%", borderWidth: StyleSheet.hairlineWidth, borderRadius: 18, overflow: "hidden" },
   tableHeaderRow: { flexDirection: "row", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },

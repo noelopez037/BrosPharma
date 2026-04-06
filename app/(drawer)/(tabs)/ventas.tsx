@@ -28,7 +28,7 @@ import { useEmpresaActiva } from "../../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../../lib/useResumeLoad";
 import { onVentaEstadoChanged, emitVentaEstadoChanged } from "../../../lib/ventaEstadoEvents";
 import { normalizeUpper, safeIlike } from "../../../lib/utils/text";
-import { fmtDate } from "../../../lib/utils/format";
+import { fmtDate, toGTDateKey } from "../../../lib/utils/format";
 import { FB_DARK_DANGER } from "../../../src/theme/headerColors";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "MENSAJERO" | "";
@@ -94,6 +94,17 @@ function formatYmdEsLong(ymd: string) {
   return fmt.format(d).toLowerCase().replace(/\./g, "");
 }
 
+function fmtDateCardEs(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const ymd = toGTDateKey(iso) || String(iso).slice(0, 10);
+  const d = new Date(`${ymd}T12:00:00`);
+  if (!Number.isFinite(d.getTime())) return ymd;
+  return new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "short", year: "numeric" })
+    .format(d)
+    .toLowerCase()
+    .replace(/\./g, "");
+}
+
 function startOfDay(d: Date) {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
@@ -114,7 +125,7 @@ function shortUid(u: string | null | undefined) {
 function groupVentasByDay(list: VentaRow[]): VentaSection[] {
   const buckets = new Map<string, VentaRow[]>();
   list.forEach((venta) => {
-    const dateKey = venta?.fecha ? String(venta.fecha).slice(0, 10) : "";
+    const dateKey = venta?.fecha ? toGTDateKey(venta.fecha) : "";
     const title = dateKey || "Sin fecha";
     const bucket = buckets.get(title);
     if (bucket) {
@@ -203,6 +214,11 @@ const VentaCard = React.memo(
             </Text>
           </View>
         </View>
+        {item.fecha ? (
+          <Text style={[s.cardSub, { color: C.sub }]} numberOfLines={1}>
+            {fmtDateCardEs(item.fecha)}
+          </Text>
+        ) : null}
         {facturaLabel ? (
           <Text style={[s.cardSub, { color: C.sub }]} numberOfLines={1}>
             {facturaLabel}
@@ -820,7 +836,7 @@ export default function Ventas() {
 
       if (fClienteId && Number(r.cliente_id ?? 0) !== fClienteId) return false;
 
-      const ymd = r.fecha ? String(r.fecha).slice(0, 10) : "";
+      const ymd = r.fecha ? toGTDateKey(r.fecha) : "";
       const rowDateMs = ymd ? new Date(`${ymd}T12:00:00`).getTime() : null;
       if (desdeMs && (rowDateMs == null || rowDateMs < desdeMs)) return false;
       if (hastaMs && (rowDateMs == null || rowDateMs > hastaMs)) return false;
@@ -1041,7 +1057,7 @@ export default function Ventas() {
       keyExtractor={keyExtractor}
       refreshing={pullRefreshing}
       onRefresh={onPullRefresh}
-      stickySectionHeadersEnabled={Platform.OS !== "web"}
+      stickySectionHeadersEnabled={false}
       contentContainerStyle={{ padding: 16, paddingBottom: 28 }}
       initialNumToRender={Platform.OS === "web" ? 999 : 8}
       maxToRenderPerBatch={Platform.OS === "web" ? 999 : 5}
@@ -1519,7 +1535,7 @@ function DDRow({
         pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
       ]}
     >
-      <Text style={{ fontSize: 16, fontWeight: "600", color: selected ? tint : text }} numberOfLines={1}>
+      <Text style={{ fontSize: Platform.OS === "web" ? 16 : 13, fontWeight: "600", color: selected ? tint : text }} numberOfLines={1}>
         {label}
       </Text>
     </Pressable>
@@ -1548,7 +1564,7 @@ const s = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: Platform.select({ ios: 12, android: 10, default: 10 }),
-    fontSize: 16,
+    fontSize: Platform.OS === "web" ? 16 : 14,
     flex: 1,
   },
 
@@ -1579,7 +1595,7 @@ const s = StyleSheet.create({
 
   card: { borderWidth: 1, borderRadius: 16, padding: 14, marginBottom: 12 },
   cardTopRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
-  cardTitle: { fontSize: 13, fontWeight: "700" },
+  cardTitle: { fontSize: Platform.OS === "web" ? 13 : 12, fontWeight: "700" },
   cardSub: { marginTop: 6, fontSize: 11, fontWeight: "700" },
 
   vendedorPill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, maxWidth: 140 },
@@ -1601,17 +1617,17 @@ const s = StyleSheet.create({
   modalBackdrop: { ...StyleSheet.absoluteFillObject },
   modalCard: { marginHorizontal: 14, borderRadius: 18, padding: 16, borderWidth: 1 },
   modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  modalTitle: { fontSize: 22, fontWeight: "800" },
-  modalClose: { fontSize: 15, fontWeight: "700" },
-  sectionLabel: { marginTop: 12, fontSize: 15, fontWeight: "800" },
+  modalTitle: { fontSize: Platform.OS === "web" ? 22 : 18, fontWeight: "800" },
+  modalClose: { fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "700" },
+  sectionLabel: { marginTop: 12, fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "800" },
   dropdownInput: { marginTop: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  dropdownText: { fontSize: 16, fontWeight: "600", flex: 1, paddingRight: 10 },
+  dropdownText: { fontSize: Platform.OS === "web" ? 16 : 14, fontWeight: "600", flex: 1, paddingRight: 10 },
   dropdownCaret: { fontSize: 14, fontWeight: "900" },
   dropdownPanel: { marginTop: 10, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
   clientSearchInput: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 },
   twoCols: { flexDirection: "row", marginTop: 8 },
   dateBox: { marginTop: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12 },
-  dateTxt: { fontSize: 16, fontWeight: "700" },
+  dateTxt: { fontSize: Platform.OS === "web" ? 16 : 14, fontWeight: "700" },
   iosPickerWrap: { marginTop: 10, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
   modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 12, marginTop: 16 },
 });

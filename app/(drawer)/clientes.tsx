@@ -615,7 +615,7 @@ const styles = (colors: any) =>
       flex: 1,
       color: colors.text,
       paddingVertical: 10,
-      fontSize: 16,
+      fontSize: Platform.OS === "web" ? 16 : 14,
       ...(Platform.OS === "web" ? { outlineWidth: 0 } : null),
     },
     clearBtn: {
@@ -662,7 +662,7 @@ const styles = (colors: any) =>
       marginBottom: 10,
     },
     row: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
-    title: { color: colors.text, fontSize: 13, fontWeight: "700" },
+    title: { color: colors.text, fontSize: Platform.OS === "web" ? 13 : 12, fontWeight: "700" },
     sub: { color: colors.text + "AA", marginTop: 6, fontSize: 11 },
     rightCol: { alignItems: "flex-end", gap: 8, maxWidth: 160 },
     vendedorPill: {

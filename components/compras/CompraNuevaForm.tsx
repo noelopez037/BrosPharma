@@ -1253,7 +1253,7 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
 const styles = StyleSheet.create({
   scroll: { flex: 1, paddingHorizontal: 16 },
 
-  h2: { fontSize: 18, fontWeight: "700", marginBottom: 4 },
+  h2: { fontSize: Platform.OS === "web" ? 18 : 15, fontWeight: "700", marginBottom: 4 },
   label: { marginTop: 10, marginBottom: 6, fontSize: 13, fontWeight: "600" },
   help: { marginTop: 6, fontSize: 12 },
 
@@ -1288,7 +1288,7 @@ const styles = StyleSheet.create({
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
 
   card: { marginTop: 12, borderWidth: 1, borderRadius: 16, padding: 14 },
-  cardTitle: { fontSize: 16, fontWeight: "700" },
+  cardTitle: { fontSize: Platform.OS === "web" ? 16 : 13, fontWeight: "700" },
   linkDanger: { fontSize: 14, fontWeight: "600" },
   subtotal: { marginTop: 10, fontSize: 13, fontWeight: "600" },
 
@@ -1301,8 +1301,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
-  totalLabel: { fontSize: 16, fontWeight: "700" },
-  totalValue: { fontSize: 18, fontWeight: "700" },
+  totalLabel: { fontSize: Platform.OS === "web" ? 16 : 13, fontWeight: "700" },
+  totalValue: { fontSize: Platform.OS === "web" ? 18 : 16, fontWeight: "700" },
 
   btnAddBottom: {
     marginTop: 12,

@@ -542,7 +542,7 @@ export default function KardexScreen() {
   const totalesSaldoValue = totalesLoading ? "Cargando..." : saldoRaw ?? "—";
   const saldoNegativo = !totalesLoading && typeof saldoRaw === "number" && saldoRaw < 0;
 
-  const renderRow = ({ item }: { item: KardexRow }) => {
+  const renderRow = useCallback(({ item }: { item: KardexRow }) => {
     const tipo = normalizeUpper(item?.tipo);
     const isCompra = tipo === "COMPRA";
     const isVenta = tipo === "VENTA";
@@ -605,7 +605,29 @@ export default function KardexScreen() {
         </Text>
       </View>
     );
-  };
+  }, [s]);
+
+  const renderProdItem = useCallback(({ item }: { item: ProductoPick }) => (
+    <Pressable
+      onPress={() => {
+        setProducto(item);
+        setProdModalOpen(false);
+        setRows([]);
+        setErrorMsg(null);
+        setTotalesSimple(null);
+        setTotalesError(null);
+      }}
+      style={({ pressed }) => [s.prodRow, pressed && Platform.OS === "ios" ? { opacity: 0.9 } : null]}
+    >
+      <View style={{ flex: 1 }}>
+        <Text style={s.prodTitle} numberOfLines={1}>
+          {item.nombre}
+          {item.marca ? ` • ${item.marca}` : ""}
+        </Text>
+        {!item.activo ? <Text style={s.prodSub}>INACTIVO</Text> : null}
+      </View>
+    </Pressable>
+  ), [s, setProducto, setProdModalOpen, setRows, setErrorMsg, setTotalesSimple, setTotalesError]);
 
   return (
     <>
@@ -928,27 +950,7 @@ export default function KardexScreen() {
                         updateCellsBatchingPeriod={50}
                         windowSize={Platform.OS === "web" ? 999 : 5}
                         removeClippedSubviews={Platform.OS === "android"}
-                        renderItem={({ item }) => (
-                          <Pressable
-                            onPress={() => {
-                              setProducto(item);
-                              setProdModalOpen(false);
-                              setRows([]);
-                              setErrorMsg(null);
-                              setTotalesSimple(null);
-                              setTotalesError(null);
-                            }}
-                            style={({ pressed }) => [s.prodRow, pressed && Platform.OS === "ios" ? { opacity: 0.9 } : null]}
-                          >
-                            <View style={{ flex: 1 }}>
-                              <Text style={s.prodTitle} numberOfLines={1}>
-                                {item.nombre}
-                                {item.marca ? ` • ${item.marca}` : ""}
-                              </Text>
-                              {!item.activo ? <Text style={s.prodSub}>INACTIVO</Text> : null}
-                            </View>
-                          </Pressable>
-                        )}
+                        renderItem={renderProdItem}
                         ListEmptyComponent={
                           prodLoading ? (
                             <View style={{ paddingVertical: 14 }}>
@@ -1009,7 +1011,7 @@ const styles = (colors: any, isDark: boolean) =>
       justifyContent: "space-between",
       gap: 10,
     },
-    selectTxt: { color: colors.text, fontSize: 15, fontWeight: "800", flex: 1 },
+    selectTxt: { color: colors.text, fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "800", flex: 1 },
     caret: { color: colors.text + "88", fontSize: 12, fontWeight: "900" },
 
     twoCols: { flexDirection: "row", marginTop: 6 },
@@ -1022,7 +1024,7 @@ const styles = (colors: any, isDark: boolean) =>
       paddingHorizontal: 12,
       paddingVertical: 10,
     },
-    dateTxt: { color: colors.text, fontSize: 15, fontWeight: "800" },
+    dateTxt: { color: colors.text, fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "800" },
     iosPickerWrap: { marginTop: 10, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
 
     totalsCard: {
@@ -1036,7 +1038,7 @@ const styles = (colors: any, isDark: boolean) =>
     totalsTitle: { color: colors.text, fontWeight: "900", marginBottom: 8 },
     totalsRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 },
     totalsK: { color: colors.text + "AA", fontWeight: "800" },
-    totalsV: { color: colors.text, fontWeight: "900", fontSize: 16 },
+    totalsV: { color: colors.text, fontWeight: "900", fontSize: Platform.OS === "web" ? 16 : 14 },
 
     empty: { color: colors.text + "AA", fontWeight: "800", textAlign: "center", paddingVertical: 12 },
 
@@ -1050,8 +1052,8 @@ const styles = (colors: any, isDark: boolean) =>
     },
 
     rowMid: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-    who: { color: colors.text, fontSize: 15, fontWeight: "900", flex: 1 },
-    qty: { fontSize: 15, fontWeight: "900" },
+    who: { color: colors.text, fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "900", flex: 1 },
+    qty: { fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "900" },
     qtyIn: { color: isDark ? "#34D399" : "#0a7a3b" },
     qtyOut: { color: isDark ? "#FB7185" : "#7a0a0a" },
     meta: { color: colors.text + "AA", fontSize: 11, fontWeight: "800", marginTop: 4 },
@@ -1069,7 +1071,7 @@ const styles = (colors: any, isDark: boolean) =>
       borderWidth: 1,
     },
     modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-    modalTitle: { color: colors.text, fontSize: 18, fontWeight: "900" },
+    modalTitle: { color: colors.text, fontSize: Platform.OS === "web" ? 18 : 16, fontWeight: "900" },
     modalClose: { color: colors.text + "AA", fontSize: 14, fontWeight: "800" },
 
     searchWrap: {

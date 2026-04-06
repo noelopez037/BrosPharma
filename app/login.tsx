@@ -2,7 +2,6 @@ import { useTheme } from "@react-navigation/native";
 import { router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Image,
   InteractionManager,
@@ -60,8 +59,6 @@ export default function LoginScreen() {
   const [pass, setPass]               = useState("");
   const [loading, setLoading]         = useState(false);
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
-  const [sendingReset, setSendingReset]     = useState(false);
-  const [resetSent, setResetSent]           = useState(false);
 
   useEffect(() => {
     if (isWeb) return; // el teclado en web no usa estos eventos
@@ -153,41 +150,6 @@ export default function LoginScreen() {
     }
   };
 
-  const onForgotPassword = async () => {
-    if (loading || sendingReset) return;
-
-    const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail) {
-      showAlert("Falta correo", "Escribe tu correo arriba para enviarte el link.");
-      return;
-    }
-
-    setSendingReset(true);
-    setResetSent(false);
-    try {
-      // En web usar la URL actual; en nativo usar el deep link
-      const redirectTo = isWeb
-        ? `${window.location.origin}/reset-password`
-        : "brospharma://reset-password";
-
-      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, { redirectTo });
-
-      if (error) throw error;
-
-      setResetSent(true);
-      showAlert("Correo enviado", "Revisa tu bandeja de entrada (y la carpeta de spam).");
-    } catch (error: any) {
-      const msg = String(error?.message ?? "");
-      if (/rate.limit|too many/i.test(msg)) {
-        showAlert("Espera un momento", "Por seguridad, solo puedes solicitar esto una vez por minuto.");
-      } else {
-        showAlert("No se pudo enviar", msg || "Error desconocido");
-      }
-    } finally {
-      if (aliveRef.current) setSendingReset(false);
-    }
-  };
-
   // ─── RENDER WEB ─────────────────────────────────────────────────────────────
   if (isWeb) {
     return (
@@ -228,24 +190,6 @@ export default function LoginScreen() {
             returnKeyType="done"
             onSubmitEditing={onLogin}
           />
-
-          {/* Forgot password */}
-          <Pressable
-            onPress={onForgotPassword}
-            disabled={loading || sendingReset}
-            style={[webStyles.forgotWrapper, (loading || sendingReset) && { opacity: 0.5 }]}
-          >
-            {sendingReset ? (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <ActivityIndicator size="small" color={C.tint} />
-                <Text style={[webStyles.forgotText, { color: C.tint }]}>Enviando...</Text>
-              </View>
-            ) : resetSent ? (
-              <Text style={[webStyles.forgotText, { color: "#34c759" }]}>✓ Correo enviado — revisa tu bandeja</Text>
-            ) : (
-              <Text style={[webStyles.forgotText, { color: C.tint }]}>¿Olvidaste tu contraseña?</Text>
-            )}
-          </Pressable>
 
           <AppButton
             title={loading ? "Entrando..." : "Entrar"}
@@ -334,27 +278,6 @@ export default function LoginScreen() {
               onSubmitEditing={onLogin}
             />
 
-            <Pressable
-              onPress={onForgotPassword}
-              disabled={loading || sendingReset}
-              hitSlop={8}
-              style={[styles.forgotWrapper, (loading || sendingReset) && { opacity: 0.6 }]}
-            >
-              {sendingReset ? (
-                <View style={styles.forgotLoadingRow}>
-                  <ActivityIndicator size="small" color={C.tint} style={{ marginRight: 6 }} />
-                  <Text maxFontSizeMultiplier={1.2} style={[styles.forgotText, { color: C.tint }]}>Enviando...</Text>
-                </View>
-              ) : resetSent ? (
-                <Text maxFontSizeMultiplier={1.2} style={[styles.forgotText, { color: "#34c759" }]}>
-                  ✓ Correo enviado
-                </Text>
-              ) : (
-                <Text maxFontSizeMultiplier={1.2} style={[styles.forgotText, { color: C.tint }]}>
-                  ¿Olvidaste tu contraseña?
-                </Text>
-              )}
-            </Pressable>
           </ScrollView>
 
           <View style={[styles.footer, { backgroundColor: C.bg, paddingBottom: Math.max(insets.bottom, 12) }]}>
