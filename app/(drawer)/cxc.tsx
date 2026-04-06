@@ -411,7 +411,7 @@ export default function CuentasPorCobrarScreen() {
     const keys = Array.from(map.keys()).sort((a, b) => {
       if (a === "SIN_FECHA") return 1;
       if (b === "SIN_FECHA") return -1;
-      return a < b ? 1 : -1;
+      return a < b ? -1 : 1;
     });
 
     return keys.map((k) => ({ title: k, data: map.get(k)! }));
