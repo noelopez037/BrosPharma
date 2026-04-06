@@ -1058,7 +1058,7 @@ export default function Ventas() {
       refreshing={pullRefreshing}
       onRefresh={onPullRefresh}
       stickySectionHeadersEnabled={false}
-      contentContainerStyle={{ padding: 16, paddingBottom: 28 }}
+      contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 28 }}
       initialNumToRender={Platform.OS === "web" ? 999 : 8}
       maxToRenderPerBatch={Platform.OS === "web" ? 999 : 5}
       windowSize={Platform.OS === "web" ? 999 : 7}
@@ -1077,18 +1077,13 @@ export default function Ventas() {
         ) : null
       }
       ListHeaderComponent={
-        <View pointerEvents="none" style={{ height: 18, marginBottom: 8, justifyContent: "center" }}>
-          <Text
-            style={{
-              color: C.sub,
-              fontWeight: "800",
-              fontSize: 12,
-              opacity: revalidating && revalidatingEstado === estado && visibleRows.length ? 1 : 0,
-            }}
-          >
-            Actualizando...
-          </Text>
-        </View>
+        revalidating && revalidatingEstado === estado && visibleRows.length ? (
+          <View pointerEvents="none" style={{ height: 18, marginBottom: 8, justifyContent: "center" }}>
+            <Text style={{ color: C.sub, fontWeight: "800", fontSize: 12 }}>
+              Actualizando...
+            </Text>
+          </View>
+        ) : null
       }
       ListEmptyComponent={listEmptyComponent}
       style={{ flex: 1 }}

@@ -183,11 +183,12 @@ async function downloadToCache(remoteUrl: string, mimeHint?: string) {
 type CxcDetallePanelProps = {
   ventaId: number | null;
   embedded?: boolean;
+  onPagoResuelto?: () => void;
 };
 
-export function CxcDetallePanel({ ventaId, embedded = false }: CxcDetallePanelProps) {
+export function CxcDetallePanel({ ventaId, embedded = false, onPagoResuelto }: CxcDetallePanelProps) {
   if (embedded) {
-    return <CxcDetallePanelContent ventaIdProp={ventaId} embedded />;
+    return <CxcDetallePanelContent ventaIdProp={ventaId} embedded onPagoResuelto={onPagoResuelto} />;
   }
   return <CxcDetallePanelWithParams fallbackVentaId={ventaId} />;
 }
@@ -203,9 +204,11 @@ function CxcDetallePanelWithParams({ fallbackVentaId }: { fallbackVentaId: numbe
 function CxcDetallePanelContent({
   ventaIdProp,
   embedded,
+  onPagoResuelto,
 }: {
   ventaIdProp: number | null;
   embedded: boolean;
+  onPagoResuelto?: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const id = ventaIdProp ?? 0;
@@ -740,6 +743,7 @@ function CxcDetallePanelContent({
           Alert.alert("Listo", "Pago reportado rechazado.");
         }
         await fetchAll();
+        onPagoResuelto?.();
       } catch (e: any) {
         Alert.alert("Error", e?.message ?? "No se pudo actualizar el pago reportado");
       } finally {

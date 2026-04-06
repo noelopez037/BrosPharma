@@ -344,6 +344,10 @@ export default function CuentasPorCobrarScreen() {
     })();
   });
 
+  const handlePagoResuelto = useCallback(async () => {
+    try { setRowsRaw(await fetchRows()); } catch {}
+  }, [fetchRows]);
+
   const badge = (c: CxCRow) => {
     const saldoNum = Number(c.saldo);
     const saldo = Number.isFinite(saldoNum) ? saldoNum : null;
@@ -650,7 +654,7 @@ export default function CuentasPorCobrarScreen() {
             </View>
             <View style={{ flex: 1 }}>
               {selectedId ? (
-                <CxcDetallePanel ventaId={selectedId} embedded />
+                <CxcDetallePanel ventaId={selectedId} embedded onPagoResuelto={handlePagoResuelto} />
               ) : (
                 <View style={{ flex: 1, margin: 16, borderWidth: StyleSheet.hairlineWidth, borderRadius: 18, borderColor: colors.border, alignItems: "center", justifyContent: "center", padding: 24 }}>
                   <Text style={{ fontSize: 15, fontWeight: "800", textAlign: "center", color: colors.text + "99" }}>

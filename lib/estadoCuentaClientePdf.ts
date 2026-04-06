@@ -42,23 +42,24 @@ function escapeHtml(input: any) {
     .replace(/'/g, "&#039;");
 }
 
-async function readAssetAsBase64Png(moduleId: any) {
+async function getLogoSrc(moduleId: any): Promise<{ kind: "base64"; data: string } | { kind: "uri"; data: string }> {
   const asset = Asset.fromModule(moduleId);
   await asset.downloadAsync();
 
-  // Native: read from local URI.
-  if (Platform.OS !== "web") {
-    const uri = asset.localUri ?? asset.uri;
-    return FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+  if (Platform.OS === "web") {
+    // Web: embed as base64 so the iframe can render it without file access.
+    const res = await fetch(asset.uri);
+    const buf = await res.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let bin = "";
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return { kind: "base64", data: btoa(bin) };
   }
 
-  // Web: fetch the asset URL and convert to base64.
-  const res = await fetch(asset.uri);
-  const buf = await res.arrayBuffer();
-  const bytes = new Uint8Array(buf);
-  let bin = "";
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin);
+  // Native (iOS & Android): use the local file URI directly.
+  // Embedding a large base64 string causes printToFileAsync to fail on Android.
+  const uri = asset.localUri ?? asset.uri;
+  return { kind: "uri", data: uri };
 }
 
 function pick(obj: any, keys: string[]) {
@@ -74,7 +75,7 @@ function toNum(v: any) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function buildEstadoCuentaHtml({ logoBase64, header, totals, rows }: { logoBase64: string; header: RpcHeader; totals: RpcTotals; rows: RpcRow[] }) {
+function buildEstadoCuentaHtml({ logoSrc, header, totals, rows }: { logoSrc: string; header: RpcHeader; totals: RpcTotals; rows: RpcRow[] }) {
   const clienteNombre = String(pick(header, ["nombre", "cliente_nombre", "cliente", "clienteName"]) ?? "").trim();
   const clienteNit = String(pick(header, ["nit", "cliente_nit"]) ?? "CF").trim() || "CF";
   const clienteTel = String(pick(header, ["telefono", "tel", "cliente_telefono"]) ?? "-").trim() || "-";
@@ -456,7 +457,7 @@ function buildEstadoCuentaHtml({ logoBase64, header, totals, rows }: { logoBase6
         <div class="header">
           <div class="header-row">
             <div class="brand">
-              <img class="logo" src="data:image/png;base64,${logoBase64}" />
+              <img class="logo" src="${logoSrc}" />
               <div style="min-width: 0;">
                 <div class="title">Estado de cuenta</div>
                 <div class="subtitle">Cliente: <strong>${escapeHtml(clienteNombre || "-")}</strong></div>
@@ -531,8 +532,9 @@ function buildEstadoCuentaHtml({ logoBase64, header, totals, rows }: { logoBase6
 
 
 export async function generarEstadoCuentaClientePdf(payload: EstadoCuentaClientePdfPayload, opts?: { fileName?: string }) {
-  const logoBase64 = await readAssetAsBase64Png(require("../assets/images/logo.png"));
-  const html = buildEstadoCuentaHtml({ logoBase64, header: payload.header ?? {}, totals: payload.totals ?? {}, rows: payload.rows ?? [] });
+  const logo = await getLogoSrc(require("../assets/images/logo.png"));
+  const logoSrc = logo.kind === "base64" ? `data:image/png;base64,${logo.data}` : logo.data;
+  const html = buildEstadoCuentaHtml({ logoSrc, header: payload.header ?? {}, totals: payload.totals ?? {}, rows: payload.rows ?? [] });
 
   const fileName = (opts?.fileName ?? "estado-cuenta").replace(/[^a-zA-Z0-9._-]+/g, "-");
 

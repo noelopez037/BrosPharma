@@ -210,6 +210,8 @@ export default function ClienteForm() {
     const vendIdToSave = isVendedor ? uid : vendedorId;
 
     setSaving(true);
+    const abortCtrl = new AbortController();
+    const timeoutId = setTimeout(() => abortCtrl.abort(), 20_000);
     try {
       if (!isEditing) {
         const { data, error } = await supabase
@@ -224,6 +226,7 @@ export default function ClienteForm() {
             vendedor_id: vendIdToSave ?? null,
           })
           .select("id")
+          .abortSignal(abortCtrl.signal)
           .single();
 
         if (error) throw error;
@@ -248,19 +251,22 @@ export default function ClienteForm() {
       if (isAdmin) payload.vendedor_id = vendedorId ?? null;
       if (isVendedor && uid) payload.vendedor_id = uid;
 
-      const { error } = await supabase.from("clientes").update(payload).eq("empresa_id", empresaActivaId).eq("id", editingId);
+      const { error } = await supabase.from("clientes").update(payload).eq("empresa_id", empresaActivaId).eq("id", editingId).abortSignal(abortCtrl.signal);
       if (error) throw error;
 
       Alert.alert("Listo", "Cliente actualizado");
       goBackSafe({ pathname: "/cliente-detalle" as any, params: { id: String(editingId) } } as any);
     } catch (e: any) {
-      const msg = String(e?.message ?? "No se pudo guardar");
-      if (msg.toLowerCase().includes("ux_clientes_nit")) {
+      const msg = String(e?.message ?? e?.name ?? "No se pudo guardar");
+      if (e?.name === "AbortError" || msg === "AbortError") {
+        Alert.alert("Sin respuesta", "La operación tardó demasiado. Verifica tu conexión e intenta de nuevo.");
+      } else if (msg.toLowerCase().includes("ux_clientes_nit")) {
         Alert.alert("NIT duplicado", "Ese NIT ya existe");
       } else {
         Alert.alert("Error", msg);
       }
     } finally {
+      clearTimeout(timeoutId);
       setSaving(false);
     }
   }, [activo, canEdit, direccion, editingId, empresaActivaId, empresaReady, isAdmin, isEditing, isVendedor, nit, nombre, saving, telefono, uid, vendedorId]);

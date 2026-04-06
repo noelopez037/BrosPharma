@@ -98,21 +98,22 @@ function extractNumeroFromText(normalizedText: string): string | null {
     let t = normalizedText.replace(/\b20\d{12}\b/g, " ");
 
     // Prioridad 1
-    // - Forma fuerte original: "No: 12345678"
-    // - Fallback: "Factura No 12345678" (a veces el ':' desaparece en extracción)
-    const m1a = t.match(/\bNo\s*:\s*([0-9]{8,12})\b/i);
+    // - "No: 12345678" o "No.: 12345678" (punto opcional antes de los dos puntos, común en FEL Guatemala)
+    // - "Factura No 12345678" / "Factura No. 12345678"
+    const m1a = t.match(/\bNo\s*\.?\s*:\s*([0-9]{8,12})\b/i);
     if (m1a?.[1]) return m1a[1];
-    const m1b = t.match(/\bFactura\s*No\s*[:#\-]?\s*([0-9]{8,12})\b/i);
+    const m1b = t.match(/\bFactura\s*No\s*\.?\s*[:#\-]?\s*([0-9]{8,12})\b/i);
     if (m1b?.[1]) return m1b[1];
 
     // Prioridad 2
-    const m2a = t.match(/\b(?:Numero|Número|N[°ºo])\s*:\s*([0-9]{8,12})\b/i);
+    const m2a = t.match(/\b(?:Numero|Número|N[°ºo])\s*\.?\s*:\s*([0-9]{8,12})\b/i);
     if (m2a?.[1]) return m2a[1];
-    const m2b = t.match(/\bFactura\s*(?:Numero|Número|N[°ºo])\s*[:#\-]?\s*([0-9]{8,12})\b/i);
+    const m2b = t.match(/\bFactura\s*(?:Numero|Número|N[°ºo])\s*\.?\s*[:#\-]?\s*([0-9]{8,12})\b/i);
     if (m2b?.[1]) return m2b[1];
 
-    // Prioridad 3
-    const m3 = t.match(/\b([0-9]{10})\b/);
+    // Prioridad 3 — fallback: número standalone de 9 o 10 dígitos
+    // 9 dígitos cubre correlativos FEL Guatemala (ej. 808599892); 10 dígitos para otros formatos.
+    const m3 = t.match(/\b([0-9]{9,10})\b/);
     return m3?.[1] ?? null;
   } catch (e) {
     console.error("[invoice_extract] numero_extract_failed", (e as Error)?.stack ?? e);
