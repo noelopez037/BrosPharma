@@ -1843,7 +1843,7 @@ const s = StyleSheet.create({
   barLabel: { width: 120, fontSize: 12, fontWeight: "800" },
   barTrack: { flex: 1, height: 10, borderRadius: 999, borderWidth: 1, overflow: "hidden" },
   barFill: { height: "100%", borderRadius: 999 },
-  barValue: { width: 80, textAlign: "right", fontSize: 12, fontWeight: "900" },
+  barValue: { minWidth: 90, textAlign: "right", fontSize: 12, fontWeight: "900" },
 
   lineTopRow: {
     marginTop: 10,
