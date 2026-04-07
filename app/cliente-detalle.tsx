@@ -65,7 +65,7 @@ export default function ClienteDetalle() {
   const { role, uid, isReady, refreshRole } = useRole();
   const { empresaActivaId } = useEmpresaActiva();
   const roleUp = String(role ?? "").trim().toUpperCase() as Role;
-  const canEdit = isReady && roleUp === "ADMIN";
+  const canEdit = isReady && (roleUp === "ADMIN" || roleUp === "VENTAS" || roleUp === "MENSAJERO");
   const canDelete = isReady && roleUp === "ADMIN";
 
   const [loading, setLoading] = useState(true);

@@ -15,6 +15,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { ProductoEditContent } from "./ProductoEditContent";
 import ImageViewer from "react-native-image-zoom-viewer";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -158,6 +159,7 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
   const [viewerOpen, setViewerOpen] = useState(false);
   const [savingPhoto, setSavingPhoto] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   useEffect(() => {
     closingRef.current = closing;
@@ -350,10 +352,14 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
 
   const onEditProducto = useCallback(() => {
     if (!isAdmin) return;
-    onClose();
-    setTimeout(() => {
-      router.push({ pathname: "/producto-edit", params: { id: String(productoId) } } as any);
-    }, 0);
+    if (Platform.OS === "web") {
+      setEditOpen(true);
+    } else {
+      onClose();
+      setTimeout(() => {
+        router.push({ pathname: "/producto-edit", params: { id: String(productoId) } } as any);
+      }, 0);
+    }
   }, [isAdmin, onClose, productoId]);
 
   return (
@@ -449,6 +455,22 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
           </>
         )}
       </Animated.View>
+
+      {editOpen && Platform.OS === "web" ? (
+        <Modal
+          visible
+          transparent
+          presentationStyle="overFullScreen"
+          onRequestClose={() => setEditOpen(false)}
+        >
+          <View style={s.editOverlay}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => setEditOpen(false)} />
+            <View style={s.editDialog}>
+              <ProductoEditContent productoId={productoId} onClose={() => setEditOpen(false)} />
+            </View>
+          </View>
+        </Modal>
+      ) : null}
 
       {viewerOpen ? (
         <Modal
@@ -639,4 +661,24 @@ const styles = (C: SysColors) =>
       backgroundColor: "rgba(255,255,255,0.12)",
     },
     viewerBtnText: { color: "#fff", fontWeight: "700" },
+
+    editOverlay: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.5)",
+      justifyContent: "center",
+      alignItems: "center",
+    },
+
+    editDialog: {
+      backgroundColor: C.BG,
+      borderRadius: 20,
+      width: "100%",
+      maxWidth: 680,
+      maxHeight: "90%",
+      shadowColor: "#000",
+      shadowOpacity: 0.18,
+      shadowRadius: 24,
+      shadowOffset: { width: 0, height: 8 },
+      overflow: "hidden",
+    },
   });

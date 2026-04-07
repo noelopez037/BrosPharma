@@ -245,11 +245,14 @@ export default function ClienteForm() {
         nit: nitSave,
         telefono: cleanTel,
         direccion: cleanDir,
-        activo,
       };
 
-      if (isAdmin) payload.vendedor_id = vendedorId ?? null;
-      if (isVendedor && uid) payload.vendedor_id = uid;
+      if (isAdmin) {
+        payload.activo = activo;
+        payload.vendedor_id = vendedorId ?? null;
+      } else if (isVendedor && uid) {
+        payload.vendedor_id = uid;
+      }
 
       const { error } = await supabase.from("clientes").update(payload).eq("empresa_id", empresaActivaId).eq("id", editingId).abortSignal(abortCtrl.signal);
       if (error) throw error;
@@ -369,7 +372,7 @@ export default function ClienteForm() {
               </>
             ) : null}
 
-            {isEditing ? (
+            {isAdmin && isEditing ? (
               <View style={s.switchRow}>
                 <Text style={s.switchText}>Activo</Text>
                 <Switch

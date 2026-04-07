@@ -950,6 +950,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       });
       if (rpcErr) throw rpcErr;
 
+      emitVentaEstadoChanged();
       await fetchVenta();
       await fetchRecetas();
 
