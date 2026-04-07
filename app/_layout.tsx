@@ -265,10 +265,13 @@ export default function Layout() {
       }
     }
 
-    // Emite resume de forma segura: espera empresa lista + tick de React antes de notificar.
+    // Emite resume de forma segura: tick de React + notifica a pantallas.
+    // refreshEmpresaActiva corre en paralelo (fire-and-forget): empresaActivaId ya está
+    // en memoria desde antes del background, no hay razón para bloquear el resume
+    // esperando una llamada de red que puede tardar hasta 8s.
     async function doEmitResume() {
-      if (__DEV__) console.log("[resume] doEmitResume — refreshing empresa");
-      await refreshEmpresaActiva().catch(() => {});
+      if (__DEV__) console.log("[resume] doEmitResume — refreshing empresa (background)");
+      void refreshEmpresaActiva().catch(() => {});
       // Pequeño delay para que React procese el cambio de estado y actualice los refs.
       await new Promise((r) => setTimeout(r, 80));
       if (__DEV__) console.log("[resume] emitAppResumed");
@@ -326,22 +329,35 @@ export default function Layout() {
           await new Promise((r) => setTimeout(r, 500));
 
           // Verificar sesión con getUser() (llamada real de red).
-          // 3 reintentos × 1.5s = hasta ~5s para que la red se estabilice.
+          // Timeout global de 10s sobre el loop entero para que emitAppResumed()
+          // nunca tarde más de ~10.5s, incluso si los sockets TCP están zombie y
+          // el fetch individual no respeta el AbortSignal a tiempo.
           let hasSession = false;
-          for (let attempt = 0; attempt < 3; attempt++) {
-            try {
-              if (__DEV__) console.log("[resume] getUser attempt", attempt + 1);
-              const { data, error } = await supabase.auth.getUser();
-              if (data?.user && !error) {
-                hasSession = true;
-                if (__DEV__) console.log("[resume] getUser OK");
-                break;
-              }
-              if (__DEV__ && error) console.warn("[resume] getUser error:", error.message);
-            } catch (e: any) {
-              if (__DEV__) console.warn("[resume] getUser exception:", e?.message ?? e);
-            }
-            if (attempt < 2) await new Promise((r) => setTimeout(r, 1500));
+          try {
+            await Promise.race([
+              (async () => {
+                for (let attempt = 0; attempt < 2; attempt++) {
+                  try {
+                    if (__DEV__) console.log("[resume] getUser attempt", attempt + 1);
+                    const { data, error } = await supabase.auth.getUser();
+                    if (data?.user && !error) {
+                      hasSession = true;
+                      if (__DEV__) console.log("[resume] getUser OK");
+                      break;
+                    }
+                    if (__DEV__ && error) console.warn("[resume] getUser error:", error.message);
+                  } catch (e: any) {
+                    if (__DEV__) console.warn("[resume] getUser exception:", e?.message ?? e);
+                  }
+                  if (attempt < 1) await new Promise((r) => setTimeout(r, 1000));
+                }
+              })(),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error("resume getUser timeout")), 10_000)
+              ),
+            ]);
+          } catch (e: any) {
+            if (__DEV__) console.warn("[resume] getUser loop timeout/error:", e?.message ?? e);
           }
 
           invalidateAll();

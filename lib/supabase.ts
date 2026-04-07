@@ -116,12 +116,25 @@ const FETCH_TIMEOUT_MS = 8_000;
 
 function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   // Si ya viene una señal de abort externa, respetar la que cancele primero.
   if (init?.signal) {
     (init.signal as AbortSignal).addEventListener("abort", () => controller.abort());
   }
-  return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(id));
+  // IMPORTANTE: se usa new Promise + reject() explícito en lugar de solo controller.abort().
+  // En React Native iOS, el polyfill de fetch delega a NSURLSession (capa nativa). Cuando
+  // los sockets TCP quedan zombie tras largo background, NSURLSession puede ignorar el
+  // AbortSignal hasta que el OS detecte el socket muerto (30-120s). Con reject() directo,
+  // la promise se resuelve en ≤ 8s sin importar el estado del socket nativo.
+  return new Promise<Response>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      controller.abort();
+      reject(new DOMException("Request timed out", "AbortError"));
+    }, FETCH_TIMEOUT_MS);
+
+    fetch(input, { ...init, signal: controller.signal })
+      .then(resolve, reject)
+      .finally(() => clearTimeout(timer));
+  });
 }
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
