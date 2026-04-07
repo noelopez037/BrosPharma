@@ -215,49 +215,18 @@ export default function ComisionesScreen() {
 
     const roleUp = normalizeUpper(role);
     const isAdminLocal = roleUp === "ADMIN";
-    const isVentasLocal = roleUp === "VENTAS" || roleUp === "MENSAJERO";
 
-    const params: any = {};
-    params.p_empresa_id = empresaActivaId;
+    const params: any = {
+      p_empresa_id: empresaActivaId,
+      p_desde: desde,
+      p_hasta: hasta,
+    };
     if (isAdminLocal && fVendedorId) params.p_vendedor_id = fVendedorId;
 
-    const { data, error } = await supabase.rpc("rpc_cxc_ventas", params);
+    const { data, error } = await supabase.rpc("rpc_ventas_pagadas_mes", params);
     if (error) throw error;
 
-    const fromMs = new Date(desde).getTime();
-    const toMs = new Date(hasta).getTime();
-
-    let rows = (data ?? []) as CxCVentaRow[];
-    rows = rows
-      .filter((r) => {
-        const saldoNum = Number((r as any)?.saldo);
-        if (!Number.isFinite(saldoNum)) return false;
-        if (!(saldoNum <= 0)) return false;
-
-        const pagoRaw = r?.fecha_ultimo_pago ? String(r.fecha_ultimo_pago) : "";
-        const ms = pagoRaw ? new Date(pagoRaw).getTime() : NaN;
-        if (!Number.isFinite(ms)) return false;
-        if (ms < fromMs || ms > toMs) return false;
-
-        const vid = String(r?.vendedor_id ?? "").trim();
-        if (isVentasLocal && uid && vid && vid !== uid) return false;
-        if (isAdminLocal && fVendedorId && vid && vid !== fVendedorId) return false;
-
-        return true;
-      })
-      .sort((a, b) => {
-        const ams = a.fecha_ultimo_pago ? new Date(a.fecha_ultimo_pago).getTime() : NaN;
-        const bms = b.fecha_ultimo_pago ? new Date(b.fecha_ultimo_pago).getTime() : NaN;
-        const aValid = Number.isFinite(ams);
-        const bValid = Number.isFinite(bms);
-        if (!aValid && !bValid) return 0;
-        if (!aValid) return 1;
-        if (!bValid) return -1;
-        if (ams === bms) return 0;
-        return ams > bms ? -1 : 1;
-      });
-
-    return rows;
+    return (data ?? []) as CxCVentaRow[];
   }, [desde, hasta, empresaActivaId, fVendedorId, role, uid]);
 
   useFocusEffect(
