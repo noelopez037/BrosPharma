@@ -420,7 +420,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
   const canEditRecetas = roleUp === "ADMIN" || roleUp === "VENTAS" || roleUp === "MENSAJERO";
   const canFacturar = roleUp === "ADMIN" || roleUp === "FACTURACION";
   const canVerFacturas = roleUp === "ADMIN" || roleUp === "FACTURACION" || roleUp === "VENTAS" || roleUp === "MENSAJERO";
-  const canBodega = roleUp === "ADMIN" || roleUp === "BODEGA";
+  const canBodega = roleUp === "ADMIN" || roleUp === "BODEGA" || roleUp === "MENSAJERO";
   const canEntregar = roleUp === "ADMIN" || roleUp === "BODEGA" || roleUp === "VENTAS" || roleUp === "MENSAJERO";
   const canSolicitar = roleUp === "VENTAS" || roleUp === "ADMIN" || roleUp === "MENSAJERO";
 
