@@ -1,8 +1,7 @@
-import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { FlatList, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { useRole } from "../../lib/useRole";
@@ -14,80 +13,83 @@ import { useResumeLoad } from "../../lib/useResumeLoad";
 import { normalizeUpper } from "../../lib/utils/text";
 import { toGTDateKey } from "../../lib/utils/format";
 
-type RecetaColors = {
+type Colors = {
   bg: string; card: string; text: string; sub: string;
-  border: string; tint: string; chipBg: string;
+  border: string; tint: string;
   chipAmberBg: string; chipAmberText: string;
+  badgeNuevo: string; badgeFacturado: string; badgeEnRuta: string;
 };
 
 type VentaRow = {
   id: number;
   fecha: string | null;
+  estado: string;
   cliente_nombre: string | null;
   vendedor_id: string | null;
   vendedor_codigo: string | null;
-  requiere_receta: boolean;
-  receta_cargada: boolean;
 };
+
+type VendedorRow = { id: string; label: string };
 
 function shortUid(u: string | null | undefined) {
   const s = String(u ?? "").trim();
-  if (!s) return "—";
-  return s.slice(0, 8);
+  return s ? s.slice(0, 8) : "—";
 }
 
-function startOfMonth(d: Date) {
-  return new Date(d.getFullYear(), d.getMonth(), 1);
-}
-
-function endOfMonth(d: Date) {
-  return new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
-}
-
-function monthsBetween(start: Date, end: Date) {
-  const out: { year: number; month: number }[] = [];
-  const cur = new Date(start.getFullYear(), start.getMonth(), 1);
-  const last = new Date(end.getFullYear(), end.getMonth(), 1);
-  while (cur <= last) {
-    out.push({ year: cur.getFullYear(), month: cur.getMonth() + 1 });
-    cur.setMonth(cur.getMonth() + 1);
+function estadoLabel(estado: string) {
+  switch (normalizeUpper(estado)) {
+    case "NUEVO": return "NUEVO";
+    case "FACTURADO": return "FACTURADO";
+    case "EN_RUTA": return "EN RUTA";
+    case "ENTREGADO": return "ENTREGADO";
+    default: return normalizeUpper(estado) || "—";
   }
-  return out;
 }
 
-function startOfDay(d: Date) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-
-function endOfDay(d: Date) {
-  const x = new Date(d);
-  x.setHours(23, 59, 59, 999);
-  return x;
-}
-
-const RecetaItem = React.memo(function RecetaItem({
+const RecetaCard = React.memo(function RecetaCard({
   item,
   vendedorLabel,
-  showChip,
   C,
   onPress,
 }: {
   item: VentaRow;
   vendedorLabel: string;
-  showChip: boolean;
-  C: RecetaColors;
+  C: Colors;
   onPress: () => void;
 }) {
+  const estado = normalizeUpper(item.estado);
+  const badgeColor =
+    estado === "NUEVO" ? C.badgeNuevo :
+    estado === "FACTURADO" ? C.badgeFacturado :
+    estado === "EN_RUTA" ? C.badgeEnRuta :
+    C.sub;
+
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [s.card, { borderColor: C.border, backgroundColor: C.card }, pressed ? { opacity: 0.85 } : null]}>
-      <Text style={[s.cardTitle, { color: C.text }]} numberOfLines={2}>{item.cliente_nombre ?? "—"}</Text>
-      <Text style={[s.cardSub, { color: C.sub }]}>Fecha: {toGTDateKey(item.fecha) || "—"}</Text>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        s.card,
+        { borderColor: C.border, backgroundColor: C.card },
+        pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
+      ]}
+    >
+      <View style={s.cardTopRow}>
+        <Text style={[s.cardTitle, { color: C.text, flex: 1 }]} numberOfLines={2}>
+          {item.cliente_nombre ?? "—"}
+        </Text>
+        <View style={[s.badge, { borderColor: badgeColor }]}>
+          <Text style={[s.badgeText, { color: badgeColor }]}>{estadoLabel(item.estado)}</Text>
+        </View>
+      </View>
+      <Text style={[s.cardSub, { color: C.sub }]}>
+        #{item.id} · {toGTDateKey(item.fecha) || "—"}
+      </Text>
       <Text style={[s.cardSub, { color: C.sub }]}>Vendedor: {vendedorLabel}</Text>
-      {showChip ? (
-        <View style={s.chipsRow}><View style={[s.chip, { backgroundColor: C.chipAmberBg, borderColor: C.border }]}><Text style={[s.chipText, { color: C.chipAmberText }]}>Falta receta</Text></View></View>
-      ) : null}
+      <View style={s.chipsRow}>
+        <View style={[s.chip, { backgroundColor: C.chipAmberBg, borderColor: C.border }]}>
+          <Text style={[s.chipText, { color: C.chipAmberText }]}>Falta receta</Text>
+        </View>
+      </View>
     </Pressable>
   );
 });
@@ -97,14 +99,13 @@ export default function RecetasPendientesScreen() {
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
 
-  // UX: back / swipe-back siempre regresa a Inicio.
   useGoHomeOnBack(true, "/(drawer)/(tabs)");
 
   const { role, uid, isReady, refreshRole } = useRole();
   const { empresaActivaId } = useEmpresaActiva();
-  const roleUp = String(role ?? "").trim().toUpperCase();
+  const roleUp = normalizeUpper(role ?? "");
   const isAdmin = isReady && roleUp === "ADMIN";
-  const isVentas = isReady && (roleUp === "VENTAS" || roleUp === "MENSAJERO");
+  const isSelf = isReady && (roleUp === "VENTAS" || roleUp === "MENSAJERO");
 
   useFocusEffect(
     useCallback(() => {
@@ -112,7 +113,7 @@ export default function RecetasPendientesScreen() {
     }, [refreshRole])
   );
 
-  const C = useMemo(
+  const C = useMemo<Colors>(
     () => ({
       bg: colors.background ?? (isDark ? "#000" : "#fff"),
       card: colors.card ?? (isDark ? "#121214" : "#fff"),
@@ -120,350 +121,179 @@ export default function RecetasPendientesScreen() {
       sub: colors.text ? colors.text + "66" : isDark ? "rgba(255,255,255,0.65)" : "#666",
       border: colors.border ?? (isDark ? "rgba(255,255,255,0.14)" : "#e5e5e5"),
       tint: String(colors.primary ?? "#153c9e"),
-      chipBg: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
       chipAmberBg: isDark ? "rgba(255,201,107,0.18)" : "rgba(255,170,0,0.12)",
       chipAmberText: isDark ? "rgba(255,201,107,0.92)" : "#b25a00",
+      badgeNuevo: isDark ? "#6b9fff" : "#153c9e",
+      badgeFacturado: isDark ? "#7be07b" : "#196b19",
+      badgeEnRuta: isDark ? "#ffb84d" : "#b25a00",
     }),
     [colors, isDark]
   );
 
-  const [desde, setDesde] = useState<Date | null>(startOfMonth(new Date()));
-  const [hasta, setHasta] = useState<Date | null>(endOfMonth(new Date()));
-
-  const [showDesdeIOS, setShowDesdeIOS] = useState(false);
-  const [showHastaIOS, setShowHastaIOS] = useState(false);
-
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [tmpDesde, setTmpDesde] = useState<Date | null>(desde);
-  const [tmpHasta, setTmpHasta] = useState<Date | null>(hasta);
   const [tmpVendedorId, setTmpVendedorId] = useState<string | null>(null);
-
-  const [selfVendedorLabel, setSelfVendedorLabel] = useState<string>("");
+  const [selectedVendedorId, setSelectedVendedorId] = useState<string | null>(null);
+  const [vendedorOpen, setVendedorOpen] = useState(false);
 
   const [rows, setRows] = useState<VentaRow[]>([]);
-  const [initialLoading, setInitialLoading] = useState(true);
-  const [listLoading, setListLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Admin: vendedores
-  type VendedorRow = { vendedor_id: string; vendedor_codigo: string };
   const [vendedores, setVendedores] = useState<VendedorRow[]>([]);
-  const [vendedorOpen, setVendedorOpen] = useState(false);
-  const [selectedVendedorId, setSelectedVendedorId] = useState<string | null>(null);
+  const [vendedoresMap, setVendedoresMap] = useState<Map<string, string>>(new Map());
+  const [selfLabel, setSelfLabel] = useState("");
 
-  const vendedoresMap = useMemo(() => {
-    const m = new Map<string, string>();
-    (vendedores ?? []).forEach((v) => {
-      const id = String(v?.vendedor_id ?? "").trim();
-      const label = String(v?.vendedor_codigo ?? "").trim();
-      if (id && label) m.set(id, label);
-    });
-    return m;
-  }, [vendedores]);
-
-  // load self label
+  // Label propio
   useEffect(() => {
-    if (!uid) {
-      setSelfVendedorLabel("");
-      return;
-    }
-    let mounted = true;
-    (async () => {
-      try {
-        const { data, error } = await supabase.from("profiles").select("codigo,full_name").eq("id", uid).maybeSingle();
-        if (error) throw error;
-        if (!mounted) return;
-        const label = String(data?.codigo ?? "").trim() || String(data?.full_name ?? "").trim() || String(uid).slice(0, 8);
-        setSelfVendedorLabel(label);
-      } catch {
-        if (mounted) setSelfVendedorLabel("");
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, [uid]);
-
-  // load vendedores for admin
-  useEffect(() => {
-    if (!isAdmin) {
-      setVendedores([]);
-      return;
-    }
-    if (!empresaActivaId) return;
+    if (!uid) { setSelfLabel(""); return; }
     let alive = true;
     (async () => {
-      try {
-        let out: VendedorRow[] = [];
-        try {
-          const { data: p, error: pe } = await supabase
-            .from("profiles")
-            .select("id,codigo,full_name,role")
-            .not("role", "is", null)
-            .order("codigo", { ascending: true });
-          if (!pe && p) {
-            out = (p ?? [])
-              .filter((x: any) => {
-                const r = normalizeUpper(x?.role);
-                return r === "ADMIN" || r === "VENTAS" || r === "MENSAJERO";
-              })
-              .map((x: any) => {
-                const id = String(x.id ?? "").trim();
-                const codigo = String(x.codigo ?? "").trim();
-                const nombre = String(x.full_name ?? "").trim();
-                const label = codigo || nombre || id.slice(0, 8);
-                return id ? { vendedor_id: id, vendedor_codigo: label } : null;
-              })
-              .filter(Boolean) as any;
-          }
-        } catch {}
-
-        if (out.length === 0) {
-          try {
-            const { data: vdata } = await supabase.from("vw_cxc_ventas").select("vendedor_id,vendedor_codigo").eq("empresa_id", empresaActivaId);
-            const map = new Map<string, string>();
-            (vdata ?? []).forEach((r: any) => {
-              const id = String(r.vendedor_id ?? "").trim();
-              if (!id) return;
-              const label = String(r.vendedor_codigo ?? "").trim() || id.slice(0, 8);
-              if (!map.has(id)) map.set(id, label);
-            });
-            out = Array.from(map.entries()).map(([vendedor_id, vendedor_codigo]) => ({ vendedor_id, vendedor_codigo }));
-          } catch {}
-        }
-
-        out.sort((a, b) => String(a.vendedor_codigo).localeCompare(String(b.vendedor_codigo)));
-        if (alive) setVendedores(out);
-      } catch {
-        if (alive) setVendedores([]);
-      }
+      const { data } = await supabase.from("profiles").select("codigo,full_name").eq("id", uid).maybeSingle();
+      if (!alive) return;
+      setSelfLabel(
+        String(data?.codigo ?? "").trim() || String(data?.full_name ?? "").trim() || shortUid(uid)
+      );
     })();
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
+  }, [uid]);
+
+  // Vendedores (solo admin)
+  useEffect(() => {
+    if (!isAdmin || !empresaActivaId) { setVendedores([]); return; }
+    let alive = true;
+    (async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("id,codigo,full_name,role")
+        .not("role", "is", null)
+        .order("codigo", { ascending: true });
+      if (!alive) return;
+      const out: VendedorRow[] = (data ?? [])
+        .filter((x: any) => ["ADMIN", "VENTAS", "MENSAJERO"].includes(normalizeUpper(x?.role)))
+        .map((x: any) => {
+          const id = String(x.id ?? "").trim();
+          if (!id) return null;
+          const label = String(x.codigo ?? "").trim() || String(x.full_name ?? "").trim() || id.slice(0, 8);
+          return { id, label };
+        })
+        .filter(Boolean) as VendedorRow[];
+      const map = new Map<string, string>();
+      out.forEach((v) => map.set(v.id, v.label));
+      if (alive) { setVendedores(out); setVendedoresMap(map); }
+    })();
+    return () => { alive = false; };
   }, [isAdmin, empresaActivaId]);
 
-  const fetchRange = useCallback(
-    async (d: Date | null, h: Date | null, vendedorIdOverride?: string | null) => {
-      if (!d || !h) return [] as VentaRow[];
+  const fetchRows = useCallback(
+    async (vendedorId: string | null) => {
+      if (!empresaActivaId) return [] as VentaRow[];
       setErrorMsg(null);
-      const months = monthsBetween(d, h);
-      // safety limit
-      if (months.length > 18) throw new Error("Rango demasiado grande. Reduce a 18 meses.");
 
-      const calls = months.map(({ year, month }) =>
-        supabase.rpc("rpc_ventas_receta_pendiente_por_mes", { p_empresa_id: empresaActivaId, p_year: year, p_month: month })
-      );
+      let query = supabase
+        .from("ventas")
+        .select("id,fecha,estado,cliente_nombre,vendedor_id,vendedor_codigo")
+        .eq("empresa_id", empresaActivaId)
+        .eq("requiere_receta", true)
+        .eq("receta_cargada", false)
+        .neq("estado", "ANULADO")
+        .order("fecha", { ascending: false })
+        .order("id", { ascending: false });
 
-      const results = await Promise.allSettled(calls);
-      const rowsAll: any[] = [];
-      let anyError = false;
-      for (const r of results) {
-        if (r.status === "fulfilled") {
-          const val: any = r.value;
-          if (val?.data && Array.isArray(val.data)) rowsAll.push(...val.data);
-        } else {
-          anyError = true;
-        }
-      }
-      if (anyError) setErrorMsg("Algunas consultas fallaron. Reintenta.");
-
-      // dedupe by id
-      const map = new Map<number, any>();
-      for (const row of rowsAll) {
-        const id = Number(row?.id);
-        if (!Number.isFinite(id) || id <= 0) continue;
-        if (!map.has(id)) map.set(id, row);
-      }
-      let out = Array.from(map.values()) as VentaRow[];
-
-      // Filter exact date range (inclusive) client-side
-      const d0 = startOfDay(d).getTime();
-      const h1 = endOfDay(h).getTime();
-      out = out.filter((r: any) => {
-        const f = String(r?.fecha ?? "").trim();
-        if (!f) return false;
-        const ms = new Date(f).getTime();
-        if (!Number.isFinite(ms)) return false;
-        return ms >= d0 && ms <= h1;
-      });
-
-      // order by fecha desc, id desc
-      out.sort((a: any, b: any) => {
-        const fa = a?.fecha ? new Date(a.fecha).getTime() : 0;
-        const fb = b?.fecha ? new Date(b.fecha).getTime() : 0;
-        if (fb !== fa) return fb - fa;
-        return Number(b.id ?? 0) - Number(a.id ?? 0);
-      });
-
-      // role-based filters
-      if (isVentas && uid) {
-        out = out.filter((r) => String(r.vendedor_id ?? "") === uid);
-      }
-      if (isAdmin) {
-        const vid = vendedorIdOverride !== undefined ? vendedorIdOverride : selectedVendedorId;
-        if (vid) out = out.filter((r) => String(r.vendedor_id ?? "") === vid);
+      if (isSelf && uid) {
+        query = query.eq("vendedor_id", uid);
+      } else if (isAdmin && vendedorId) {
+        query = query.eq("vendedor_id", vendedorId);
       }
 
-      return out;
+      const { data, error } = await query;
+      if (error) throw error;
+      return (data ?? []) as VentaRow[];
     },
-    [empresaActivaId, isAdmin, isVentas, uid, selectedVendedorId]
+    [empresaActivaId, isAdmin, isSelf, uid]
   );
 
-  const openFilters = useCallback(() => {
-    setVendedorOpen(false);
-    setShowDesdeIOS(false);
-    setShowHastaIOS(false);
-    setTmpDesde(desde);
-    setTmpHasta(hasta);
-    setTmpVendedorId(selectedVendedorId);
-    setFiltersOpen(true);
-  }, [desde, hasta, selectedVendedorId]);
-
-  const openDesdePicker = useCallback(() => {
-    setVendedorOpen(false);
-    if (Platform.OS === "android") {
-      DateTimePickerAndroid.open({
-        value: tmpDesde ?? new Date(),
-        mode: "date",
-        onChange: (_ev, date) => {
-          if (date) setTmpDesde(new Date(date));
-        },
-      });
-    } else {
-      setShowDesdeIOS(true);
-      setShowHastaIOS(false);
-    }
-  }, [tmpDesde]);
-
-  const openHastaPicker = useCallback(() => {
-    setVendedorOpen(false);
-    if (Platform.OS === "android") {
-      DateTimePickerAndroid.open({
-        value: tmpHasta ?? new Date(),
-        mode: "date",
-        onChange: (_ev, date) => {
-          if (date) setTmpHasta(new Date(date));
-        },
-      });
-    } else {
-      setShowHastaIOS(true);
-      setShowDesdeIOS(false);
-    }
-  }, [tmpHasta]);
-
-  const limpiarFiltros = useCallback(() => {
-    const now = new Date();
-    setTmpDesde(startOfMonth(now));
-    setTmpHasta(endOfMonth(now));
-    setTmpVendedorId(null);
-    setShowDesdeIOS(false);
-    setShowHastaIOS(false);
-    setVendedorOpen(false);
-  }, []);
-
-  const aplicarFiltros = useCallback(() => {
-    if (!tmpDesde || !tmpHasta) return;
-    if (tmpDesde.getTime() > tmpHasta.getTime()) return;
-
-    setDesde(tmpDesde);
-    setHasta(tmpHasta);
-    if (isAdmin) {
-      setSelectedVendedorId(tmpVendedorId);
-    } else {
-      setSelectedVendedorId(null);
-    }
-
-    setFiltersOpen(false);
-    setShowDesdeIOS(false);
-    setShowHastaIOS(false);
-    setVendedorOpen(false);
-    // fetch immediately with the chosen values
-    setListLoading(true);
-    (async () => {
+  const load = useCallback(
+    async (vendedorId: string | null, silent = false) => {
+      if (!silent) setLoading(true);
       try {
-        const data = await fetchRange(tmpDesde, tmpHasta, isAdmin ? tmpVendedorId : null);
-        setRows(data);
+        setRows(await fetchRows(vendedorId));
       } catch (e: any) {
-        setErrorMsg(e?.message ?? "Error");
+        setErrorMsg(e?.message ?? "Error al cargar");
         setRows([]);
       } finally {
-        setListLoading(false);
+        setLoading(false);
       }
-    })();
-  }, [fetchRange, isAdmin, tmpDesde, tmpHasta, tmpVendedorId]);
-
-  const loadAll = useCallback(async () => {
-    if (!desde || !hasta) return;
-    setListLoading(true);
-    try {
-      const data = await fetchRange(desde, hasta);
-      setRows(data);
-    } catch (e: any) {
-      setErrorMsg(e?.message ?? "Error");
-      setRows([]);
-    } finally {
-      setListLoading(false);
-    }
-  }, [desde, hasta, fetchRange]);
+    },
+    [fetchRows]
+  );
 
   useFocusEffect(
     useCallback(() => {
-      let alive = true;
-      (async () => {
-        if (alive) setInitialLoading(true);
-        try {
-          await loadAll();
-        } finally {
-          if (alive) setInitialLoading(false);
-        }
-      })();
-      return () => {
-        alive = false;
-      };
-    }, [loadAll])
+      void load(selectedVendedorId);
+    }, [load, selectedVendedorId])
   );
 
-  useResumeLoad(empresaActivaId, () => { void loadAll(); });
+  useResumeLoad(empresaActivaId, () => { void load(selectedVendedorId, true); });
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    try {
-      const data = await fetchRange(desde, hasta);
-      setRows(data);
-    } catch (e: any) {
-      setErrorMsg(e?.message ?? "Error");
-    } finally {
-      setRefreshing(false);
-    }
-  }, [desde, hasta, fetchRange]);
+    try { setRows(await fetchRows(selectedVendedorId)); }
+    catch (e: any) { setErrorMsg(e?.message ?? "Error"); }
+    finally { setRefreshing(false); }
+  }, [fetchRows, selectedVendedorId]);
 
-  // navigation to detail
+  const openFilters = useCallback(() => {
+    setTmpVendedorId(selectedVendedorId);
+    setVendedorOpen(false);
+    setFiltersOpen(true);
+  }, [selectedVendedorId]);
+
+  const aplicarFiltros = useCallback(() => {
+    const vid = isAdmin ? tmpVendedorId : null;
+    setSelectedVendedorId(vid);
+    setFiltersOpen(false);
+    setVendedorOpen(false);
+    setLoading(true);
+    (async () => {
+      try { setRows(await fetchRows(vid)); }
+      catch (e: any) { setErrorMsg(e?.message ?? "Error"); setRows([]); }
+      finally { setLoading(false); }
+    })();
+  }, [fetchRows, isAdmin, tmpVendedorId]);
+
   const openDetail = useCallback((id: number) => {
-    router.push({ pathname: "/venta-detalle", params: { ventaId: String(id), returnTo: "/(drawer)/recetas-pendientes" } } as any);
+    router.push({
+      pathname: "/venta-detalle",
+      params: { ventaId: String(id), returnTo: "/(drawer)/recetas-pendientes" },
+    } as any);
   }, []);
 
-  const renderRecetaItem = useCallback(
-    ({ item }: { item: VentaRow }) => {
-      const showChip = item.requiere_receta && !item.receta_cargada;
-      const vendedorLabel =
-        String(item.vendedor_codigo ?? "").trim() ||
-        (uid && String(item.vendedor_id ?? "") === uid ? String(selfVendedorLabel || "").trim() : null) ||
-        (item.vendedor_id ? vendedoresMap.get(String(item.vendedor_id)) : null) ||
-        shortUid(item.vendedor_id);
-      return (
-        <RecetaItem
-          item={item}
-          vendedorLabel={vendedorLabel}
-          showChip={showChip}
-          C={C}
-          onPress={() => openDetail(Number(item.id))}
-        />
-      );
+  const getVendedorLabel = useCallback(
+    (item: VentaRow) => {
+      if (item.vendedor_codigo) return String(item.vendedor_codigo).trim();
+      if (!item.vendedor_id) return "—";
+      if (item.vendedor_id === uid) return selfLabel || shortUid(item.vendedor_id);
+      return vendedoresMap.get(item.vendedor_id) ?? shortUid(item.vendedor_id);
     },
-    [C, vendedoresMap, uid, selfVendedorLabel, openDetail]
+    [uid, selfLabel, vendedoresMap]
   );
+
+  const renderItem = useCallback(
+    ({ item }: { item: VentaRow }) => (
+      <RecetaCard
+        item={item}
+        vendedorLabel={getVendedorLabel(item)}
+        C={C}
+        onPress={() => openDetail(item.id)}
+      />
+    ),
+    [C, getVendedorLabel, openDetail]
+  );
+
+  const selectedVendedorLabel = selectedVendedorId
+    ? (vendedores.find((v) => v.id === selectedVendedorId)?.label ?? selectedVendedorId.slice(0, 8))
+    : null;
 
   return (
     <SafeAreaView style={[s.safe, { backgroundColor: C.bg }]} edges={["bottom"]}>
@@ -476,19 +306,21 @@ export default function RecetasPendientesScreen() {
         }}
       />
 
+      {/* Barra superior */}
       <View style={[s.header, { backgroundColor: C.bg, borderBottomColor: C.border }]}>
         <View style={s.topRow}>
           <View style={{ flex: 1 }}>
-            <Text style={[s.rangeLabel, { color: C.sub }]} numberOfLines={1}>
-              {desde ? fmtDate(desde.toISOString()) : "—"} → {hasta ? fmtDate(hasta.toISOString()) : "—"}
-            </Text>
+            {isSelf && selfLabel ? (
+              <Text style={[s.selfLabel, { color: C.sub }]}>Mostrando solo: {selfLabel}</Text>
+            ) : selectedVendedorLabel ? (
+              <Text style={[s.selfLabel, { color: C.sub }]}>Vendedor: {selectedVendedorLabel}</Text>
+            ) : isAdmin ? (
+              <Text style={[s.selfLabel, { color: C.sub }]}>Todos los vendedores</Text>
+            ) : null}
             {errorMsg ? (
-              <Text style={[s.errorText, { color: C.sub }]} numberOfLines={2}>
-                {errorMsg}
-              </Text>
+              <Text style={[s.errorText, { color: "#e53e3e" }]}>{errorMsg}</Text>
             ) : null}
           </View>
-
           {isAdmin ? (
             <Pressable
               onPress={openFilters}
@@ -504,173 +336,76 @@ export default function RecetasPendientesScreen() {
         </View>
       </View>
 
-      {filtersOpen ? (
-        <Modal visible={filtersOpen} transparent animationType="fade" onRequestClose={() => setFiltersOpen(false)}>
-          <Pressable
-            style={[s.modalBackdrop, { backgroundColor: isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.35)" }]}
-            onPress={() => {
-              setFiltersOpen(false);
-              setShowDesdeIOS(false);
-              setShowHastaIOS(false);
-              setVendedorOpen(false);
-            }}
-          />
-
-          <View style={[s.modalCard, { backgroundColor: C.card, borderColor: C.border }] }>
-            <View style={s.modalHeader}>
-              <Text style={[s.modalTitle, { color: C.text }]}>Filtros</Text>
-              <Pressable onPress={() => setFiltersOpen(false)} hitSlop={10}>
-                <Text style={[s.modalClose, { color: C.sub }]}>Cerrar</Text>
-              </Pressable>
-            </View>
-
-          <View style={s.twoCols}>
-            <View style={{ flex: 1 }}>
-              <Text style={[s.sectionLabel, { color: C.text }]}>Desde</Text>
-              {Platform.OS === "web" ? (
-                <input
-                  type="date"
-                  value={tmpDesde ? tmpDesde.toISOString().slice(0, 10) : ""}
-                  onChange={(e) => {
-                    const val = (e.target as HTMLInputElement).value;
-                    setTmpDesde(val ? new Date(`${val}T12:00:00`) : null);
-                  }}
-                  style={{ marginTop: 8, borderWidth: 1, borderStyle: "solid", borderColor: C.border, borderRadius: 12, padding: 12, fontSize: 16, width: "100%", backgroundColor: "transparent", color: C.text, fontFamily: "inherit", cursor: "pointer" } as any}
-                />
-              ) : (
-                <Pressable onPress={openDesdePicker} style={[s.dateBox, { borderColor: C.border, backgroundColor: C.bg }]}>
-                  <Text style={[s.dateTxt, { color: C.text }]}>{tmpDesde ? fmtDate(tmpDesde.toISOString()) : "—"}</Text>
-                </Pressable>
-              )}
-            </View>
-
-            <View style={{ width: 12 }} />
-
-            <View style={{ flex: 1 }}>
-              <Text style={[s.sectionLabel, { color: C.text }]}>Hasta</Text>
-              {Platform.OS === "web" ? (
-                <input
-                  type="date"
-                  value={tmpHasta ? tmpHasta.toISOString().slice(0, 10) : ""}
-                  onChange={(e) => {
-                    const val = (e.target as HTMLInputElement).value;
-                    setTmpHasta(val ? new Date(`${val}T12:00:00`) : null);
-                  }}
-                  style={{ marginTop: 8, borderWidth: 1, borderStyle: "solid", borderColor: C.border, borderRadius: 12, padding: 12, fontSize: 16, width: "100%", backgroundColor: "transparent", color: C.text, fontFamily: "inherit", cursor: "pointer" } as any}
-                />
-              ) : (
-                <Pressable onPress={openHastaPicker} style={[s.dateBox, { borderColor: C.border, backgroundColor: C.bg }]}>
-                  <Text style={[s.dateTxt, { color: C.text }]}>{tmpHasta ? fmtDate(tmpHasta.toISOString()) : "—"}</Text>
-                </Pressable>
-              )}
-            </View>
+      {/* Modal vendedor (solo admin) */}
+      <Modal
+        visible={filtersOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFiltersOpen(false)}
+      >
+        <Pressable
+          style={[s.backdrop, { backgroundColor: isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.35)" }]}
+          onPress={() => { setFiltersOpen(false); setVendedorOpen(false); }}
+        />
+        <View style={[s.modalCard, { backgroundColor: C.card, borderColor: C.border }]}>
+          <View style={s.modalHeader}>
+            <Text style={[s.modalTitle, { color: C.text }]}>Filtrar por vendedor</Text>
+            <Pressable onPress={() => setFiltersOpen(false)} hitSlop={10}>
+              <Text style={[s.modalClose, { color: C.sub }]}>Cerrar</Text>
+            </Pressable>
           </View>
 
-          {Platform.OS === "ios" && showDesdeIOS ? (
-            <View style={[s.iosPickerWrap, { borderColor: C.border, backgroundColor: C.bg }] }>
-              <DateTimePicker
-                value={tmpDesde ?? new Date()}
-                mode="date"
-                display="inline"
-                themeVariant={isDark ? "dark" : "light"}
-                onChange={(_ev, date) => {
-                  if (date) setTmpDesde(new Date(date));
-                  setShowDesdeIOS(false);
-                }}
-              />
+          <Pressable
+            onPress={() => setVendedorOpen((v) => !v)}
+            style={[s.dropdown, { borderColor: C.border, backgroundColor: C.bg }]}
+          >
+            <Text style={[s.dropdownTxt, { color: C.text }]} numberOfLines={1}>
+              {tmpVendedorId
+                ? (vendedores.find((v) => v.id === tmpVendedorId)?.label ?? "Vendedor")
+                : "Todos"}
+            </Text>
+            <Text style={[s.caret, { color: C.sub }]}>{vendedorOpen ? "▲" : "▼"}</Text>
+          </Pressable>
+
+          {vendedorOpen ? (
+            <View style={[s.ddPanel, { borderColor: C.border, backgroundColor: C.bg }]}>
+              <ScrollView style={{ maxHeight: 200 }} keyboardShouldPersistTaps="handled">
+                <Pressable onPress={() => { setTmpVendedorId(null); setVendedorOpen(false); }} style={s.ddRow}>
+                  <Text style={[s.ddTxt, { color: C.text }]}>Todos</Text>
+                </Pressable>
+                {vendedores.map((v) => (
+                  <Pressable key={v.id} onPress={() => { setTmpVendedorId(v.id); setVendedorOpen(false); }} style={s.ddRow}>
+                    <Text style={[s.ddTxt, { color: C.text }]}>{v.label}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
             </View>
-          ) : null}
-
-          {Platform.OS === "ios" && showHastaIOS ? (
-            <View style={[s.iosPickerWrap, { borderColor: C.border, backgroundColor: C.bg }] }>
-              <DateTimePicker
-                value={tmpHasta ?? new Date()}
-                mode="date"
-                display="inline"
-                themeVariant={isDark ? "dark" : "light"}
-                onChange={(_ev, date) => {
-                  if (date) setTmpHasta(new Date(date));
-                  setShowHastaIOS(false);
-                }}
-              />
-            </View>
-          ) : null}
-
-          {isAdmin ? (
-            <>
-              <Text style={[s.sectionLabel, { color: C.text }]}>Vendedor</Text>
-              <Pressable
-                onPress={() => {
-                  setVendedorOpen((v) => !v);
-                  setShowDesdeIOS(false);
-                  setShowHastaIOS(false);
-                }}
-                style={[s.dropdownInput, { borderColor: C.border, backgroundColor: C.bg }]}
-              >
-                <Text style={[s.dropdownText, { color: C.text }]} numberOfLines={1}>
-                  {tmpVendedorId
-                    ? (vendedores.find((v) => v.vendedor_id === tmpVendedorId)?.vendedor_codigo ?? "Vendedor")
-                    : "Todos"}
-                </Text>
-                <Text style={[s.dropdownCaret, { color: C.sub }]}>{vendedorOpen ? "▲" : "▼"}</Text>
-              </Pressable>
-
-              {vendedorOpen ? (
-                <View style={[s.dropdownPanel, { borderColor: C.border, backgroundColor: C.bg }] }>
-                  <ScrollView style={{ maxHeight: 180 }} keyboardShouldPersistTaps="handled">
-                    <Pressable
-                      onPress={() => {
-                        setTmpVendedorId(null);
-                        setVendedorOpen(false);
-                      }}
-                      style={s.ddRow}
-                    >
-                      <Text style={[s.ddTxt, { color: C.text }]}>Todos</Text>
-                    </Pressable>
-                    {(vendedores ?? []).map((v) => (
-                      <Pressable
-                        key={v.vendedor_id}
-                        onPress={() => {
-                          setTmpVendedorId(v.vendedor_id);
-                          setVendedorOpen(false);
-                        }}
-                        style={s.ddRow}
-                      >
-                        <Text style={[s.ddTxt, { color: C.text }]}>{v.vendedor_codigo}</Text>
-                      </Pressable>
-                    ))}
-                  </ScrollView>
-                </View>
-              ) : null}
-            </>
           ) : null}
 
           <View style={s.modalActions}>
-            <AppButton title="Limpiar" variant="ghost" size="sm" onPress={limpiarFiltros} />
+            <AppButton title="Todos" variant="ghost" size="sm" onPress={() => { setTmpVendedorId(null); setVendedorOpen(false); }} />
             <AppButton title="Aplicar" size="sm" onPress={aplicarFiltros} />
           </View>
-          </View>
-        </Modal>
-      ) : null}
+        </View>
+      </Modal>
 
       <FlatList
         data={rows}
-        extraData={vendedores}
-        keyExtractor={(it) => String(it.id)}
-        contentContainerStyle={{ padding: 16, paddingBottom: 28 }}
+        keyExtractor={(item) => String(item.id)}
+        contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-        automaticallyAdjustKeyboardInsets
-        refreshing={refreshing}
-        onRefresh={onRefresh}
-        initialNumToRender={Platform.OS === "web" ? 999 : 12}
+        renderItem={renderItem}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.tint} colors={[C.tint]} />
+        }
+        initialNumToRender={Platform.OS === "web" ? 999 : 14}
         maxToRenderPerBatch={Platform.OS === "web" ? 999 : 10}
-        updateCellsBatchingPeriod={50}
         windowSize={Platform.OS === "web" ? 999 : 7}
         removeClippedSubviews={Platform.OS === "android"}
-        renderItem={renderRecetaItem}
         ListEmptyComponent={
-          <Text style={{ padding: 16, color: C.sub, fontWeight: "700" }}>{initialLoading || listLoading ? "Cargando..." : "Sin ventas"}</Text>
+          <Text style={[s.emptyTxt, { color: C.sub }]}>
+            {loading ? "Cargando..." : "Sin ventas con receta pendiente"}
+          </Text>
         }
       />
     </SafeAreaView>
@@ -679,35 +414,34 @@ export default function RecetasPendientesScreen() {
 
 const s = StyleSheet.create({
   safe: { flex: 1 },
-  header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth },
-  topRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  rangeLabel: { fontSize: 13, fontWeight: "800" },
+  header: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth },
+  topRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  selfLabel: { fontSize: 12, fontWeight: "700" },
   errorText: { marginTop: 4, fontSize: 12, fontWeight: "700" },
-  filterBtn: { borderWidth: 1, paddingHorizontal: 12, paddingVertical: 12, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  filterTxt: { fontWeight: "800" },
+  filterBtn: { borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12 },
+  filterTxt: { fontWeight: "800", fontSize: 13 },
 
-  modalBackdrop: { ...StyleSheet.absoluteFillObject },
+  backdrop: { ...StyleSheet.absoluteFillObject },
   modalCard: { position: "absolute", left: 14, right: 14, top: 90, borderRadius: 18, padding: 16, borderWidth: 1 },
-  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  modalTitle: { fontSize: Platform.OS === "web" ? 22 : 18, fontWeight: "800" },
-  modalClose: { fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "700" },
-  sectionLabel: { marginTop: 12, fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "800" },
-  twoCols: { flexDirection: "row", marginTop: 8 },
-  dateBox: { marginTop: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12 },
-  dateTxt: { fontSize: Platform.OS === "web" ? 16 : 14, fontWeight: "700" },
-  iosPickerWrap: { marginTop: 10, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
-  dropdownInput: { marginTop: 8, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  dropdownText: { fontSize: Platform.OS === "web" ? 16 : 14, fontWeight: "600", flex: 1, paddingRight: 10 },
-  dropdownCaret: { fontSize: 14, fontWeight: "900" },
-  dropdownPanel: { marginTop: 10, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 12, marginTop: 16 },
+  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
+  modalTitle: { fontSize: Platform.OS === "web" ? 20 : 17, fontWeight: "800" },
+  modalClose: { fontSize: 13, fontWeight: "700" },
+  dropdown: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  dropdownTxt: { fontSize: 14, fontWeight: "600", flex: 1, paddingRight: 10 },
+  caret: { fontSize: 14, fontWeight: "900" },
+  ddPanel: { marginTop: 8, borderWidth: 1, borderRadius: 12, overflow: "hidden" },
   ddRow: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
-  ddTxt: { fontSize: Platform.OS === "web" ? 16 : 13, fontWeight: "600" },
+  ddTxt: { fontSize: 13, fontWeight: "600" },
+  modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 12, marginTop: 16 },
 
   card: { borderWidth: 1, borderRadius: 16, padding: 14, marginBottom: 12 },
+  cardTopRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   cardTitle: { fontSize: 13, fontWeight: "900" },
-  cardSub: { marginTop: 6, fontSize: 11, fontWeight: "700" },
-  chipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
-  chip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
-  chipText: { fontSize: 12, fontWeight: "900" },
+  cardSub: { marginTop: 5, fontSize: 11, fontWeight: "700" },
+  badge: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
+  badgeText: { fontSize: 10, fontWeight: "900" },
+  chipsRow: { flexDirection: "row", marginTop: 10 },
+  chip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  chipText: { fontSize: 11, fontWeight: "900" },
+  emptyTxt: { padding: 16, fontWeight: "700" },
 });

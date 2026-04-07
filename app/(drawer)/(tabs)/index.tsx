@@ -1015,7 +1015,7 @@ export default function Inicio() {
 
   // ─── Focus effect ─────────────────────────────────────────────────────────
 
-  useResumeLoad(empresaActivaId, () => { void loadAll({}); });
+  useResumeLoad(empresaActivaId, () => { void loadAll({ skipCache: true }); });
 
   useFocusEffect(
     useCallback(() => {

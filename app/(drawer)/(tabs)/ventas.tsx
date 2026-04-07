@@ -47,6 +47,7 @@ type VentaRow = {
   requiere_receta: boolean;
   receta_cargada: boolean;
   factura_numeros?: string[];
+  en_ruta_nota?: string | null;
 };
 
 type VentasCache = {
@@ -224,6 +225,12 @@ const VentaCard = React.memo(
             {facturaLabel}
           </Text>
         ) : null}
+        {item.estado === "EN_RUTA" && item.en_ruta_nota ? (
+          <View style={[s.notaRow, { backgroundColor: C.chipAmberBg }]}>
+            <Text style={[s.notaLabel, { color: C.chipAmberText }]}>Nota: </Text>
+            <Text style={[s.notaTxt, { color: C.chipAmberText }]} numberOfLines={2}>{item.en_ruta_nota}</Text>
+          </View>
+        ) : null}
 
         {chips.length ? (
           <View style={s.chipsRow}>
@@ -245,6 +252,7 @@ const VentaCard = React.memo(
   },
   (prev, next) =>
     prev.item.id === next.item.id &&
+    prev.item.en_ruta_nota === next.item.en_ruta_nota &&
     prev.chips === next.chips &&
     prev.facturas === next.facturas &&
     prev.onPress === next.onPress &&
@@ -571,13 +579,17 @@ export default function Ventas() {
 
       try {
         if (!empresaActivaId) return;
+        const selectFields = targetEstado === "EN_RUTA"
+          ? `id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada,
+            ventas_tags!ventas_tags_venta_id_fkey(tag,removed_at),
+            ventas_facturas!ventas_facturas_venta_id_fkey(numero_factura),
+            ventas_eventos!ventas_eventos_venta_id_fkey(tipo,nota)`
+          : `id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada,
+            ventas_tags!ventas_tags_venta_id_fkey(tag,removed_at),
+            ventas_facturas!ventas_facturas_venta_id_fkey(numero_factura)`;
         const { data, error } = await supabase
           .from("ventas")
-          .select(
-            `id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada,
-            ventas_tags!ventas_tags_venta_id_fkey(tag,removed_at),
-            ventas_facturas!ventas_facturas_venta_id_fkey(numero_factura)`
-          )
+          .select(selectFields)
           .eq("empresa_id", empresaActivaId)
           .eq("estado", targetEstado)
           .order("fecha", { ascending: false })
@@ -586,7 +598,10 @@ export default function Ventas() {
         if (error) throw error;
 
         const raw = (data ?? []) as any[];
-        const rows: VentaRow[] = raw.map(({ ventas_tags: _t, ventas_facturas: _f, ...rest }) => rest as VentaRow);
+        const rows: VentaRow[] = raw.map(({ ventas_tags: _t, ventas_facturas: _f, ventas_eventos: _e, ...rest }) => {
+          const enRutaEvento = (_e ?? []).find((ev: any) => ev.tipo === "EN_RUTA");
+          return { ...rest, en_ruta_nota: enRutaEvento?.nota ?? null } as VentaRow;
+        });
         const prev = loadedEstadoRef.current === targetEstado ? rowsRawRef.current : null;
         if (!sameRowsQuick(prev, rows)) {
           setRowsRaw(rows);
@@ -635,13 +650,17 @@ export default function Ventas() {
     const offset = rowsRawRef.current.length;
     const currentEstado = loadedEstadoRef.current;
     try {
+      const moreSelectFields = currentEstado === "EN_RUTA"
+        ? `id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada,
+          ventas_tags!ventas_tags_venta_id_fkey(tag,removed_at),
+          ventas_facturas!ventas_facturas_venta_id_fkey(numero_factura),
+          ventas_eventos!ventas_eventos_venta_id_fkey(tipo,nota)`
+        : `id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada,
+          ventas_tags!ventas_tags_venta_id_fkey(tag,removed_at),
+          ventas_facturas!ventas_facturas_venta_id_fkey(numero_factura)`;
       const { data, error } = await supabase
         .from("ventas")
-        .select(
-          `id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada,
-          ventas_tags!ventas_tags_venta_id_fkey(tag,removed_at),
-          ventas_facturas!ventas_facturas_venta_id_fkey(numero_factura)`
-        )
+        .select(moreSelectFields)
         .eq("empresa_id", empresaActivaId)
         .eq("estado", currentEstado!)
         .order("fecha", { ascending: false })
@@ -649,7 +668,10 @@ export default function Ventas() {
       if (error) throw error;
 
       const raw = (data ?? []) as any[];
-      const newRows: VentaRow[] = raw.map(({ ventas_tags: _t, ventas_facturas: _f, ...rest }) => rest as VentaRow);
+      const newRows: VentaRow[] = raw.map(({ ventas_tags: _t, ventas_facturas: _f, ventas_eventos: _e, ...rest }) => {
+        const enRutaEvento = (_e ?? []).find((ev: any) => ev.tipo === "EN_RUTA");
+        return { ...rest, en_ruta_nota: enRutaEvento?.nota ?? null } as VentaRow;
+      });
 
       const newTagMap: Record<string, string[]> = {};
       const newFacturasMap: Record<string, string[]> = {};
@@ -753,7 +775,11 @@ export default function Ventas() {
     }, [fetchAll])
   );
 
-  useResumeLoad(empresaActivaId, () => { void fetchAll(); });
+  useResumeLoad(empresaActivaId, () => {
+    cacheRef.current = {};
+    dotsCacheRef.current = { data: null, timestamp: 0 };
+    void fetchAll();
+  });
 
   // Recargar cuando el usuario cambia de empresa activa
   useEffect(() => {
@@ -1592,6 +1618,9 @@ const s = StyleSheet.create({
   cardTopRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
   cardTitle: { fontSize: Platform.OS === "web" ? 13 : 12, fontWeight: "700" },
   cardSub: { marginTop: 6, fontSize: 11, fontWeight: "700" },
+  notaRow: { flexDirection: "row", flexWrap: "wrap", marginTop: 8, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 5 },
+  notaLabel: { fontSize: 11, fontWeight: "900" },
+  notaTxt: { fontSize: 11, fontWeight: "700", flex: 1 },
 
   vendedorPill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, maxWidth: 140 },
   vendedorPillText: { fontSize: 12, fontWeight: "900" },

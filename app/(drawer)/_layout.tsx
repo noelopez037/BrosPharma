@@ -919,6 +919,24 @@ export default function DrawerLayout() {
                   </Pressable>
                )}
 
+                {!canSeeRecetas ? null : (
+                  <Pressable
+                    onPress={() => {
+                      closeDrawer();
+                      router.push("/(drawer)/recetas-pendientes" as any);
+                    }}
+                    style={({ pressed }) => [
+                      styles.menuItem,
+                      { backgroundColor: isRecetasRoute ? drawerActiveBg : "transparent" },
+                      pressed && { opacity: 0.85 },
+                    ]}
+                    accessibilityRole="button"
+                  >
+                    <Ionicons name="document-text-outline" size={22} color={isRecetasRoute ? drawerActiveTint : drawerMuted} />
+                    <Text style={[styles.menuLabel, { color: isRecetasRoute ? drawerActiveTint : drawerMuted }]}>Recetas pendientes</Text>
+                  </Pressable>
+                )}
+
                 {!showCuentasPorCobrar ? null : (
                   <Pressable
                     onPress={() => {
