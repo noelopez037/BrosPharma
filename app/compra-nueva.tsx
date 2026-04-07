@@ -138,6 +138,14 @@ export default function CompraNuevaScreen() {
 
       const N = rows.length;
 
+      // Añadir líneas faltantes UNA SOLA VEZ de forma síncrona.
+      // reset() siempre deja 1 línea; addLinea usa updater funcional
+      // así que aunque draftRef.current esté desactualizado, React
+      // aplica las actualizaciones en orden y el resultado es correcto.
+      // NO llamar addLinea dentro del loop de hidratación para evitar
+      // la condición de carrera donde el ref stale provoca duplicados.
+      for (let i = 1; i < N; i++) addLinea();
+
       const tick = () => {
         // si cambió la carga, salir
         if (mySeq !== loadSeqRef.current) return;
@@ -146,11 +154,8 @@ export default function CompraNuevaScreen() {
         const cur = draftRef.current;
         if (!cur) return;
 
+        // Solo ESPERAR; no agregar más líneas aquí.
         if (cur.lineas.length < N) {
-          // agregar hasta llegar a N
-          const missing = N - cur.lineas.length;
-          for (let i = 0; i < missing; i++) addLinea();
-          // reintentar en el próximo tick
           setTimeout(tick, 0);
           return;
         }
