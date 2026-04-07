@@ -1,13 +1,14 @@
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { FlatList, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { useRole } from "../../lib/useRole";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useThemePref } from "../../lib/themePreference";
 import { AppButton } from "../../components/ui/app-button";
+import { VentaDetallePanel } from "../../components/ventas/VentaDetallePanel";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useResumeLoad } from "../../lib/useResumeLoad";
 import { normalizeUpper } from "../../lib/utils/text";
@@ -98,6 +99,8 @@ export default function RecetasPendientesScreen() {
   const { colors } = useTheme();
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
+  const { width } = useWindowDimensions();
+  const canSplit = Platform.OS === "web" && width >= 1100;
 
   useGoHomeOnBack(true, "/(drawer)/(tabs)");
 
@@ -134,6 +137,12 @@ export default function RecetasPendientesScreen() {
   const [tmpVendedorId, setTmpVendedorId] = useState<string | null>(null);
   const [selectedVendedorId, setSelectedVendedorId] = useState<string | null>(null);
   const [vendedorOpen, setVendedorOpen] = useState(false);
+
+  const [selectedVentaId, setSelectedVentaId] = useState<number | null>(null);
+
+  React.useEffect(() => {
+    if (!canSplit) setSelectedVentaId(null);
+  }, [canSplit]);
 
   const [rows, setRows] = useState<VentaRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -263,11 +272,15 @@ export default function RecetasPendientesScreen() {
   }, [fetchRows, isAdmin, tmpVendedorId]);
 
   const openDetail = useCallback((id: number) => {
+    if (canSplit) {
+      setSelectedVentaId(id);
+      return;
+    }
     router.push({
       pathname: "/venta-detalle",
       params: { ventaId: String(id), returnTo: "/(drawer)/recetas-pendientes" },
     } as any);
-  }, []);
+  }, [canSplit]);
 
   const getVendedorLabel = useCallback(
     (item: VentaRow) => {
@@ -389,25 +402,61 @@ export default function RecetasPendientesScreen() {
         </View>
       </Modal>
 
-      <FlatList
-        data={rows}
-        keyExtractor={(item) => String(item.id)}
-        contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
-        keyboardShouldPersistTaps="handled"
-        renderItem={renderItem}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.tint} colors={[C.tint]} />
-        }
-        initialNumToRender={Platform.OS === "web" ? 999 : 14}
-        maxToRenderPerBatch={Platform.OS === "web" ? 999 : 10}
-        windowSize={Platform.OS === "web" ? 999 : 7}
-        removeClippedSubviews={Platform.OS === "android"}
-        ListEmptyComponent={
-          <Text style={[s.emptyTxt, { color: C.sub }]}>
-            {loading ? "Cargando..." : "Sin ventas con receta pendiente"}
-          </Text>
-        }
-      />
+      {canSplit ? (
+        <View style={[s.splitWrap, { borderTopColor: C.border }]}>
+          <View style={[s.splitListPane, { borderRightColor: C.border }]}>
+            <FlatList
+              data={rows}
+              keyExtractor={(item) => String(item.id)}
+              contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+              keyboardShouldPersistTaps="handled"
+              renderItem={renderItem}
+              refreshControl={
+                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.tint} colors={[C.tint]} />
+              }
+              initialNumToRender={999}
+              maxToRenderPerBatch={999}
+              windowSize={999}
+              ListEmptyComponent={
+                <Text style={[s.emptyTxt, { color: C.sub }]}>
+                  {loading ? "Cargando..." : "Sin ventas con receta pendiente"}
+                </Text>
+              }
+            />
+          </View>
+          <View style={s.splitDetailPane}>
+            {selectedVentaId ? (
+              <VentaDetallePanel ventaId={selectedVentaId} embedded />
+            ) : (
+              <View style={[s.splitPlaceholder, { borderColor: C.border }]}>
+                <Text style={[s.splitPlaceholderText, { color: C.sub }]}>
+                  Selecciona una venta para ver detalles
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      ) : (
+        <FlatList
+          data={rows}
+          keyExtractor={(item) => String(item.id)}
+          contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+          keyboardShouldPersistTaps="handled"
+          renderItem={renderItem}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.tint} colors={[C.tint]} />
+          }
+          initialNumToRender={14}
+          maxToRenderPerBatch={10}
+          windowSize={7}
+          removeClippedSubviews={Platform.OS === "android"}
+          ListEmptyComponent={
+            <Text style={[s.emptyTxt, { color: C.sub }]}>
+              {loading ? "Cargando..." : "Sin ventas con receta pendiente"}
+            </Text>
+          }
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -433,6 +482,12 @@ const s = StyleSheet.create({
   ddRow: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
   ddTxt: { fontSize: 13, fontWeight: "600" },
   modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 12, marginTop: 16 },
+
+  splitWrap: { flex: 1, flexDirection: "row", borderTopWidth: StyleSheet.hairlineWidth },
+  splitListPane: { width: 520, maxWidth: 520, borderRightWidth: StyleSheet.hairlineWidth },
+  splitDetailPane: { flex: 1 },
+  splitPlaceholder: { flex: 1, margin: 16, borderWidth: StyleSheet.hairlineWidth, borderRadius: 18, alignItems: "center", justifyContent: "center", padding: 24 },
+  splitPlaceholderText: { fontSize: 15, fontWeight: "800", textAlign: "center" },
 
   card: { borderWidth: 1, borderRadius: 16, padding: 14, marginBottom: 12 },
   cardTopRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
