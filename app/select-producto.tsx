@@ -25,6 +25,7 @@ import { KeyboardAwareModal } from "../components/ui/keyboard-aware-modal";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
 import { goBackSafe } from "../lib/goBackSafe";
 import { safeIlike } from "../lib/utils/text";
+import { onAppResumed } from "../lib/resumeEvents";
 
 type Marca = { id: number; nombre: string };
 type ProductoRow = { id: number; nombre: string; marca_id: number | null; activo?: boolean };
@@ -113,10 +114,13 @@ function SelectProductoCompra({ lineKey }: { lineKey: string }) {
   }, [q, empresaActivaId]);
   useEffect(() => {
     if (mode !== "LISTA") return;
-    const t = setTimeout(() => {
-      loadProductos().catch(() => {});
-    }, 220);
-    return () => clearTimeout(t);
+    const t = setTimeout(() => loadProductos().catch(() => {}), 220);
+    // Auto-recargar cuando el resume termina (red lista tras background)
+    const unsub = onAppResumed(() => void loadProductos());
+    return () => {
+      clearTimeout(t);
+      unsub();
+    };
   }, [loadProductos, mode]);
 
   const brandNameForId = useCallback((id: number | null | undefined) => {

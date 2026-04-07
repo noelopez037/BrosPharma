@@ -25,6 +25,7 @@ import { useEmpresaActiva } from "../lib/useEmpresaActiva";
 import { goBackSafe } from "../lib/goBackSafe";
 import { normalizeUpper, safeIlike } from "../lib/utils/text";
 import { getHeaderColors } from "../src/theme/headerColors";
+import { onAppResumed } from "../lib/resumeEvents";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "MENSAJERO" | "";
 
@@ -148,10 +149,13 @@ export default function SelectCliente() {
 
   useEffect(() => {
     if (mode !== "LISTA") return;
-    const t = setTimeout(() => {
-      load().catch(() => {});
-    }, 220);
-    return () => clearTimeout(t);
+    const t = setTimeout(() => load().catch(() => {}), 220);
+    // Auto-recargar cuando el resume termina (red lista tras background)
+    const unsub = onAppResumed(() => void load());
+    return () => {
+      clearTimeout(t);
+      unsub();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, isVentas, isReady, uid, mode, empresaActivaId]);
 

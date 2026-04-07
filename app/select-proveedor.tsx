@@ -25,6 +25,7 @@ import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll"
 import { goBackSafe } from "../lib/goBackSafe";
 import { getHeaderColors } from "../src/theme/headerColors";
 import { safeIlike } from "../lib/utils/text";
+import { onAppResumed } from "../lib/resumeEvents";
 
 function alpha(hexOrRgb: string, a: number) {
   if (!hexOrRgb?.startsWith("#") || hexOrRgb.length !== 7) return hexOrRgb;
@@ -97,7 +98,12 @@ export default function SelectProveedor() {
   useEffect(() => {
     if (mode !== "LISTA") return;
     const t = setTimeout(load, 200);
-    return () => clearTimeout(t);
+    // Auto-recargar cuando el resume termina (red lista tras background)
+    const unsub = onAppResumed(() => void load());
+    return () => {
+      clearTimeout(t);
+      unsub();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, mode, empresaActivaId]);
 
