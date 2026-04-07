@@ -131,7 +131,11 @@ function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit): Promise
       reject(new DOMException("Request timed out", "AbortError"));
     }, FETCH_TIMEOUT_MS);
 
-    fetch(input, { ...init, signal: controller.signal })
+    // Connection: close le indica a NSURLSession que no reutilice esta conexión TCP
+    // después de la respuesta, reduciendo la acumulación de conexiones zombie.
+    const headers = new Headers((init?.headers as HeadersInit | undefined) ?? {});
+    headers.set("Connection", "close");
+    fetch(input, { ...init, signal: controller.signal, headers })
       .then(resolve, reject)
       .finally(() => clearTimeout(timer));
   });

@@ -325,8 +325,9 @@ export default function Layout() {
         void supabase.auth.startAutoRefresh();
 
         void (async () => {
-          // Breve espera para que iOS reconecte WiFi/celular tras background.
-          await new Promise((r) => setTimeout(r, 500));
+          // Espera extendida para que iOS procese RST/FIN pendientes del servidor
+          // y limpie conexiones zombie del pool de NSURLSession antes del primer fetch.
+          await new Promise((r) => setTimeout(r, 2_500));
 
           // Verificar sesión con getUser() (llamada real de red).
           // Timeout global de 10s sobre el loop entero para que emitAppResumed()
