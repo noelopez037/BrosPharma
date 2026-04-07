@@ -327,9 +327,9 @@ export default function SelectCliente() {
               contentContainerStyle={{ paddingBottom: 24 }}
               renderItem={renderClienteItem}
               ListEmptyComponent={
-                <Text style={{ padding: 16, color: C.sub, fontWeight: "700" }}>
-                  {loading ? "Cargando..." : "Sin clientes"}
-                </Text>
+                !loading && !loadError ? (
+                  <Text style={{ padding: 16, color: C.sub, fontWeight: "700" }}>Sin clientes</Text>
+                ) : null
               }
             />
           </>
