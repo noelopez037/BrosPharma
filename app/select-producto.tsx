@@ -63,6 +63,7 @@ function SelectProductoCompra({ lineKey }: { lineKey: string }) {
   const [q, setQ] = useState("");
   const [items, setItems] = useState<ProductoRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [newNombre, setNewNombre] = useState("");
   const [newRequiereReceta, setNewRequiereReceta] = useState(false);
   const [newTieneIva, setNewTieneIva] = useState(false);
@@ -92,13 +93,20 @@ function SelectProductoCompra({ lineKey }: { lineKey: string }) {
   const loadProductos = useCallback(async () => {
     if (!empresaActivaId) { setLoading(false); return; }
     setLoading(true);
+    setLoadError(null);
     try {
       let query = supabase.from("productos").select("id,nombre,marca_id,activo").eq("empresa_id", empresaActivaId).eq("activo", true).order("nombre", { ascending: true }).limit(300);
       if (q.trim()) query = query.or(`nombre.ilike.%${safeIlike(q)}%`);
-      const { data } = await query;
+      const { data, error } = await Promise.race([
+        query,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Tiempo agotado, verifica tu conexión")), 8_000)
+        ),
+      ]);
+      if (error) throw error;
       setItems((data ?? []) as ProductoRow[]);
     } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "No se pudieron cargar productos");
+      setLoadError(e?.message ?? "No se pudieron cargar productos");
     } finally {
       setLoading(false);
     }
@@ -241,6 +249,11 @@ function SelectProductoCompra({ lineKey }: { lineKey: string }) {
                 <Text style={{ marginTop: 10, fontWeight: "700", color: (colors?.text ?? "#000") + "88" }}>
                   Cargando...
                 </Text>
+              ) : loadError ? (
+                <View style={{ marginTop: 10, gap: 8 }}>
+                  <Text style={{ color: "tomato", fontSize: 13 }}>{loadError}</Text>
+                  <AppButton title="Reintentar" size="sm" variant="outline" onPress={() => void loadProductos()} />
+                </View>
               ) : null}
             </View>
 

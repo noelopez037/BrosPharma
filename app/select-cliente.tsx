@@ -82,6 +82,7 @@ export default function SelectCliente() {
   const [q, setQ] = useState("");
   const [items, setItems] = useState<ClienteRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const { role, uid, isReady, refreshRole } = useRole();
   const { empresaActivaId } = useEmpresaActiva();
@@ -99,6 +100,7 @@ export default function SelectCliente() {
     if (!empresaActivaId) return;
     if (!isReady) return;
     setLoading(true);
+    setLoadError(null);
     try {
       let req = supabase
         .from("clientes")
@@ -123,11 +125,16 @@ export default function SelectCliente() {
         req = req.eq("vendedor_id", uid);
       }
 
-      const { data, error } = await req;
+      const { data, error } = await Promise.race([
+        req,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Tiempo agotado, verifica tu conexión")), 8_000)
+        ),
+      ]);
       if (error) throw error;
       setItems((data ?? []) as any);
     } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "No se pudieron cargar clientes");
+      setLoadError(e?.message ?? "No se pudieron cargar clientes");
     } finally {
       setLoading(false);
     }
@@ -303,6 +310,11 @@ export default function SelectCliente() {
 
               {loading ? (
                 <Text style={{ marginTop: 10, color: C.sub, fontWeight: "700" }}>Cargando...</Text>
+              ) : loadError ? (
+                <View style={{ marginTop: 10, gap: 8 }}>
+                  <Text style={{ color: "tomato", fontSize: 13 }}>{loadError}</Text>
+                  <AppButton title="Reintentar" size="sm" variant="outline" onPress={() => void load()} />
+                </View>
               ) : null}
             </View>
 

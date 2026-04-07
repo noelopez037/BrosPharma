@@ -58,6 +58,7 @@ export default function SelectProveedor() {
   const [q, setQ] = useState("");
   const [items, setItems] = useState<Proveedor[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [newNombre, setNewNombre] = useState("");
   const [newNit, setNewNit] = useState("");
@@ -66,6 +67,7 @@ export default function SelectProveedor() {
   const load = async () => {
     if (!empresaActivaId) return;
     setLoading(true);
+    setLoadError(null);
     try {
       let query = supabase
         .from("proveedores")
@@ -76,12 +78,17 @@ export default function SelectProveedor() {
 
       if (q.trim()) query = query.ilike("nombre", `%${safeIlike(q)}%`);
 
-      const { data, error } = await query;
+      const { data, error } = await Promise.race([
+        query,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Tiempo agotado, verifica tu conexión")), 8_000)
+        ),
+      ]);
       if (error) throw error;
 
       setItems(((data ?? []) as Proveedor[]).filter((x) => x.activo !== false));
     } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "No se pudieron cargar proveedores");
+      setLoadError(e?.message ?? "No se pudieron cargar proveedores");
     } finally {
       setLoading(false);
     }
@@ -205,7 +212,14 @@ export default function SelectProveedor() {
                 ) : null}
               </View>
 
-              {loading ? <Text style={{ marginTop: 10, color: C.sub, fontWeight: "700" }}>Cargando...</Text> : null}
+              {loading ? (
+                <Text style={{ marginTop: 10, color: C.sub, fontWeight: "700" }}>Cargando...</Text>
+              ) : loadError ? (
+                <View style={{ marginTop: 10, gap: 8 }}>
+                  <Text style={{ color: "tomato", fontSize: 13 }}>{loadError}</Text>
+                  <AppButton title="Reintentar" size="sm" variant="outline" onPress={() => void load()} />
+                </View>
+              ) : null}
             </View>
 
             <FlatList
