@@ -112,7 +112,7 @@ const supabaseStorage: StorageLike =
  * cuando iOS reanuda la app y las conexiones TCP previas quedaron en estado zombie.
  * Sin esto, pull-to-refresh muestra un spinner permanente tras largo background.
  */
-const FETCH_TIMEOUT_MS = 12_000;
+const FETCH_TIMEOUT_MS = 8_000;
 
 function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const controller = new AbortController();
