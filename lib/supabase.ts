@@ -107,11 +107,31 @@ const supabaseStorage: StorageLike =
       : createNoopStorage()
     : new LargeSecureStore();
 
+/**
+ * fetch con timeout para evitar que las requests se cuelguen indefinidamente
+ * cuando iOS reanuda la app y las conexiones TCP previas quedaron en estado zombie.
+ * Sin esto, pull-to-refresh muestra un spinner permanente tras largo background.
+ */
+const FETCH_TIMEOUT_MS = 12_000;
+
+function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  // Si ya viene una señal de abort externa, respetar la que cancele primero.
+  if (init?.signal) {
+    (init.signal as AbortSignal).addEventListener("abort", () => controller.abort());
+  }
+  return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(id));
+}
+
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     storage: supabaseStorage,
     detectSessionInUrl: false,
     persistSession: true,
     autoRefreshToken: true,
+  },
+  global: {
+    fetch: fetchWithTimeout,
   },
 });
