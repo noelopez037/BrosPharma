@@ -230,8 +230,7 @@ const VentaCard = React.memo(
           <View style={[s.notaRow, { backgroundColor: C.chipAmberBg }]}>
             <Text style={[s.notaLabel, { color: C.chipAmberText }]}>Nota: </Text>
             <Text style={[s.notaTxt, { color: C.chipAmberText }]} numberOfLines={2}>
-              {item.en_ruta_nota}
-              {item.en_ruta_by ? <Text style={{ opacity: 0.7 }}>{" "}— {item.en_ruta_by}</Text> : null}
+              {item.en_ruta_nota}{item.en_ruta_by ? ` — ${item.en_ruta_by}` : ""}
             </Text>
           </View>
         ) : null}
