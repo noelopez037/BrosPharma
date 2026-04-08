@@ -600,7 +600,7 @@ function SelectProductoVenta({ lineKey }: { lineKey: string }) {
           keyboardDismissMode="on-drag"
           automaticallyAdjustKeyboardInsets
           renderItem={renderVentaItem}
-          ListEmptyComponent={!loading && !loadError ? <Text style={{ padding: 16, color: (colors?.text ?? "#000") + "88" }}>Sin resultados</Text> : null}
+          ListEmptyComponent={!loading ? <Text style={{ padding: 16, color: (colors?.text ?? "#000") + "88" }}>Sin resultados</Text> : null}
         />
       </SafeAreaView>
     </>
