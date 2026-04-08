@@ -330,7 +330,10 @@ export default function Layout() {
           // En iOS esto llama URLSession.shared.reset() — cierra todas las conexiones
           // TCP zombie del pool de NSURLSession, igual que si la app fuera kill+reopen.
           // En Android evicta el pool de OkHttp.
+          console.log("[resume] resetHttpSession — inicio");
+          const t0 = Date.now();
           await resetHttpSession();
+          console.log(`[resume] resetHttpSession — listo en ${Date.now() - t0}ms`);
           // Pequeño delay adicional para que el OS procese el cierre de sockets.
           await new Promise((r) => setTimeout(r, 300));
 
