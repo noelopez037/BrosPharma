@@ -299,7 +299,15 @@ export default function CxcVentaDetalle() {
     }
   }, [id, canLoadPagosReportados, empresaActivaId]);
 
-  useFocusEffect(useCallback(() => { fetchAll(); }, [fetchAll]));
+  useFocusEffect(useCallback(() => {
+    fetchAll();
+    return () => {
+      // Cerrar modales al perder el foco para evitar que su overlay
+      // bloquee los botones de atrás en pantallas posteriores.
+      setPagoModal(false);
+      setFacturaPickerOpen(false);
+    };
+  }, [fetchAll]));
 
   useResumeLoad(empresaActivaId, () => {
     void refreshRole("resume:cxc-venta-detalle");

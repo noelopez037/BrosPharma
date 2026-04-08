@@ -408,7 +408,9 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
   const [enRutaLoading, setEnRutaLoading] = useState(false);
   const [entregarLoading, setEntregarLoading] = useState(false);
   const [enRutaNota, setEnRutaNota] = useState<string | null>(null);
+  const [enRutaBy, setEnRutaBy] = useState<string | null>(null);
   const [entregadoNota, setEntregadoNota] = useState<string | null>(null);
+  const [entregadoBy, setEntregadoBy] = useState<string | null>(null);
 
   const canViewRecetaTools = roleUp === "ADMIN" || roleUp === "FACTURACION" || roleUp === "VENTAS" || roleUp === "MENSAJERO";
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -549,26 +551,28 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     if (!ventaIdNum || ventaIdNum <= 0) return;
     const { data } = await supabase
       .from("ventas_eventos")
-      .select("nota")
+      .select("nota, profiles!creado_por(full_name)")
       .eq("venta_id", ventaIdNum)
       .eq("tipo", "EN_RUTA")
       .order("creado_en", { ascending: false })
       .limit(1)
       .maybeSingle();
     setEnRutaNota(data?.nota ?? null);
+    setEnRutaBy((data as any)?.profiles?.full_name ?? null);
   }, [ventaIdNum]);
 
   const fetchEntregadoNota = useCallback(async () => {
     if (!ventaIdNum || ventaIdNum <= 0) return;
     const { data } = await supabase
       .from("ventas_eventos")
-      .select("nota")
+      .select("nota, profiles!creado_por(full_name)")
       .eq("venta_id", ventaIdNum)
       .eq("tipo", "ENTREGADO")
       .order("creado_en", { ascending: false })
       .limit(1)
       .maybeSingle();
     setEntregadoNota(data?.nota ?? null);
+    setEntregadoBy((data as any)?.profiles?.full_name ?? null);
   }, [ventaIdNum]);
 
   const fetchLineas = useCallback(async (allowSplit: boolean) => {
@@ -695,6 +699,13 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       fetchAll().catch((e: any) => {
         Alert.alert("Error", e?.message ?? "No se pudo cargar la venta");
       });
+      return () => {
+        // Cerrar modales al perder el foco para evitar que su overlay
+        // bloquee los botones de atrás en pantallas posteriores.
+        setSolOpen(false);
+        setViewerOpen(false);
+        setViewerUrl(null);
+      };
     }, [fetchAll])
   );
 
@@ -1888,12 +1899,14 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
               {!!enRutaNota ? (
                 <Text style={[styles.note, { color: C.text, marginTop: 6 }]}>
                   <Text style={{ fontWeight: "600" }}>Nota en ruta: </Text>{enRutaNota}
+                  {!!enRutaBy ? <Text style={{ color: C.sub }}>{" "}— {enRutaBy}</Text> : null}
                 </Text>
               ) : null}
 
               {!!entregadoNota ? (
                 <Text style={[styles.note, { color: C.text, marginTop: 6 }]}>
                   <Text style={{ fontWeight: "600" }}>Nota de entrega: </Text>{entregadoNota}
+                  {!!entregadoBy ? <Text style={{ color: C.sub }}>{" "}— {entregadoBy}</Text> : null}
                 </Text>
               ) : null}
 
