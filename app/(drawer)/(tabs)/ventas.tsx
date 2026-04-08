@@ -587,7 +587,7 @@ export default function Ventas() {
           ? `id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada,
             ventas_tags!ventas_tags_venta_id_fkey(tag,removed_at),
             ventas_facturas!ventas_facturas_venta_id_fkey(numero_factura),
-            ventas_eventos!ventas_eventos_venta_id_fkey(tipo,nota,creado_por,profiles!creado_por(full_name))`
+            ventas_eventos!ventas_eventos_venta_id_fkey(tipo,nota,profiles!ventas_eventos_creado_por_fkey(full_name))`
           : `id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada,
             ventas_tags!ventas_tags_venta_id_fkey(tag,removed_at),
             ventas_facturas!ventas_facturas_venta_id_fkey(numero_factura)`;
@@ -604,7 +604,7 @@ export default function Ventas() {
         const raw = (data ?? []) as any[];
         const rows: VentaRow[] = raw.map(({ ventas_tags: _t, ventas_facturas: _f, ventas_eventos: _e, ...rest }) => {
           const enRutaEvento = (_e ?? []).find((ev: any) => ev.tipo === "EN_RUTA");
-          return { ...rest, en_ruta_nota: enRutaEvento?.nota ?? null, en_ruta_by: enRutaEvento?.profiles?.full_name ?? null } as VentaRow;
+          return { ...rest, en_ruta_nota: enRutaEvento?.nota ?? null, en_ruta_by: (enRutaEvento as any)?.profiles?.full_name ?? null } as VentaRow;
         });
         const prev = loadedEstadoRef.current === targetEstado ? rowsRawRef.current : null;
         if (!sameRowsQuick(prev, rows)) {

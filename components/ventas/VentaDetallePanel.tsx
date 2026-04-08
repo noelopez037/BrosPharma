@@ -548,7 +548,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     if (!ventaIdNum || ventaIdNum <= 0) return;
     const { data } = await supabase
       .from("ventas_eventos")
-      .select("tipo, nota, profiles!creado_por(full_name)")
+      .select("tipo, nota, profiles!ventas_eventos_creado_por_fkey(full_name)")
       .eq("venta_id", ventaIdNum)
       .in("tipo", ["EN_RUTA", "ENTREGADO"])
       .not("nota", "is", null)
@@ -557,7 +557,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       (data ?? []).map((e: any) => ({
         tipo: e.tipo,
         nota: e.nota ?? null,
-        by: e.profiles?.full_name ?? null,
+        by: (e as any).profiles?.full_name ?? null,
       }))
     );
   }, [ventaIdNum]);
