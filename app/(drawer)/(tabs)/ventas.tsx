@@ -26,7 +26,6 @@ import { alphaColor } from "../../../lib/ui";
 import { useRole } from "../../../lib/useRole";
 import { useEmpresaActiva } from "../../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../../lib/useResumeLoad";
-import { withTimeout } from "../../../lib/fetchTimeout";
 import { onVentaEstadoChanged, emitVentaEstadoChanged } from "../../../lib/ventaEstadoEvents";
 import { normalizeUpper, safeIlike } from "../../../lib/utils/text";
 import { fmtDate, toGTDateKey } from "../../../lib/utils/format";
@@ -591,15 +590,13 @@ export default function Ventas() {
           : `id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada,
             ventas_tags!ventas_tags_venta_id_fkey(tag,removed_at),
             ventas_facturas!ventas_facturas_venta_id_fkey(numero_factura)`;
-        const { data, error } = await withTimeout(
-          supabase
-            .from("ventas")
-            .select(selectFields)
-            .eq("empresa_id", empresaActivaId)
-            .eq("estado", targetEstado)
-            .order("fecha", { ascending: false })
-            .range(0, PAGE_SIZE - 1)
-        );
+        const { data, error } = await supabase
+          .from("ventas")
+          .select(selectFields)
+          .eq("empresa_id", empresaActivaId)
+          .eq("estado", targetEstado)
+          .order("fecha", { ascending: false })
+          .range(0, PAGE_SIZE - 1);
         if (mySeq !== reqSeq.current) return;
         if (error) throw error;
 

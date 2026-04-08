@@ -32,7 +32,6 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
-import { withTimeout } from "../../lib/fetchTimeout";
 import { useThemePref } from "../../lib/themePreference";
 import { AppButton } from "../../components/ui/app-button";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
@@ -342,7 +341,7 @@ export default function ComprasScreen() {
     if (fDesde) req = req.gte("fecha", startOfDay(fDesde).toISOString());
     if (fHasta) req = req.lte("fecha", endOfDay(fHasta).toISOString());
 
-    const { data, error } = await withTimeout(req);
+    const { data, error } = await req;
 
     // Descartar respuesta si ya hay una más reciente en vuelo
     if (mySeq !== requestSeqRef.current) return;
@@ -379,7 +378,7 @@ export default function ComprasScreen() {
       if (fDesde) req = req.gte("fecha", startOfDay(fDesde).toISOString());
       if (fHasta) req = req.lte("fecha", endOfDay(fHasta).toISOString());
 
-      const { data, error } = await withTimeout(req);
+      const { data, error } = await req;
       if (error) throw error;
       const fetched = (data ?? []) as CompraRow[];
       rawOffsetRef.current += fetched.length;
@@ -415,14 +414,7 @@ export default function ComprasScreen() {
     }, [fetchCompras])
   );
 
-  // Resume: imitar kill+reopen — limpiar datos y mostrar spinner antes de recargar
-  useResumeLoad(empresaActivaId, () => {
-    setRowsRaw([]);
-    setInitialLoading(true);
-    fetchCompras()
-      .catch(() => {})
-      .finally(() => setInitialLoading(false));
-  });
+  useResumeLoad(empresaActivaId, () => { void fetchCompras(); });
 
   // filtro client-side: estado pago (porque depende de cálculo)
   const rows = useMemo(() => {

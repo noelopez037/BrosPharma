@@ -19,7 +19,6 @@ import { ProductoModalContent } from "../../../components/producto/ProductoModal
 import { useRole } from "../../../lib/useRole";
 import { useEmpresaActiva } from "../../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../../lib/useResumeLoad";
-import { withTimeout } from "../../../lib/fetchTimeout";
 import { safeIlike } from "../../../lib/utils/text";
 
 type Row = {
@@ -157,7 +156,7 @@ export default function InventarioScreen() {
         req = req.or(`nombre.ilike.%${safe}%,marca.ilike.%${safe}%`);
       }
 
-      const { data, error } = await withTimeout(req);
+      const { data, error } = await req;
 
       // Si entró otra request después, ignorar esta
       if (seq !== requestSeq.current) return;
@@ -219,11 +218,7 @@ export default function InventarioScreen() {
     void loadFirstRef.current();
   }, [debouncedQ, showInactive]);
 
-  // Resume: imitar kill+reopen — limpiar datos y mostrar spinner antes de recargar
-  useResumeLoad(empresaActivaId, () => { void refreshRole(); }, () => {
-    setRows([]);
-    void loadFirstRef.current();
-  });
+  useResumeLoad(empresaActivaId, () => { void refreshRole(); }, () => { void loadFirstRef.current(); });
 
   const loadMore = useCallback(async () => {
     if (debouncedQ || !hasMore || loadingMoreRef.current || initialLoading) return;
