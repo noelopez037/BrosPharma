@@ -1211,29 +1211,6 @@ export default function Inicio() {
 
         </View>
 
-        {d && d.cxcPorVencer.length > 0 ? (
-          <Pressable
-            onPress={() => router.push("/(drawer)/cxc" as any)}
-            style={[s.alertBanner, { backgroundColor: "#f59e0b" }]}
-          >
-            <Text style={s.alertBannerText}>
-              ⚠️  {d.cxcPorVencer.length} cuenta{d.cxcPorVencer.length !== 1 ? "s" : ""} vence{d.cxcPorVencer.length !== 1 ? "n" : ""} esta semana
-            </Text>
-            <Text style={s.alertBannerChevron}>›</Text>
-          </Pressable>
-        ) : null}
-
-        {d && d.cxcVencidas.length > 0 ? (
-          <Pressable
-            onPress={() => router.push("/(drawer)/cxc" as any)}
-            style={[s.alertBanner, { backgroundColor: "#ef4444" }]}
-          >
-            <Text style={s.alertBannerText}>
-              🔴  {d.cxcVencidas.length} cuenta{d.cxcVencidas.length !== 1 ? "s" : ""} vencida{d.cxcVencidas.length !== 1 ? "s" : ""} +30 días — urge cobrar
-            </Text>
-            <Text style={s.alertBannerChevron}>›</Text>
-          </Pressable>
-        ) : null}
       </View>
     );
   };
@@ -1243,30 +1220,6 @@ export default function Inicio() {
     const monFull = monthFull[Math.max(0, Math.min(11, currentMonth - 1))];
     return (
       <View style={{ paddingBottom: 16 + insets.bottom }}>
-        {d && d.cxcPorVencer.length > 0 ? (
-          <Pressable
-            onPress={() => router.push("/(drawer)/cxc" as any)}
-            style={[s.alertBanner, { backgroundColor: "#f59e0b" }]}
-          >
-            <Text style={s.alertBannerText}>
-              ⚠️  {d.cxcPorVencer.length} cuenta{d.cxcPorVencer.length !== 1 ? "s" : ""} vence{d.cxcPorVencer.length !== 1 ? "n" : ""} esta semana
-            </Text>
-            <Text style={s.alertBannerChevron}>›</Text>
-          </Pressable>
-        ) : null}
-
-        {d && d.cxcVencidas.length > 0 ? (
-          <Pressable
-            onPress={() => router.push("/(drawer)/cxc" as any)}
-            style={[s.alertBanner, { backgroundColor: "#ef4444" }]}
-          >
-            <Text style={s.alertBannerText}>
-              🔴  {d.cxcVencidas.length} cuenta{d.cxcVencidas.length !== 1 ? "s" : ""} vencida{d.cxcVencidas.length !== 1 ? "s" : ""} +30 días — urge cobrar
-            </Text>
-            <Text style={s.alertBannerChevron}>›</Text>
-          </Pressable>
-        ) : null}
-
         <View style={{ padding: 16 }}>
         <View style={[s.kpiGrid, { marginTop: 4 }]}>
           {renderKpi({
