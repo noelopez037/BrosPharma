@@ -99,6 +99,7 @@ export default function DrawerLayout() {
   // This prevents returning to Tabs with the drawer still open.
   const drawerNavRef = useRef<any>(null);
   const didMountRef = useRef(false);
+  const solicitudesAliveRef = useRef(false);
 
   // Fix para iOS: forzar drawer cerrado al montar
   useEffect(() => {
@@ -361,17 +362,17 @@ export default function DrawerLayout() {
   ]);
 
   useEffect(() => {
-    let alive = true;
+    solicitudesAliveRef.current = true;
     let timer: any = null;
 
     const loadCount = async () => {
       if (!showSolicitudes) {
-        if (alive) setSolicitudesCount(0);
+        if (solicitudesAliveRef.current) setSolicitudesCount(0);
         return;
       }
 
       if (!empresaActivaId) {
-        if (alive) setSolicitudesCount(0);
+        if (solicitudesAliveRef.current) setSolicitudesCount(0);
         return;
       }
 
@@ -389,9 +390,9 @@ export default function DrawerLayout() {
         ]);
         if (solRes.error) throw solRes.error;
         const total = Number(solRes.count ?? 0) + Number(pagosRes.count ?? 0);
-        if (alive) setSolicitudesCount(total);
+        if (solicitudesAliveRef.current) setSolicitudesCount(total);
       } catch {
-        if (alive) setSolicitudesCount(0);
+        if (solicitudesAliveRef.current) setSolicitudesCount(0);
       }
     };
 
@@ -407,7 +408,7 @@ export default function DrawerLayout() {
     }, 30000);
 
     return () => {
-      alive = false;
+      solicitudesAliveRef.current = false;
       unsub();
       if (timer) clearInterval(timer);
     };

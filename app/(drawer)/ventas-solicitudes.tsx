@@ -374,6 +374,7 @@ export default function VentasSolicitudesScreen() {
           if (error) throw error;
         }
         await fetchPagosPendientes();
+        emitSolicitudesChanged();
       } catch (e: any) {
         Alert.alert("Error", e?.message ?? "No se pudo actualizar el pago reportado");
       } finally {
