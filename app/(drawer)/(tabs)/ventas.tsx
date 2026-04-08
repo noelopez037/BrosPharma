@@ -48,6 +48,7 @@ type VentaRow = {
   receta_cargada: boolean;
   factura_numeros?: string[];
   en_ruta_nota?: string | null;
+  en_ruta_by?: string | null;
 };
 
 type VentasCache = {
@@ -228,7 +229,10 @@ const VentaCard = React.memo(
         {item.estado === "EN_RUTA" && item.en_ruta_nota ? (
           <View style={[s.notaRow, { backgroundColor: C.chipAmberBg }]}>
             <Text style={[s.notaLabel, { color: C.chipAmberText }]}>Nota: </Text>
-            <Text style={[s.notaTxt, { color: C.chipAmberText }]} numberOfLines={2}>{item.en_ruta_nota}</Text>
+            <Text style={[s.notaTxt, { color: C.chipAmberText }]} numberOfLines={2}>
+              {item.en_ruta_nota}
+              {item.en_ruta_by ? <Text style={{ opacity: 0.7 }}>{" "}— {item.en_ruta_by}</Text> : null}
+            </Text>
           </View>
         ) : null}
 
@@ -583,7 +587,7 @@ export default function Ventas() {
           ? `id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada,
             ventas_tags!ventas_tags_venta_id_fkey(tag,removed_at),
             ventas_facturas!ventas_facturas_venta_id_fkey(numero_factura),
-            ventas_eventos!ventas_eventos_venta_id_fkey(tipo,nota)`
+            ventas_eventos!ventas_eventos_venta_id_fkey(tipo,nota,creado_por,profiles!creado_por(full_name))`
           : `id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada,
             ventas_tags!ventas_tags_venta_id_fkey(tag,removed_at),
             ventas_facturas!ventas_facturas_venta_id_fkey(numero_factura)`;
@@ -600,7 +604,7 @@ export default function Ventas() {
         const raw = (data ?? []) as any[];
         const rows: VentaRow[] = raw.map(({ ventas_tags: _t, ventas_facturas: _f, ventas_eventos: _e, ...rest }) => {
           const enRutaEvento = (_e ?? []).find((ev: any) => ev.tipo === "EN_RUTA");
-          return { ...rest, en_ruta_nota: enRutaEvento?.nota ?? null } as VentaRow;
+          return { ...rest, en_ruta_nota: enRutaEvento?.nota ?? null, en_ruta_by: enRutaEvento?.profiles?.full_name ?? null } as VentaRow;
         });
         const prev = loadedEstadoRef.current === targetEstado ? rowsRawRef.current : null;
         if (!sameRowsQuick(prev, rows)) {

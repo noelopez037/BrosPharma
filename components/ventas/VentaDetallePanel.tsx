@@ -407,10 +407,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
   const [cancelandoAnulacion, setCancelandoAnulacion] = useState(false);
   const [enRutaLoading, setEnRutaLoading] = useState(false);
   const [entregarLoading, setEntregarLoading] = useState(false);
-  const [enRutaNota, setEnRutaNota] = useState<string | null>(null);
-  const [enRutaBy, setEnRutaBy] = useState<string | null>(null);
-  const [entregadoNota, setEntregadoNota] = useState<string | null>(null);
-  const [entregadoBy, setEntregadoBy] = useState<string | null>(null);
+  const [ventaEventos, setVentaEventos] = useState<{ tipo: string; nota: string | null; by: string | null }[]>([]);
 
   const canViewRecetaTools = roleUp === "ADMIN" || roleUp === "FACTURACION" || roleUp === "VENTAS" || roleUp === "MENSAJERO";
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -547,32 +544,22 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     setVenta((data ?? null) as any);
   }, [ventaIdNum, empresaActivaId]);
 
-  const fetchEnRutaNota = useCallback(async () => {
+  const fetchVentaEventos = useCallback(async () => {
     if (!ventaIdNum || ventaIdNum <= 0) return;
     const { data } = await supabase
       .from("ventas_eventos")
-      .select("nota, profiles!creado_por(full_name)")
+      .select("tipo, nota, profiles!creado_por(full_name)")
       .eq("venta_id", ventaIdNum)
-      .eq("tipo", "EN_RUTA")
-      .order("creado_en", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    setEnRutaNota(data?.nota ?? null);
-    setEnRutaBy((data as any)?.profiles?.full_name ?? null);
-  }, [ventaIdNum]);
-
-  const fetchEntregadoNota = useCallback(async () => {
-    if (!ventaIdNum || ventaIdNum <= 0) return;
-    const { data } = await supabase
-      .from("ventas_eventos")
-      .select("nota, profiles!creado_por(full_name)")
-      .eq("venta_id", ventaIdNum)
-      .eq("tipo", "ENTREGADO")
-      .order("creado_en", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    setEntregadoNota(data?.nota ?? null);
-    setEntregadoBy((data as any)?.profiles?.full_name ?? null);
+      .in("tipo", ["EN_RUTA", "ENTREGADO"])
+      .not("nota", "is", null)
+      .order("creado_en", { ascending: true });
+    setVentaEventos(
+      (data ?? []).map((e: any) => ({
+        tipo: e.tipo,
+        nota: e.nota ?? null,
+        by: e.profiles?.full_name ?? null,
+      }))
+    );
   }, [ventaIdNum]);
 
   const fetchLineas = useCallback(async (allowSplit: boolean) => {
@@ -685,14 +672,13 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       fetchRecetas(),
       fetchFacturas(),
       fetchTags(),
-      fetchEnRutaNota(),
-      fetchEntregadoNota(),
+      fetchVentaEventos(),
       fetchSolicitudAnulacion().catch(() => {
         // non-blocking: view may be missing or RLS may restrict
         setSolicitudAnulacion(null);
       }),
     ]);
-  }, [fetchEnRutaNota, fetchEntregadoNota, fetchFacturas, fetchLineas, fetchRecetas, fetchSolicitudAnulacion, fetchTags, fetchVenta, refreshRole, ventaIdNum, empresaActivaId]);
+  }, [fetchVentaEventos, fetchFacturas, fetchLineas, fetchRecetas, fetchSolicitudAnulacion, fetchTags, fetchVenta, refreshRole, ventaIdNum, empresaActivaId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1273,14 +1259,14 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
         Alert.alert("Listo", "Venta marcada como EN RUTA.");
         emitVentaEstadoChanged();
         await fetchVenta();
-        await fetchEnRutaNota();
+        await fetchVentaEventos();
       } catch (e: any) {
         Alert.alert("Error", e?.message ?? "No se pudo marcar EN RUTA");
       } finally {
         setEnRutaLoading(false);
       }
     },
-    [canBodega, enRutaLoading, fetchEnRutaNota, fetchVenta, isFacturado, venta]
+    [canBodega, enRutaLoading, fetchVentaEventos, fetchVenta, isFacturado, venta]
   );
 
   const confirmPasarEnRuta = useCallback(() => {
@@ -1345,14 +1331,14 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
         Alert.alert("Listo", "Venta marcada como ENTREGADO.");
         emitVentaEstadoChanged();
         await fetchVenta();
-        await fetchEntregadoNota();
+        await fetchVentaEventos();
       } catch (e: any) {
         Alert.alert("Error", e?.message ?? "No se pudo marcar ENTREGADO");
       } finally {
         setEntregarLoading(false);
       }
     },
-    [canEntregar, entregarLoading, fetchEntregadoNota, fetchVenta, isEnRuta, venta]
+    [canEntregar, entregarLoading, fetchVentaEventos, fetchVenta, isEnRuta, venta]
   );
 
   const confirmMarcarEntregado = useCallback(() => {
@@ -1896,19 +1882,15 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                 <Text style={[styles.note, { color: C.text }]}>Notas: {venta.comentarios}</Text>
               ) : null}
 
-              {!!enRutaNota ? (
-                <Text style={[styles.note, { color: C.text, marginTop: 6 }]}>
-                  <Text style={{ fontWeight: "600" }}>Nota en ruta: </Text>{enRutaNota}
-                  {!!enRutaBy ? <Text style={{ color: C.sub }}>{" "}— {enRutaBy}</Text> : null}
+              {ventaEventos.map((ev, idx) => (
+                <Text key={idx} style={[styles.note, { color: C.text, marginTop: 6 }]}>
+                  <Text style={{ fontWeight: "600" }}>
+                    {ev.tipo === "EN_RUTA" ? "Nota en ruta: " : "Nota de entrega: "}
+                  </Text>
+                  {ev.nota}
+                  {!!ev.by ? <Text style={{ color: C.sub }}>{" "}— {ev.by}</Text> : null}
                 </Text>
-              ) : null}
-
-              {!!entregadoNota ? (
-                <Text style={[styles.note, { color: C.text, marginTop: 6 }]}>
-                  <Text style={{ fontWeight: "600" }}>Nota de entrega: </Text>{entregadoNota}
-                  {!!entregadoBy ? <Text style={{ color: C.sub }}>{" "}— {entregadoBy}</Text> : null}
-                </Text>
-              ) : null}
+              ))}
 
               {!!solicitudAnulacion?.solicitud_nota && (anulacionRequerida || anulada) ? (
                 <View
