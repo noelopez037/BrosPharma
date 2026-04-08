@@ -1158,30 +1158,6 @@ export default function Inicio() {
     const mon = monthFull[Math.max(0, Math.min(11, currentMonth - 1))];
     return (
       <View style={{ paddingBottom: 16 + insets.bottom }}>
-        {d && d.cxcPorVencer.length > 0 ? (
-          <Pressable
-            onPress={() => router.push("/(drawer)/cxc" as any)}
-            style={[s.alertBanner, { backgroundColor: "#f59e0b" }]}
-          >
-            <Text style={s.alertBannerText}>
-              ⚠️  {d.cxcPorVencer.length} cuenta{d.cxcPorVencer.length !== 1 ? "s" : ""} vence{d.cxcPorVencer.length !== 1 ? "n" : ""} esta semana
-            </Text>
-            <Text style={s.alertBannerChevron}>›</Text>
-          </Pressable>
-        ) : null}
-
-        {d && d.cxcVencidas.length > 0 ? (
-          <Pressable
-            onPress={() => router.push("/(drawer)/cxc" as any)}
-            style={[s.alertBanner, { backgroundColor: "#ef4444" }]}
-          >
-            <Text style={s.alertBannerText}>
-              🔴  {d.cxcVencidas.length} cuenta{d.cxcVencidas.length !== 1 ? "s" : ""} vencida{d.cxcVencidas.length !== 1 ? "s" : ""} +30 días — urge cobrar
-            </Text>
-            <Text style={s.alertBannerChevron}>›</Text>
-          </Pressable>
-        ) : null}
-
         <View style={{ padding: 16 }}>
           <View style={[s.kpiGrid, { marginTop: 12 }]}>
             {renderKpi({
@@ -1233,92 +1209,31 @@ export default function Inicio() {
             )}
           </ListCard>
 
-          <ListCard
-            title="Cuentas que se vencen esta semana"
-            colors={C}
-          >
-            {(d?.cxcPorVencer ?? []).length ? (
-              (d?.cxcPorVencer ?? []).slice(0, 10).map((v) => (
-                <Pressable
-                  key={`cxcpv-${v.venta_id}`}
-                  onPress={() =>
-                    router.push({
-                      pathname: "/cxc-venta-detalle",
-                      params: { ventaId: String(v.venta_id) },
-                    } as any)
-                  }
-                  style={({ pressed }) => [
-                    s.rowLink,
-                    { borderTopColor: C.border },
-                    pressed ? { opacity: 0.85 } : null,
-                  ]}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={[s.rowTitle, { color: C.text }]} numberOfLines={1}>
-                      {v.cliente_nombre ?? "—"}
-                    </Text>
-                    <Text style={[s.rowSub, { color: C.sub }]} numberOfLines={1}>
-                      {v.vendedor_codigo ?? "—"} · {v.diasRestantes === 0 ? "Vence hoy" : `Vence en ${v.diasRestantes}d`}
-                    </Text>
-                  </View>
-                  <View style={{ alignItems: "flex-end", gap: 4 }}>
-                    <Text style={[s.rowTitle, { color: C.text, fontSize: 14 }]} numberOfLines={1}>
-                      {fmtQ(v.saldo)}
-                    </Text>
-                    <View style={s.warnPill}>
-                      <Text style={s.warnPillText}>{v.diasRestantes === 0 ? "HOY" : `${v.diasRestantes}d`}</Text>
-                    </View>
-                  </View>
-                </Pressable>
-              ))
-            ) : (
-              <Text style={[s.empty, { color: C.sub }]}>{d ? "Sin cuentas por vencer ✓" : "—"}</Text>
-            )}
-          </ListCard>
-
-          <ListCard
-            title="Cuentas vencidas +30 días"
-            colors={C}
-          >
-            {(d?.cxcVencidas ?? []).length ? (
-              (d?.cxcVencidas ?? []).slice(0, 10).map((v) => (
-                <Pressable
-                  key={`cxcv-${v.venta_id}`}
-                  onPress={() =>
-                    router.push({
-                      pathname: "/cxc-venta-detalle",
-                      params: { ventaId: String(v.venta_id) },
-                    } as any)
-                  }
-                  style={({ pressed }) => [
-                    s.rowLink,
-                    { borderTopColor: C.border },
-                    pressed ? { opacity: 0.85 } : null,
-                  ]}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={[s.rowTitle, { color: C.text }]} numberOfLines={1}>
-                      {v.cliente_nombre ?? "—"}
-                    </Text>
-                    <Text style={[s.rowSub, { color: C.sub }]} numberOfLines={1}>
-                      {v.vendedor_codigo ?? "—"} · Vencida hace {v.diasVencida}d
-                    </Text>
-                  </View>
-                  <View style={{ alignItems: "flex-end", gap: 4 }}>
-                    <Text style={[s.rowTitle, { color: C.danger, fontSize: 14 }]} numberOfLines={1}>
-                      {fmtQ(v.saldo)}
-                    </Text>
-                    <View style={[s.overduePill]}>
-                      <Text style={s.overduePillText}>{v.diasVencida}d</Text>
-                    </View>
-                  </View>
-                </Pressable>
-              ))
-            ) : (
-              <Text style={[s.empty, { color: C.sub }]}>{d ? "Sin cuentas vencidas ✓" : "—"}</Text>
-            )}
-          </ListCard>
         </View>
+
+        {d && d.cxcPorVencer.length > 0 ? (
+          <Pressable
+            onPress={() => router.push("/(drawer)/cxc" as any)}
+            style={[s.alertBanner, { backgroundColor: "#f59e0b" }]}
+          >
+            <Text style={s.alertBannerText}>
+              ⚠️  {d.cxcPorVencer.length} cuenta{d.cxcPorVencer.length !== 1 ? "s" : ""} vence{d.cxcPorVencer.length !== 1 ? "n" : ""} esta semana
+            </Text>
+            <Text style={s.alertBannerChevron}>›</Text>
+          </Pressable>
+        ) : null}
+
+        {d && d.cxcVencidas.length > 0 ? (
+          <Pressable
+            onPress={() => router.push("/(drawer)/cxc" as any)}
+            style={[s.alertBanner, { backgroundColor: "#ef4444" }]}
+          >
+            <Text style={s.alertBannerText}>
+              🔴  {d.cxcVencidas.length} cuenta{d.cxcVencidas.length !== 1 ? "s" : ""} vencida{d.cxcVencidas.length !== 1 ? "s" : ""} +30 días — urge cobrar
+            </Text>
+            <Text style={s.alertBannerChevron}>›</Text>
+          </Pressable>
+        ) : null}
       </View>
     );
   };
