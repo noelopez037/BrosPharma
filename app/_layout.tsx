@@ -25,6 +25,7 @@ import { parseVentaSolicitudAdminNotifData } from "../lib/pushPayload";
 import { supabase } from "../lib/supabase";
 import { invalidateAll } from "../lib/productoCache";
 import { emitAppResumed, markAppResumed } from "../lib/resumeEvents";
+import { resetHttpSession } from "../modules/http-session-reset";
 import { refreshEmpresaActiva } from "../lib/useEmpresaActiva";
 import { makeNativeTheme } from "../src/theme/navigationTheme";
 import { getHeaderColors } from "../src/theme/headerColors";
@@ -325,9 +326,13 @@ export default function Layout() {
         void supabase.auth.startAutoRefresh();
 
         void (async () => {
-          // Espera extendida para que iOS procese RST/FIN pendientes del servidor
-          // y limpie conexiones zombie del pool de NSURLSession antes del primer fetch.
-          await new Promise((r) => setTimeout(r, 2_500));
+          // Resetear el pool de conexiones HTTP del OS antes del primer fetch.
+          // En iOS esto llama URLSession.shared.reset() — cierra todas las conexiones
+          // TCP zombie del pool de NSURLSession, igual que si la app fuera kill+reopen.
+          // En Android evicta el pool de OkHttp.
+          await resetHttpSession();
+          // Pequeño delay adicional para que el OS procese el cierre de sockets.
+          await new Promise((r) => setTimeout(r, 300));
 
           // Verificar sesión con getUser() (llamada real de red).
           // Timeout global de 10s sobre el loop entero para que emitAppResumed()
