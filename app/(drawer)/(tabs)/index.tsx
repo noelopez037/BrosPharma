@@ -1100,7 +1100,7 @@ export default function Inicio() {
           pressed && clickable ? { opacity: 0.85 } : null,
         ]}
       >
-        <View style={{ minHeight: 30 }}>
+        <View style={{ height: 34 }}>
           <Text style={[s.kpiLabel, { color: C.sub }]} numberOfLines={2}>
             {props.label}
           </Text>
@@ -1669,8 +1669,9 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 16,
     padding: 12,
-    minHeight: 84,
+    minHeight: 90,
     marginBottom: 12,
+    justifyContent: "space-between",
   },
   kpiLabel: { fontSize: 11, fontWeight: "900", letterSpacing: 0.4, textTransform: "uppercase" },
   kpiValue: { marginTop: 8, fontSize: 18, fontWeight: "900" },
