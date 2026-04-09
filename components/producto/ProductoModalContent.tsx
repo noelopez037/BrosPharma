@@ -466,7 +466,11 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
           <View style={s.editOverlay}>
             <Pressable style={StyleSheet.absoluteFill} onPress={() => setEditOpen(false)} />
             <View style={s.editDialog}>
-              <ProductoEditContent productoId={productoId} onClose={() => setEditOpen(false)} />
+              <ProductoEditContent
+                productoId={productoId}
+                onClose={() => setEditOpen(false)}
+                showBackButton={false}
+              />
             </View>
           </View>
         </Modal>

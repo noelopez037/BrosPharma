@@ -69,6 +69,8 @@ export function ProductoEditContent({ productoId, onClose, showBackButton = true
   const { scrollRef, handleFocus } = useKeyboardAutoScroll(110);
 
   const reqSeq = useRef(0);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
 
   const PRIMARY: ColorValue = String(colors.primary ?? "#153c9e") as any;
   const s = useMemo(() => styles(colors, PRIMARY), [colors, PRIMARY]);
@@ -122,7 +124,7 @@ export function ProductoEditContent({ productoId, onClose, showBackButton = true
     const seq = ++reqSeq.current;
     setLoading(true);
 
-    const task: any = InteractionManager.runAfterInteractions(() => {
+    const runLoad = () => {
       void (async () => {
         try {
           const {
@@ -132,7 +134,7 @@ export function ProductoEditContent({ productoId, onClose, showBackButton = true
           const uid = session?.user?.id ?? null;
           if (!uid) {
             Alert.alert("Sin sesión", "Debes iniciar sesión");
-            onClose();
+            onCloseRef.current();
             return;
           }
 
@@ -143,7 +145,7 @@ export function ProductoEditContent({ productoId, onClose, showBackButton = true
 
           if (!admin) {
             Alert.alert("Sin permiso", "Solo ADMIN puede editar productos");
-            onClose();
+            onCloseRef.current();
             return;
           }
 
@@ -187,13 +189,25 @@ export function ProductoEditContent({ productoId, onClose, showBackButton = true
           setLoading(false);
         }
       })();
-    });
+    };
+
+    // En web, InteractionManager.runAfterInteractions puede quedar pendiente
+    // indefinidamente cuando hay animaciones de Modal activas (las animaciones
+    // CSS web no se integran con el sistema de interacciones de React Native).
+    let task: { cancel: () => void };
+    if (Platform.OS === "web") {
+      const timer = setTimeout(runLoad, 0);
+      task = { cancel: () => clearTimeout(timer) };
+    } else {
+      const handle = InteractionManager.runAfterInteractions(runLoad);
+      task = { cancel: () => handle.cancel() };
+    }
 
     return () => {
       reqSeq.current++;
-      task?.cancel?.();
+      task.cancel();
     };
-  }, [productoId, loadMarcas, refreshRole, empresaActivaId, onClose]);
+  }, [productoId, loadMarcas, refreshRole, empresaActivaId]);
 
   const crearMarca = async () => {
     const nm = nuevaMarcaNombre.trim();
