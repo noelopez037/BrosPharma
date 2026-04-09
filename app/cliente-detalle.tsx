@@ -1,6 +1,6 @@
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router, useLocalSearchParams } from "expo-router";
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   Alert,
   Platform,
@@ -16,6 +16,7 @@ import { useRole } from "../lib/useRole";
 import { useEmpresaActiva } from "../lib/useEmpresaActiva";
 import { useResumeLoad } from "../lib/useResumeLoad";
 import { normalizeUpper } from "../lib/utils/text";
+import { goBackSafe } from "../lib/goBackSafe";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "MENSAJERO" | "";
 
@@ -43,20 +44,8 @@ export default function ClienteDetalle() {
   const { colors } = useTheme();
   const s = useMemo(() => styles(colors), [colors]);
 
-  const navigatingRef = useRef(false);
-  const goBackSafe = useCallback(() => {
-    if (navigatingRef.current) return;
-    navigatingRef.current = true;
-    setTimeout(() => {
-      navigatingRef.current = false;
-    }, 800);
-    try {
-      const can = typeof (router as any)?.canGoBack === "function" ? (router as any).canGoBack() : false;
-      if (can) router.back();
-      else router.replace("/(drawer)/clientes" as any);
-    } catch {
-      router.replace("/(drawer)/clientes" as any);
-    }
+  const handleGoBack = useCallback(() => {
+    goBackSafe("/(drawer)/clientes");
   }, []);
 
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -143,7 +132,7 @@ export default function ClienteDetalle() {
                const { error } = await supabase.from("clientes").delete().eq("empresa_id", empresaActivaId).eq("id", row.id);
                if (error) throw error;
                Alert.alert("Listo", "Cliente eliminado");
-               goBackSafe();
+               handleGoBack();
              } catch (e: any) {
                Alert.alert("Error", e?.message ?? "No se pudo eliminar");
              }
@@ -151,7 +140,7 @@ export default function ClienteDetalle() {
          },
        ]
      );
-  }, [canDelete, row, goBackSafe]);
+  }, [canDelete, row, handleGoBack]);
 
   const onGenerarEstadoCuentaPdf = useCallback(async () => {
     if (!canGenerarEstadoCuentaPdf) return;

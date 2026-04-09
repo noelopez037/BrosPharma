@@ -15,6 +15,7 @@
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "8.4.4",
+    "@react-native-community/netinfo": "^12.0.1",
     "@react-navigation/bottom-tabs": "^7.4.0",
     "@react-navigation/drawer": "^7.5.0",
     "@react-navigation/elements": "^2.6.3",
@@ -47,6 +48,7 @@
     "expo-system-ui": "~6.0.9",
     "expo-updates": "~29.0.16",
     "expo-web-browser": "~15.0.10",
+    "http-session-reset": "file:./modules/http-session-reset",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
@@ -62,10 +64,10 @@
     "react-native-web": "~0.21.0",
     "react-native-worklets": "0.5.1",
     "victory-native": "^41.20.2",
-    "xlsx": "^0.18.5",
-    "http-session-reset": "file:./modules/http-session-reset"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@expo/ngrok": "^4.1.3",
     "@types/aes-js": "^3.1.4",
     "@types/react": "~19.1.0",
     "eslint": "^9.25.0",
