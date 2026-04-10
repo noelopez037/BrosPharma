@@ -6,6 +6,7 @@ import { supabase } from "../lib/supabase";
 import { disablePushForThisDevice } from "../lib/pushNotifications";
 import { isRecentResume, emitAppResumed } from "../lib/resumeEvents";
 import { refreshEmpresaActiva } from "../lib/useEmpresaActiva";
+import { refreshRole } from "../lib/useRole";
 
 // URL pendiente de deep link para reset password
 export let pendingResetUrl: string | null = null;
@@ -132,14 +133,14 @@ export default function RootLayout({ children }: { children?: ReactNode }) {
             if (!mounted) return;
             if (data.session) {
               replaceIfNeeded("/(drawer)/(tabs)");
-              // Sesión recuperada tras SIGNED_OUT espurio — esperar empresa antes de
-              // notificar pantallas para que no recarguen con empresaActivaId=null.
+              // Sesión recuperada tras SIGNED_OUT espurio — esperar empresa + role antes de
+              // notificar pantallas para que no recarguen con globals incompletos.
               void (async () => {
                 try {
                   await Promise.race([
-                    refreshEmpresaActiva(),
+                    Promise.all([refreshEmpresaActiva(), refreshRole("signed_out_recovery")]),
                     new Promise<never>((_, reject) =>
-                      setTimeout(() => reject(new Error("empresa timeout")), 4_000),
+                      setTimeout(() => reject(new Error("globals timeout")), 4_000),
                     ),
                   ]);
                 } catch {

@@ -27,6 +27,7 @@ import { invalidateAll } from "../lib/productoCache";
 import { emitAppResumed, markAppResumed } from "../lib/resumeEvents";
 import { resetHttpSession } from "../modules/http-session-reset";
 import { refreshEmpresaActiva } from "../lib/useEmpresaActiva";
+import { refreshRole } from "../lib/useRole";
 import { startNetworkRecovery, stopNetworkRecovery } from "../lib/networkRecovery";
 import { makeNativeTheme } from "../src/theme/navigationTheme";
 import { getHeaderColors } from "../src/theme/headerColors";
@@ -267,27 +268,27 @@ export default function Layout() {
       }
     }
 
-    // Emite resume de forma segura: espera empresaActiva (con timeout) antes de notificar pantallas.
-    // Awaitar empresa evita que las pantallas reciban el emit con empresaActivaId=null
-    // y fallen por RLS. Timeout de 4s para no bloquear indefinidamente si hay red lenta.
-    const EMPRESA_TIMEOUT_MS = 4_000;
+    // Emite resume de forma segura: espera empresa + role (en paralelo, con timeout)
+    // antes de notificar pantallas. Garantiza que los globals estén listos para evitar
+    // RLS errors y flashes de UI sin permisos. Timeout de 4s para red lenta.
+    const GLOBALS_TIMEOUT_MS = 4_000;
     async function doEmitResume(trigger: string) {
       const t0 = Date.now();
-      console.log(`[resume] doEmitResume — trigger=${trigger} esperando empresaActiva`);
+      console.log(`[resume] doEmitResume — trigger=${trigger} esperando empresa y role`);
 
-      let empresaReady = false;
+      let globalsReady = false;
       try {
         await Promise.race([
-          refreshEmpresaActiva(),
+          Promise.all([refreshEmpresaActiva(), refreshRole(trigger)]),
           new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error("empresa timeout")), EMPRESA_TIMEOUT_MS),
+            setTimeout(() => reject(new Error("globals timeout")), GLOBALS_TIMEOUT_MS),
           ),
         ]);
-        empresaReady = true;
-        if (__DEV__) console.log(`[resume] empresaActiva lista en ${Date.now() - t0}ms`);
+        globalsReady = true;
+        if (__DEV__) console.log(`[resume] empresa y role listos en ${Date.now() - t0}ms`);
       } catch (e: any) {
         console.warn(
-          `[resume] recovery degraded: empresa no lista tras ${Date.now() - t0}ms — ${e?.message ?? e}`,
+          `[resume] recovery degraded: globals no listos tras ${Date.now() - t0}ms — ${e?.message ?? e}`,
         );
       }
 
@@ -295,7 +296,7 @@ export default function Layout() {
       await new Promise((r) => setTimeout(r, 80));
 
       console.log(
-        `[resume] emitAppResumed — trigger=${trigger} empresaReady=${empresaReady} elapsed=${Date.now() - t0}ms`,
+        `[resume] emitAppResumed — trigger=${trigger} globalsReady=${globalsReady} elapsed=${Date.now() - t0}ms`,
       );
       emitAppResumed();
     }

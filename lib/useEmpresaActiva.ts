@@ -216,12 +216,14 @@ function ensureInit() {
       setState({ empresaActivaId: null, empresas: [], uid: null, loading: false, error: null, isReady: true, updatedAt: Date.now() });
       return;
     }
-    if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
-      // Abortar request previo para liberar red inmediatamente antes de iniciar el nuevo.
+    if (event === "SIGNED_IN") {
+      // Nueva sesión (login): cargar empresa para el nuevo usuario.
       inflightController?.abort();
       inflight = null;
       void refreshEmpresaActiva().catch(() => {});
     }
+    // TOKEN_REFRESHED y USER_UPDATED: manejados por doEmitResume en _layout.tsx,
+    // que coordina empresa + role + emit en un solo flujo antes de notificar pantallas.
   });
 }
 

@@ -224,12 +224,14 @@ function ensureInit() {
       return;
     }
 
-    if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
-      // Abortar request previo y forzar refresh inmediato con la sesión nueva.
+    if (event === "SIGNED_IN") {
+      // Nueva sesión (login): cargar role para el nuevo usuario.
       inflightController?.abort();
       inflight = null;
       void refreshRole(event).catch(() => {});
     }
+    // TOKEN_REFRESHED y USER_UPDATED: manejados por doEmitResume en _layout.tsx,
+    // que coordina empresa + role + emit en un solo flujo antes de notificar pantallas.
   });
 }
 
