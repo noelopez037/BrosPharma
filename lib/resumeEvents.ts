@@ -4,10 +4,11 @@ const listeners = new Set<Listener>();
 
 let _lastResumeAt: number | null = null;
 
-// Deduplicación: previene múltiples emits en el mismo ciclo de recovery.
-// Si emitAppResumed() se llama dentro de EMIT_DEBOUNCE_MS desde el último emit,
-// el nuevo emit se ignora (cubre SIGNED_OUT espurio y race conditions).
-const EMIT_DEBOUNCE_MS = 500;
+// Deduplicación: previene emits duplicados en ráfaga (ej. dos listeners disparando
+// el mismo ciclo en <100ms). El valor es bajo (150ms) para no bloquear el segundo
+// emit legítimo cuando TOKEN_REFRESHED llega poco después del emit optimista.
+// Un segundo emit >150ms después sí debe pasar (trae token y empresa válidos).
+const EMIT_DEBOUNCE_MS = 150;
 let _lastEmitAt: number | null = null;
 let _emitCountThisCycle = 0;
 

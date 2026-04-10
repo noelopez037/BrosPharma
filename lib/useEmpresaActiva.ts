@@ -186,8 +186,11 @@ export async function refreshEmpresaActiva(): Promise<void> {
       if (inflightSeq === seq) {
         inflight = null;
         inflightController = null;
+        setState({ loading: false });
+      } else {
+        // Este request fue reemplazado por uno más nuevo — no borrar su loading.
+        if (__DEV__) console.log(`[empresa] refresh:finally stale seq=${seq} — preserving loading`);
       }
-      setState({ loading: false });
     }
   })();
 

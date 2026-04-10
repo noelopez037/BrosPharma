@@ -360,6 +360,12 @@ export default function Layout() {
           // Pequeño delay adicional para que el OS procese el cierre de sockets.
           await new Promise((r) => setTimeout(r, 300));
 
+          // Armar deferredSub ANTES del loop de getUser() para que TOKEN_REFRESHED
+          // nunca se pierda aunque llegue mientras validamos la sesión.
+          // Si getUser() tiene éxito (hasSession=true), lo cancelamos abajo con cancelDeferred().
+          scheduleDeferredResume();
+          if (__DEV__) console.log("[resume] scheduleDeferredResume — armed before optimistic emit");
+
           // Verificar sesión con getUser() (llamada real de red).
           // Timeout global de 10s sobre el loop entero para que emitAppResumed()
           // nunca tarde más de ~10.5s, incluso si los sockets TCP están zombie y
@@ -395,17 +401,17 @@ export default function Layout() {
           invalidateAll();
 
           if (hasSession) {
-            // Red + sesión confirmados: esperar empresa + emitir resume a pantallas.
+            // Token vigente — cancelar el deferred (ya no es necesario).
+            cancelDeferred();
             console.log("[resume] sesión OK — emitiendo resume (trigger: foreground)");
             await doEmitResume("foreground");
           } else {
-            // Red aún no lista tras reintentos: emitir resume de todas formas con
-            // sesión local para que las pantallas intenten cargar (muchas RPCs pueden
-            // funcionar si el SDK logra refrescar el token en paralelo).
-            // También escuchar TOKEN_REFRESHED como respaldo.
-            console.warn("[resume] red no lista tras reintentos — emitiendo resume optimista + deferred");
+            // deferredSub ya armado arriba — no llamar scheduleDeferredResume() de nuevo.
+            // Si TOKEN_REFRESHED ya llegó, deferredSub lo habrá capturado.
+            // Si llega después, deferredSub lo capturará cuando ocurra.
+            // Si nunca llega: deferredTimer dispara a los 15s como fallback.
+            console.warn("[resume] red no lista tras reintentos — emitiendo resume optimista (deferred ya armado)");
             await doEmitResume("foreground:optimistic");
-            scheduleDeferredResume();
           }
         })();
       } else if (nextState === "background") {
