@@ -73,9 +73,7 @@
       "expo-asset",
       "expo-updates"
     ],
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "1.2.1",
     "updates": {
       "url": "https://u.expo.dev/80650541-9f6c-4199-b66f-ae8286935589"
     },
