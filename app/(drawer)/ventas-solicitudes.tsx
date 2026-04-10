@@ -207,6 +207,27 @@ export default function VentasSolicitudesScreen() {
 
   useResumeLoad(empresaActivaId, () => { void reloadAll(); });
 
+  // Realtime subscriptions — refresh list when ventas (solicitudes) or pagos change
+  useEffect(() => {
+    if (!empresaActivaId || !isReady || roleUp !== "ADMIN") return;
+
+    const channel = supabase
+      .channel(`solicitudes_realtime_${empresaActivaId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "ventas", filter: `empresa_id=eq.${empresaActivaId}` },
+        () => { void fetchSolicitudes(); }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "ventas_pagos_reportados", filter: `empresa_id=eq.${empresaActivaId}` },
+        () => { void fetchPagosPendientes(); }
+      )
+      .subscribe();
+
+    return () => { void supabase.removeChannel(channel); };
+  }, [empresaActivaId, isReady, roleUp, fetchSolicitudes, fetchPagosPendientes]);
+
   // Stable derived IDs for pagos — only changes when the actual set of venta_ids changes
   const ventaIdsPagos = useMemo(
     () =>
@@ -300,6 +321,8 @@ export default function VentasSolicitudesScreen() {
           p_decision: decision,
         });
         if (error) throw error;
+        // Optimistic removal — item disappears immediately without waiting for the view refresh
+        setRowsRaw((prev) => prev.filter((r) => Number(r.venta_id) !== Number(ventaId)));
         if (decision === "APROBAR") {
           try {
             const sol = rowsRaw.find((r) => Number(r.venta_id) === Number(ventaId));
@@ -373,6 +396,8 @@ export default function VentasSolicitudesScreen() {
           });
           if (error) throw error;
         }
+        // Optimistic removal — item disappears immediately without waiting for the view refresh
+        setPagosPendientesRaw((prev) => prev.filter((p) => Number(p.id) !== Number(pagoId)));
         await fetchPagosPendientes();
         emitSolicitudesChanged();
       } catch (e: any) {
