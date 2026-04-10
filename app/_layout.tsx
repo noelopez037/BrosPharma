@@ -318,10 +318,10 @@ export default function Layout() {
         invalidateAll();
         await doEmitResume(`deferred:${event}`);
       });
-      // Fallback: si no llega evento en 30s, intentar emitir resume de todas formas
-      // con sesión local (evita que la app quede en estado zombie).
+      // Fallback: si no llega evento en 15s, intentar emitir resume con sesión local.
+      // (reducido de 30s para no dejar al usuario bloqueado demasiado tiempo)
       deferredTimer = setTimeout(() => {
-        if (__DEV__) console.warn("[resume] deferred timeout (30s) — forcing resume with local session");
+        console.warn("[resume] deferred timeout (15s) — forcing resume with local session");
         cancelDeferred();
         void (async () => {
           const { data } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
@@ -332,7 +332,7 @@ export default function Layout() {
             console.warn("[resume] deferred timeout: sin sesión local — app puede quedar zombie");
           }
         })();
-      }, 30_000);
+      }, 15_000);
     }
 
     const sub = AppState.addEventListener("change", (nextState: AppStateStatus) => {

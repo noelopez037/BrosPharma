@@ -65,30 +65,43 @@ async function cacheSet(uid: string, role: string) {
   }
 }
 
-async function fetchRole(uid: string): Promise<string> {
+async function fetchRole(uid: string, signal?: AbortSignal): Promise<string> {
   // Prefer RPC: role from server-side context (current user)
   try {
-    const { data, error } = await supabase.rpc("current_role");
+    const { data, error } = await supabase.rpc("current_role").abortSignal(signal!);
     if (!error) {
       const r = normalizeRole(data);
       if (r) return r;
     }
-  } catch {
+  } catch (e: any) {
+    // Propagar AbortError para que el caller pueda detectar cancelación.
+    if (e?.name === "AbortError" || String(e?.message ?? "").includes("abort")) throw e;
     // fallback below
   }
 
-  // Fallback: profiles.role
-  const { data, error } = await supabase.from("profiles").select("role").eq("id", uid).maybeSingle();
+  // Fallback: profiles.role (.abortSignal antes de .maybeSingle para compatibilidad de tipos)
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", uid)
+    .abortSignal(signal!)
+    .maybeSingle();
   if (error) throw error;
   return normalizeRole((data as any)?.role);
 }
 
 let didInit = false;
 let inflight: Promise<string> | null = null;
+let inflightController: AbortController | null = null;
 let inflightSeq = 0;
 
 export async function refreshRole(reason?: string): Promise<string> {
   if (inflight) return inflight;
+
+  // Abortar request anterior si aún está en vuelo.
+  inflightController?.abort();
+  const controller = new AbortController();
+  inflightController = controller;
 
   const seq = ++inflightSeq;
 
@@ -130,7 +143,7 @@ export async function refreshRole(reason?: string): Promise<string> {
         }
 
         try {
-          const role = await fetchRole(uid);
+          const role = await fetchRole(uid, controller.signal);
 
           // Prevent applying a stale role if the active user changed mid-fetch.
           const { data: sessAfter } = await supabase.auth.getSession();
@@ -152,6 +165,13 @@ export async function refreshRole(reason?: string): Promise<string> {
             result = role;
           }
         } catch (e: any) {
+          // Detectar cancelación: liberar silenciosamente, el nuevo request se encarga.
+          const isAbort = e?.name === "AbortError" || String(e?.message ?? "").includes("abort");
+          if (isAbort) {
+            console.warn(`[role] refresh:abort seq=${seq} — solicitud cancelada por nueva`);
+            result = state.role; // mantener valor previo
+            return result;       // salir sin modificar state
+          }
           // Rule: never clear role on transient failures while session exists.
           const { data: sess2 } = await supabase.auth.getSession();
           const uid2 = sess2?.session?.user?.id ?? null;
@@ -173,7 +193,10 @@ export async function refreshRole(reason?: string): Promise<string> {
       }
     } finally {
       // Only clear if we're still the active inflight.
-      if (inflightSeq === seq) inflight = null;
+      if (inflightSeq === seq) {
+        inflight = null;
+        inflightController = null;
+      }
     }
 
     return result;
@@ -202,7 +225,8 @@ function ensureInit() {
     }
 
     if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
-      // Force an immediate refresh on session changes, even if an old refresh is still running.
+      // Abortar request previo y forzar refresh inmediato con la sesión nueva.
+      inflightController?.abort();
       inflight = null;
       void refreshRole(event).catch(() => {});
     }

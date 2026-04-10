@@ -80,12 +80,13 @@ async function cacheSet(uid: string, empresaId: number | null) {
   }
 }
 
-async function fetchEmpresas(uid: string): Promise<EmpresaInfo[]> {
+async function fetchEmpresas(uid: string, signal?: AbortSignal): Promise<EmpresaInfo[]> {
   const { data, error } = await supabase
     .from("empresa_usuarios")
     .select("empresa_id, empresas(id, nombre, slug, logo_url)")
     .eq("user_id", uid)
-    .eq("estado", "ACTIVO");
+    .eq("estado", "ACTIVO")
+    .abortSignal(signal!);
 
   if (error) throw error;
 
@@ -101,13 +102,20 @@ async function fetchEmpresas(uid: string): Promise<EmpresaInfo[]> {
 }
 
 let inflight: Promise<void> | null = null;
+let inflightController: AbortController | null = null;
 let inflightSeq = 0;
 let didInit = false;
 
 export async function refreshEmpresaActiva(): Promise<void> {
   if (inflight) return inflight;
 
+  // Abortar request anterior si aún está en vuelo (liberación rápida de red).
+  inflightController?.abort();
+  const controller = new AbortController();
+  inflightController = controller;
+
   const seq = ++inflightSeq;
+  if (__DEV__) console.log(`[empresa] refresh:start seq=${seq}`);
 
   const p = (async () => {
     try {
@@ -137,12 +145,15 @@ export async function refreshEmpresaActiva(): Promise<void> {
       }
 
       try {
-        const empresas = await fetchEmpresas(uid);
+        const empresas = await fetchEmpresas(uid, controller.signal);
 
         // Evitar aplicar resultado si el usuario cambio durante el fetch.
         const { data: sessAfter } = await supabase.auth.getSession();
         const uidAfter = sessAfter?.session?.user?.id ?? null;
-        if (inflightSeq !== seq || uidAfter !== uid) return;
+        if (inflightSeq !== seq || uidAfter !== uid) {
+          if (__DEV__) console.log(`[empresa] refresh:stale seq=${seq} — descartando`);
+          return;
+        }
 
         if (empresas.length === 0) {
           void cacheSet(uid, null);
@@ -158,14 +169,24 @@ export async function refreshEmpresaActiva(): Promise<void> {
 
         void cacheSet(uid, resolved);
         setState({ empresaActivaId: resolved, empresas, uid, loading: false, error: null, isReady: true, updatedAt: Date.now() });
+        if (__DEV__) console.log(`[empresa] refresh:done seq=${seq} empresaId=${resolved}`);
       } catch (e: any) {
+        const isAbort = e?.name === "AbortError" || String(e?.message ?? "").includes("abort");
+        if (isAbort) {
+          console.warn(`[empresa] refresh:abort seq=${seq} — solicitud cancelada por nueva`);
+          return;
+        }
         if (inflightSeq !== seq) return;
         const msg = String(e?.message ?? e ?? "Error al obtener empresa");
         // Mantener valor previo si existe; no borrar en errores transitorios.
         setState({ loading: false, error: state.empresaActivaId ? null : msg, isReady: !!state.empresaActivaId, updatedAt: Date.now() });
+        if (__DEV__) console.warn(`[empresa] refresh:error seq=${seq} — ${msg}`);
       }
     } finally {
-      if (inflightSeq === seq) inflight = null;
+      if (inflightSeq === seq) {
+        inflight = null;
+        inflightController = null;
+      }
       setState({ loading: false });
     }
   })();
@@ -193,6 +214,8 @@ function ensureInit() {
       return;
     }
     if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
+      // Abortar request previo para liberar red inmediatamente antes de iniciar el nuevo.
+      inflightController?.abort();
       inflight = null;
       void refreshEmpresaActiva().catch(() => {});
     }
