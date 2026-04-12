@@ -1073,6 +1073,10 @@ export default function DrawerLayout() {
                     />
                     <Text style={styles.logoutText}>Cerrar sesión</Text>
                   </Pressable>
+
+                  <Text style={{ color: drawerMuted, fontSize: 11, textAlign: "center", marginTop: 10, opacity: 0.5 }}>
+                    v1.2.2
+                  </Text>
                 </View>
               </View>
             );
