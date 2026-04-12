@@ -553,10 +553,9 @@ export default function VentasSolicitudesScreen() {
               {!canResolve ? null : (
                 <View
                   style={styles.btnRow}
-                  onStartShouldSetResponder={() => true}
                   {...(Platform.OS === "web"
                     ? { onClick: (e: any) => e?.stopPropagation?.() }
-                    : {})}
+                    : { onStartShouldSetResponder: () => true })}
                 >
                   <AppButton
                     title={isActing ? "..." : "Aprobar"}
@@ -657,10 +656,9 @@ export default function VentasSolicitudesScreen() {
               {!canResolve ? null : (
                 <View
                   style={styles.btnRow}
-                  onStartShouldSetResponder={() => true}
                   {...(Platform.OS === "web"
                     ? { onClick: (e: any) => e?.stopPropagation?.() }
-                    : {})}
+                    : { onStartShouldSetResponder: () => true })}
                 >
                   <AppButton
                     title={isActingPago ? "..." : "Aprobar"}

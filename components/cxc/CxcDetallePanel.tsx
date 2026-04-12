@@ -447,10 +447,6 @@ function CxcDetallePanelContent({
   };
 
   const saldoNum = useMemo(() => safeNumber(row?.saldo), [row?.saldo]);
-  const hasPendingReport = useMemo(
-    () => (pagosReportadosPendientes ?? []).length > 0,
-    [pagosReportadosPendientes]
-  );
   const totalProductos = useMemo(() => {
     return (lineas ?? []).reduce((acc: number, d: any) => {
       const sub = d?.subtotal ?? safeNumber(d?.cantidad) * safeNumber(d?.precio_venta_unit);
@@ -516,6 +512,18 @@ function CxcDetallePanelContent({
       return total - pagado > TOL;
     });
   }, [facturas, facturaMonto, pagadoPorFacturaId]);
+
+  // Bloquea "Reportar pago" solo si TODAS las facturas pendientes ya tienen
+  // un reporte pendiente. Con 2 facturas, la segunda sigue disponible.
+  const hasPendingReport = useMemo(() => {
+    if ((pagosReportadosPendientes ?? []).length === 0) return false;
+    const pendingFacturaIds = new Set(
+      (pagosReportadosPendientes ?? [])
+        .map((p: any) => Number(p.factura_id))
+        .filter((n) => Number.isFinite(n) && n > 0)
+    );
+    return (facturasPendientes ?? []).every((f: any) => pendingFacturaIds.has(Number(f?.id)));
+  }, [pagosReportadosPendientes, facturasPendientes]);
 
   const selectedFactura = useMemo(() => {
     if (!pagoFacturaId) return null;
