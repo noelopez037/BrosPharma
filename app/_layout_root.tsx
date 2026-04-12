@@ -5,6 +5,8 @@ import { usePathname, useRouter, useSegments } from "expo-router";
 import { supabase } from "../lib/supabase";
 import { disablePushForThisDevice } from "../lib/pushNotifications";
 import { isRecentResume, emitAppResumed } from "../lib/resumeEvents";
+import { refreshEmpresaActiva } from "../lib/useEmpresaActiva";
+import { refreshRole } from "../lib/useRole";
 
 // URL pendiente de deep link para reset password
 export let pendingResetUrl: string | null = null;
@@ -131,9 +133,23 @@ export default function RootLayout({ children }: { children?: ReactNode }) {
             if (!mounted) return;
             if (data.session) {
               replaceIfNeeded("/(drawer)/(tabs)");
-              // Sesion recuperada tras SIGNED_OUT espurio — notificar pantallas
-              // para que recarguen datos con la sesion restaurada.
-              emitAppResumed();
+              // Sesión recuperada tras SIGNED_OUT espurio — esperar empresa + role antes de
+              // notificar pantallas para que no recarguen con globals incompletos.
+              void (async () => {
+                try {
+                  await Promise.race([
+                    Promise.all([refreshEmpresaActiva(), refreshRole("signed_out_recovery")]),
+                    new Promise<never>((_, reject) =>
+                      setTimeout(() => reject(new Error("globals timeout")), 4_000),
+                    ),
+                  ]);
+                } catch {
+                  // degraded — emitir de todas formas
+                }
+                await new Promise((r) => setTimeout(r, 80));
+                if (__DEV__) console.log("[resume] emitAppResumed — trigger=signed_out_recovery");
+                emitAppResumed();
+              })();
               return;
             }
           }

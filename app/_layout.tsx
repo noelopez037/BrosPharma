@@ -27,6 +27,8 @@ import { invalidateAll } from "../lib/productoCache";
 import { emitAppResumed, markAppResumed } from "../lib/resumeEvents";
 import { resetHttpSession } from "../modules/http-session-reset";
 import { refreshEmpresaActiva } from "../lib/useEmpresaActiva";
+import { refreshRole } from "../lib/useRole";
+import { startNetworkRecovery, stopNetworkRecovery } from "../lib/networkRecovery";
 import { makeNativeTheme } from "../src/theme/navigationTheme";
 import { getHeaderColors } from "../src/theme/headerColors";
 
@@ -266,16 +268,36 @@ export default function Layout() {
       }
     }
 
-    // Emite resume de forma segura: tick de React + notifica a pantallas.
-    // refreshEmpresaActiva corre en paralelo (fire-and-forget): empresaActivaId ya está
-    // en memoria desde antes del background, no hay razón para bloquear el resume
-    // esperando una llamada de red que puede tardar hasta 8s.
-    async function doEmitResume() {
-      if (__DEV__) console.log("[resume] doEmitResume — refreshing empresa (background)");
-      void refreshEmpresaActiva().catch(() => {});
-      // Pequeño delay para que React procese el cambio de estado y actualice los refs.
+    // Emite resume de forma segura: espera empresa + role (en paralelo, con timeout)
+    // antes de notificar pantallas. Garantiza que los globals estén listos para evitar
+    // RLS errors y flashes de UI sin permisos. Timeout de 4s para red lenta.
+    const GLOBALS_TIMEOUT_MS = 4_000;
+    async function doEmitResume(trigger: string) {
+      const t0 = Date.now();
+      console.log(`[resume] doEmitResume — trigger=${trigger} esperando empresa y role`);
+
+      let globalsReady = false;
+      try {
+        await Promise.race([
+          Promise.all([refreshEmpresaActiva(), refreshRole(trigger)]),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("globals timeout")), GLOBALS_TIMEOUT_MS),
+          ),
+        ]);
+        globalsReady = true;
+        if (__DEV__) console.log(`[resume] empresa y role listos en ${Date.now() - t0}ms`);
+      } catch (e: any) {
+        console.warn(
+          `[resume] recovery degraded: globals no listos tras ${Date.now() - t0}ms — ${e?.message ?? e}`,
+        );
+      }
+
+      // Pequeño tick para que React procese el cambio de estado antes del emit.
       await new Promise((r) => setTimeout(r, 80));
-      if (__DEV__) console.log("[resume] emitAppResumed");
+
+      console.log(
+        `[resume] emitAppResumed — trigger=${trigger} globalsReady=${globalsReady} elapsed=${Date.now() - t0}ms`,
+      );
       emitAppResumed();
     }
 
@@ -295,21 +317,23 @@ export default function Layout() {
         if (event !== "TOKEN_REFRESHED" && event !== "SIGNED_IN") return;
         cancelDeferred();
         invalidateAll();
-        await doEmitResume();
+        await doEmitResume(`deferred:${event}`);
       });
-      // Fallback: si no llega evento en 30s, intentar emitir resume de todas formas
-      // con sesión local (evita que la app quede en estado zombie).
+      // Fallback: si no llega evento en 15s, intentar emitir resume con sesión local.
+      // (reducido de 30s para no dejar al usuario bloqueado demasiado tiempo)
       deferredTimer = setTimeout(() => {
-        if (__DEV__) console.warn("[resume] deferred timeout — forcing resume with local session");
+        console.warn("[resume] deferred timeout (15s) — forcing resume with local session");
         cancelDeferred();
         void (async () => {
           const { data } = await supabase.auth.getSession().catch(() => ({ data: { session: null } }));
           if (data?.session) {
             invalidateAll();
-            await doEmitResume();
+            await doEmitResume("deferred:timeout");
+          } else {
+            console.warn("[resume] deferred timeout: sin sesión local — app puede quedar zombie");
           }
         })();
-      }, 30_000);
+      }, 15_000);
     }
 
     const sub = AppState.addEventListener("change", (nextState: AppStateStatus) => {
@@ -336,6 +360,12 @@ export default function Layout() {
           console.log(`[resume] resetHttpSession — listo en ${Date.now() - t0}ms`);
           // Pequeño delay adicional para que el OS procese el cierre de sockets.
           await new Promise((r) => setTimeout(r, 300));
+
+          // Armar deferredSub ANTES del loop de getUser() para que TOKEN_REFRESHED
+          // nunca se pierda aunque llegue mientras validamos la sesión.
+          // Si getUser() tiene éxito (hasSession=true), lo cancelamos abajo con cancelDeferred().
+          scheduleDeferredResume();
+          if (__DEV__) console.log("[resume] scheduleDeferredResume — armed before optimistic emit");
 
           // Verificar sesión con getUser() (llamada real de red).
           // Timeout global de 10s sobre el loop entero para que emitAppResumed()
@@ -372,16 +402,17 @@ export default function Layout() {
           invalidateAll();
 
           if (hasSession) {
-            // Red + sesión confirmados: esperar empresa + emitir resume a pantallas.
-            await doEmitResume();
+            // Token vigente — cancelar el deferred (ya no es necesario).
+            cancelDeferred();
+            console.log("[resume] sesión OK — emitiendo resume (trigger: foreground)");
+            await doEmitResume("foreground");
           } else {
-            // Red aún no lista tras reintentos: emitir resume de todas formas con
-            // sesión local para que las pantallas intenten cargar (muchas RPCs pueden
-            // funcionar si el SDK logra refrescar el token en paralelo).
-            // También escuchar TOKEN_REFRESHED como respaldo.
-            if (__DEV__) console.warn("[resume] red no lista tras reintentos — emitiendo resume + deferred");
-            await doEmitResume();
-            scheduleDeferredResume();
+            // deferredSub ya armado arriba — no llamar scheduleDeferredResume() de nuevo.
+            // Si TOKEN_REFRESHED ya llegó, deferredSub lo habrá capturado.
+            // Si llega después, deferredSub lo capturará cuando ocurra.
+            // Si nunca llega: deferredTimer dispara a los 15s como fallback.
+            console.warn("[resume] red no lista tras reintentos — emitiendo resume optimista (deferred ya armado)");
+            await doEmitResume("foreground:optimistic");
           }
         })();
       } else if (nextState === "background") {
@@ -391,10 +422,14 @@ export default function Layout() {
       }
     });
 
+    // Iniciar recovery por reconexión de red (WiFi ↔ datos, pérdida y retorno)
+    startNetworkRecovery();
+
     return () => {
       sub.remove();
       cancelDeferred();
       void supabase.auth.stopAutoRefresh();
+      stopNetworkRecovery();
     };
   }, []);
 

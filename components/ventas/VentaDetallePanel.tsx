@@ -440,7 +440,13 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     const prev = String(lastEstadoRef.current ?? "").trim();
     lastEstadoRef.current = cur;
     if (!embedded && prev && prev !== cur) {
-      router.replace("/(drawer)/(tabs)/ventas" as any);
+      // Usar back() para preservar el tab activo en la pantalla de ventas.
+      // Si no hay historial (deep link directo), hacer replace como fallback.
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace("/(drawer)/(tabs)/ventas" as any);
+      }
     }
   }, [embedded, venta?.estado]);
 
@@ -698,6 +704,30 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
   useResumeLoad(empresaActivaId, () => {
     void fetchAll().catch(() => {});
   });
+
+  // Realtime: cuando admin cambia tags de esta venta (ej: aprueba edición),
+  // el vendedor ve el cambio inmediatamente sin tener que cerrar el panel.
+  React.useEffect(() => {
+    if (!ventaIdNum || !empresaActivaId) return;
+    const channel = supabase
+      .channel(`ventas_tags:venta_${ventaIdNum}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "ventas_tags",
+          filter: `venta_id=eq.${ventaIdNum}`,
+        },
+        () => {
+          fetchTags().catch(() => {});
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [ventaIdNum, empresaActivaId, fetchTags]);
 
   // Cuando el padre incremente refreshKey (ej: después de editar desde modal web),
   // volver a cargar todos los datos del panel.

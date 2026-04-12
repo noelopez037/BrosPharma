@@ -850,7 +850,8 @@ export default function Ventas() {
     dotsCacheRef.current = { data: null, timestamp: 0 };
     void fetchVentas(estado, { silent: true });
     void refreshDots();
-    setSelectedVentaId(null);
+    // No cerrar el detalle seleccionado — el refresh es silencioso y el
+    // usuario puede estar viendo una venta en el panel derecho.
   }), [estado, fetchVentas, refreshDots]);
 
   const rows = useMemo(() => {
