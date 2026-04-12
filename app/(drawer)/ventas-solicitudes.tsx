@@ -315,41 +315,48 @@ export default function VentasSolicitudesScreen() {
     async (ventaId: number, decision: "APROBAR" | "RECHAZAR") => {
       if (!canResolve) return;
       setActingVentaId(ventaId);
+
+      // Guardar datos necesarios ANTES de quitar el item del estado.
+      const sol = rowsRaw.find((r) => Number(r.venta_id) === Number(ventaId));
+      const prevRows = rowsRaw;
+
+      // Quitar inmediatamente — el item desaparece antes del round-trip de red.
+      setRowsRaw((r) => r.filter((x) => Number(x.venta_id) !== Number(ventaId)));
+      setSelectedVentaId(null);
+
       try {
         const { error } = await supabase.rpc("rpc_admin_resolver_solicitud", {
           p_venta_id: Number(ventaId),
           p_decision: decision,
         });
         if (error) throw error;
-        // Optimistic removal — item disappears immediately without waiting for the view refresh
-        setRowsRaw((prev) => prev.filter((r) => Number(r.venta_id) !== Number(ventaId)));
-        if (decision === "APROBAR") {
+
+        if (decision === "APROBAR" && isPaymentEditRequest(sol) && sol?.vendedor_id) {
           try {
-            const sol = rowsRaw.find((r) => Number(r.venta_id) === Number(ventaId));
-            if (isPaymentEditRequest(sol) && sol?.vendedor_id) {
-              const { error: grantErr } = await supabase.rpc("rpc_admin_otorgar_edicion_pago", {
-                p_venta_id: Number(ventaId),
-                p_otorgado_a: String(sol.vendedor_id),
-                p_horas: 48,
-              });
-              if (grantErr) {
-                Alert.alert("Aviso", `Solicitud aprobada pero no se pudo otorgar permiso: ${grantErr.message || grantErr}`);
-              }
+            const { error: grantErr } = await supabase.rpc("rpc_admin_otorgar_edicion_pago", {
+              p_venta_id: Number(ventaId),
+              p_otorgado_a: String(sol.vendedor_id),
+              p_horas: 48,
+            });
+            if (grantErr) {
+              Alert.alert("Aviso", `Solicitud aprobada pero no se pudo otorgar permiso: ${grantErr.message || grantErr}`);
             }
           } catch (e: any) {
             console.warn("grant permiso error", e?.message ?? e);
           }
         }
+
         await fetchSolicitudes();
         emitSolicitudesChanged();
-        setSelectedVentaId(null);
       } catch (e: any) {
+        // Rollback: restaurar item si el RPC falló.
+        setRowsRaw(prevRows);
         Alert.alert("Error", e?.message ?? "No se pudo resolver la solicitud");
       } finally {
         setActingVentaId(null);
       }
     },
-    [canResolve, empresaActivaId, fetchSolicitudes, rowsRaw]
+    [canResolve, fetchSolicitudes, rowsRaw]
   );
 
   const confirmResolve = useCallback(
@@ -383,6 +390,11 @@ export default function VentasSolicitudesScreen() {
     async (pagoId: number, decision: "APROBAR" | "RECHAZAR") => {
       if (!canResolve) return;
       setActingPagoId(pagoId);
+
+      // Quitar inmediatamente — rollback si el RPC falla.
+      const prevPagos = pagosPendientesRaw;
+      setPagosPendientesRaw((p) => p.filter((x) => Number(x.id) !== Number(pagoId)));
+
       try {
         if (decision === "APROBAR") {
           const { error } = await supabase.rpc("rpc_venta_aprobar_pago_reportado", {
@@ -396,17 +408,17 @@ export default function VentasSolicitudesScreen() {
           });
           if (error) throw error;
         }
-        // Optimistic removal — item disappears immediately without waiting for the view refresh
-        setPagosPendientesRaw((prev) => prev.filter((p) => Number(p.id) !== Number(pagoId)));
         await fetchPagosPendientes();
         emitSolicitudesChanged();
       } catch (e: any) {
+        // Rollback: restaurar pago si el RPC falló.
+        setPagosPendientesRaw(prevPagos);
         Alert.alert("Error", e?.message ?? "No se pudo actualizar el pago reportado");
       } finally {
         setActingPagoId(null);
       }
     },
-    [canResolve, fetchPagosPendientes]
+    [canResolve, fetchPagosPendientes, pagosPendientesRaw]
   );
 
   const confirmResolvePago = useCallback(
