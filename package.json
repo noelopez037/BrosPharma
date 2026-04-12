@@ -77,7 +77,9 @@
   "expo": {
     "install": {
       "exclude": [
-        "react-native-svg"
+        "react-native-svg",
+        "@react-native-community/netinfo",
+        "react-native-get-random-values"
       ]
     }
   }
