@@ -1593,11 +1593,6 @@ export default function Inicio() {
           ) : null}
         </View>
 
-        {/* BUILD ID — eliminar antes de subir a producción */}
-        <Text style={{ textAlign: "center", color: C.sub, fontSize: 10, paddingVertical: 4, opacity: 0.6 }}>
-          build: phase-3 · recovery-hub
-        </Text>
-
         {renderBody()}
       </ScrollView>
     </SafeAreaView>
