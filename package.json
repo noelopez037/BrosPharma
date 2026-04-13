@@ -79,7 +79,8 @@
       "exclude": [
         "react-native-svg",
         "@react-native-community/netinfo",
-        "react-native-get-random-values"
+        "react-native-get-random-values",
+        "@shopify/react-native-skia"
       ]
     }
   }
