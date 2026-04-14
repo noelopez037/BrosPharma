@@ -4,6 +4,7 @@
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useMemo, useRef, useState } from "react";
+import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import {
   Alert,
@@ -545,11 +546,23 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
           try {
             const stamp = Date.now();
             const rnd = Math.random().toString(16).slice(2);
-            const ext = extFromUri(receta_uri);
-            const contentType = mimeFromExt(ext);
+            let uploadUri = receta_uri;
+            let ext = extFromUri(receta_uri);
+            let contentType = mimeFromExt(ext);
+            // HEIC/HEIF no es soportado por Supabase Storage — convertir a JPEG
+            if (ext === "heic" || ext === "heif" || contentType === "image/heic" || contentType === "image/heif") {
+              const converted = await ImageManipulator.manipulateAsync(
+                receta_uri,
+                [],
+                { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+              );
+              uploadUri = converted.uri;
+              ext = "jpg";
+              contentType = "image/jpeg";
+            }
             const path = `${empresaActivaId}/ventas/${ventaId}/recetas/${stamp}-${rnd}.${ext}`;
 
-            const ab = await uriToArrayBuffer(receta_uri);
+            const ab = await uriToArrayBuffer(uploadUri);
             const bytes = new Uint8Array(ab);
 
             const { error: upErr } = await supabase.storage

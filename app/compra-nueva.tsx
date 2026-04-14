@@ -16,6 +16,7 @@ import DateTimePicker, {
   DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
 import { useFocusEffect, useTheme } from "@react-navigation/native";
+import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -395,15 +396,29 @@ export default function CompraNuevaScreen() {
       const asset = res.assets?.[0];
       if (!asset?.uri) return;
 
-      updateLinea(lineKey, { image_uri: asset.uri });
+      // HEIC/HEIF no es soportado por Supabase Storage — convertir a JPEG
+      let uploadUri = asset.uri;
+      let uploadExt = extFromUri(asset.uri);
+      let contentType = uploadExt === "png" ? "image/png" : "image/jpeg";
+      const isHeic = uploadExt === "heic" || uploadExt === "heif" ||
+        String((asset as any).mimeType ?? "").toLowerCase().includes("heic") ||
+        String((asset as any).mimeType ?? "").toLowerCase().includes("heif");
+      if (isHeic) {
+        const converted = await ImageManipulator.manipulateAsync(
+          asset.uri,
+          [],
+          { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG }
+        );
+        uploadUri = converted.uri;
+        uploadExt = "jpg";
+        contentType = "image/jpeg";
+      }
 
-      const ext = extFromUri(asset.uri);
-      const path = `${empresaActivaId}/compras/imagenes/${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`;
-      const ab = await uriToArrayBuffer(asset.uri);
+      updateLinea(lineKey, { image_uri: uploadUri });
+
+      const path = `${empresaActivaId}/compras/imagenes/${Date.now()}-${Math.random().toString(16).slice(2)}.${uploadExt}`;
+      const ab = await uriToArrayBuffer(uploadUri);
       if (ab.byteLength > 10 * 1024 * 1024) throw new Error("La imagen excede 10 MB.");
-
-      const contentType =
-        ext === "png" ? "image/png" : ext === "heic" ? "image/heic" : "image/jpeg";
 
       const { error } = await supabase.storage.from(BUCKET).upload(path, ab, {
         contentType,

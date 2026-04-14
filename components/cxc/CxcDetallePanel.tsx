@@ -3,6 +3,7 @@
 
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import * as FileSystem from "expo-file-system/legacy";
+import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import * as MediaLibrary from "expo-media-library";
 import { Stack, useLocalSearchParams } from "expo-router";
@@ -423,6 +424,21 @@ function CxcDetallePanelContent({
       mimeType = map[ext] ?? "image/jpeg";
     }
     if (!mimeType) mimeType = "image/jpeg";
+
+    // HEIC/HEIF no es soportado por Supabase Storage — convertir a JPEG
+    const isHeic = mimeType === "image/heic" || mimeType === "image/heif" ||
+      String(a.uri).toLowerCase().endsWith(".heic") ||
+      String(a.uri).toLowerCase().endsWith(".heif");
+    if (isHeic) {
+      const converted = await ImageManipulator.manipulateAsync(
+        a.uri,
+        [],
+        { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      setPagoImg({ uri: converted.uri, mimeType: "image/jpeg" });
+      return;
+    }
+
     setPagoImg({ uri: a.uri, mimeType });
   };
 

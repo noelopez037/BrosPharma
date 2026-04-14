@@ -4,6 +4,7 @@
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import * as FileSystem from "expo-file-system/legacy";
 import { Image as ExpoImage } from "expo-image";
+import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import * as MediaLibrary from "expo-media-library";
 import { Stack, router, useLocalSearchParams } from "expo-router";
@@ -592,8 +593,22 @@ function CompraDetallePanelContent({ embedded, compraIdProp, onRefresh, onDelete
     const a = res.assets?.[0];
     if (!a?.uri) return;
 
-    const mimeType = (a as any).mimeType || "image/jpeg";
+    let mimeType = (a as any).mimeType || "image/jpeg";
     const fileName = (a as any).fileName ?? null;
+
+    // HEIC/HEIF no es soportado por Supabase Storage — convertir a JPEG
+    const isHeic = mimeType === "image/heic" || mimeType === "image/heif" ||
+      String(a.uri).toLowerCase().endsWith(".heic") ||
+      String(a.uri).toLowerCase().endsWith(".heif");
+    if (isHeic) {
+      const converted = await ImageManipulator.manipulateAsync(
+        a.uri,
+        [],
+        { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      setPagoImg({ uri: converted.uri, mimeType: "image/jpeg", fileName });
+      return;
+    }
 
     setPagoImg({ uri: a.uri, mimeType, fileName });
   };
