@@ -576,55 +576,28 @@ export default function CompraDetalleScreen() {
     const a = res.assets?.[0];
     if (!a?.uri) return;
 
-    let mimeType = (a as any).mimeType || "image/jpeg";
     const fileName = (a as any).fileName ?? null;
-
-    // HEIC/HEIF no es soportado por Supabase Storage — convertir a JPEG
-    const isHeic = mimeType === "image/heic" || mimeType === "image/heif" ||
-      String(a.uri).toLowerCase().endsWith(".heic") ||
-      String(a.uri).toLowerCase().endsWith(".heif");
-    if (isHeic) {
-      const converted = await ImageManipulator.manipulateAsync(
-        a.uri,
-        [],
-        { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
-      );
-      setPagoImg({ uri: converted.uri, mimeType: "image/jpeg", fileName });
-      return;
-    }
-
-    setPagoImg({ uri: a.uri, mimeType, fileName });
+    // Siempre convertir a JPEG — garantiza compatibilidad con Supabase (HEIC, HEIF, etc.)
+    const converted = await ImageManipulator.manipulateAsync(
+      a.uri,
+      [],
+      { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+    );
+    setPagoImg({ uri: converted.uri, mimeType: "image/jpeg", fileName });
   };
 
   const subirComprobanteSiExiste = async (
     compraIdLocal: number
   ): Promise<string | null> => {
     if (!pagoImg?.uri) return null;
-
-    // Convertir HEIC/HEIF a JPEG antes de subir (Supabase Storage no soporta HEIC)
-    let uploadUri = pagoImg.uri;
-    let uploadMime = pagoImg.mimeType || "image/jpeg";
-    const isHeic = uploadMime === "image/heic" || uploadMime === "image/heif" ||
-      String(uploadUri).toLowerCase().endsWith(".heic") ||
-      String(uploadUri).toLowerCase().endsWith(".heif");
-    if (isHeic) {
-      const converted = await ImageManipulator.manipulateAsync(
-        uploadUri,
-        [],
-        { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
-      );
-      uploadUri = converted.uri;
-      uploadMime = "image/jpeg";
-    }
-
-    const path = makeComprobantePath(empresaActivaId!, compraIdLocal, uploadMime);
-    const bytes = await uriToBytes(uploadUri);
+    const path = makeComprobantePath(empresaActivaId!, compraIdLocal, "image/jpeg");
+    const bytes = await uriToBytes(pagoImg.uri);
 
     const { error } = await supabase.storage
       .from(BUCKET_COMPROBANTES)
       .upload(path, bytes, {
         upsert: false,
-        contentType: uploadMime,
+        contentType: "image/jpeg",
         cacheControl: "3600",
       });
 
