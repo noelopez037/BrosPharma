@@ -1,10 +1,7 @@
 {
-  "platforms": ["apple", "android"],
+  "platforms": ["apple"],
   "apple": {
     "modules": ["HttpSessionResetModule"],
     "podspecPath": "http-session-reset.podspec"
-  },
-  "android": {
-    "modules": ["expo.modules.httpsessionreset.HttpSessionResetModule"]
   }
 }
