@@ -1075,7 +1075,7 @@ export default function DrawerLayout() {
                   </Pressable>
 
                   <Text style={{ color: drawerMuted, fontSize: 11, textAlign: "center", marginTop: 10, opacity: 0.5 }}>
-                    v1.2.2
+                    v1.2.3
                   </Text>
                 </View>
               </View>
