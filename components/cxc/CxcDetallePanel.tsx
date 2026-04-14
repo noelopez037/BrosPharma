@@ -406,19 +406,26 @@ function CxcDetallePanelContent({
     }
     const res = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.9,
+      quality: 0.85,
       allowsEditing: false,
+      base64: true,
     });
     if (res.canceled) return;
     const a = res.assets?.[0];
-    if (!a?.uri) return;
-    // Siempre convertir a JPEG — garantiza compatibilidad con Supabase (HEIC, HEIF, etc.)
-    const converted = await ImageManipulator.manipulateAsync(
-      a.uri,
-      [],
-      { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
-    );
-    setPagoImg({ uri: converted.uri, mimeType: "image/jpeg" });
+    if (!a) return;
+    // base64: true hace que iOS decodifique HEIC a JPEG antes de encodear.
+    // Escribimos ese base64 como archivo local para poder subirlo normalmente.
+    if (a.base64) {
+      const localUri = (FileSystem as any).cacheDirectory + `comprobante_${Date.now()}.jpg`;
+      await (FileSystem as any).writeAsStringAsync(localUri, a.base64, {
+        encoding: (FileSystem as any).EncodingType?.Base64 ?? "base64",
+      });
+      setPagoImg({ uri: localUri, mimeType: "image/jpeg" });
+      return;
+    }
+    // Fallback: si no hay base64, usar la URI directa
+    if (!a.uri) return;
+    setPagoImg({ uri: a.uri, mimeType: "image/jpeg" });
   };
 
   const subirComprobanteSiExiste = async (ventaIdLocal: number): Promise<string | null> => {
