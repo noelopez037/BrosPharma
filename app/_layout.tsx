@@ -4,7 +4,8 @@ import "react-native-reanimated";
 
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
-import { AppState, type AppStateStatus, Platform } from "react-native";
+import { Alert, AppState, type AppStateStatus, Platform } from "react-native";
+import * as Updates from "expo-updates";
 import { enableScreens } from "react-native-screens";
 
 import { ThemeProvider } from "@react-navigation/native";
@@ -336,10 +337,29 @@ export default function Layout() {
       }, 15_000);
     }
 
+    const checkForUpdate = async () => {
+      if (Platform.OS === "web" || __DEV__) return;
+      try {
+        const result = await Updates.checkForUpdateAsync();
+        if (!result.isAvailable) return;
+        const fetchResult = await Updates.fetchUpdateAsync();
+        if (!fetchResult.isNew) return;
+        Alert.alert(
+          "Actualización disponible",
+          "Hay una nueva versión de la app. Se aplicará ahora.",
+          [{ text: "Reiniciar", onPress: () => Updates.reloadAsync() }],
+          { cancelable: false }
+        );
+      } catch {
+        // Si falla la verificación de update, ignorar silenciosamente
+      }
+    };
+
     const sub = AppState.addEventListener("change", (nextState: AppStateStatus) => {
       if (__DEV__) console.log("[resume] AppState →", nextState);
 
       if (nextState === "active") {
+        void checkForUpdate();
         void clearBadge();
         markAppResumed();
         cancelDeferred();
