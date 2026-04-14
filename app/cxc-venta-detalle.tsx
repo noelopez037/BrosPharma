@@ -391,22 +391,39 @@ export default function CxcVentaDetalle() {
 
   const subirComprobanteSiExiste = async (ventaIdLocal: number): Promise<string | null> => {
     if (!pagoImg?.uri) return null;
-    const path = makeComprobantePath(empresaActivaId!, ventaIdLocal, pagoImg.mimeType);
+
+    // Convertir HEIC/HEIF a JPEG antes de subir (Supabase Storage no soporta HEIC)
+    let uploadUri = pagoImg.uri;
+    let uploadMime = pagoImg.mimeType || "image/jpeg";
+    const isHeic = uploadMime === "image/heic" || uploadMime === "image/heif" ||
+      String(uploadUri).toLowerCase().endsWith(".heic") ||
+      String(uploadUri).toLowerCase().endsWith(".heif");
+    if (isHeic && Platform.OS !== "web") {
+      const converted = await ImageManipulator.manipulateAsync(
+        uploadUri,
+        [],
+        { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      uploadUri = converted.uri;
+      uploadMime = "image/jpeg";
+    }
+
+    const path = makeComprobantePath(empresaActivaId!, ventaIdLocal, uploadMime);
 
     if (Platform.OS === "web") {
-      const res = await fetch(pagoImg.uri);
+      const res = await fetch(uploadUri);
       const blob = await res.blob();
       const { error } = await supabase.storage
         .from(BUCKET_COMPROBANTES)
-        .upload(path, blob, { upsert: false, contentType: pagoImg.mimeType || "image/jpeg" });
+        .upload(path, blob, { upsert: false, contentType: uploadMime });
       if (error) throw error;
       return path;
     }
 
-    const bytes = await uriToBytes(pagoImg.uri);
+    const bytes = await uriToBytes(uploadUri);
     const { error } = await supabase.storage
       .from(BUCKET_COMPROBANTES)
-      .upload(path, bytes, { upsert: false, contentType: pagoImg.mimeType || "image/jpeg" });
+      .upload(path, bytes, { upsert: false, contentType: uploadMime });
     if (error) throw error;
     return path;
   };

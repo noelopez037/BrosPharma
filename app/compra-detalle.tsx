@@ -601,16 +601,30 @@ export default function CompraDetalleScreen() {
   ): Promise<string | null> => {
     if (!pagoImg?.uri) return null;
 
-    const path = makeComprobantePath(empresaActivaId!, compraIdLocal, pagoImg.mimeType);
+    // Convertir HEIC/HEIF a JPEG antes de subir (Supabase Storage no soporta HEIC)
+    let uploadUri = pagoImg.uri;
+    let uploadMime = pagoImg.mimeType || "image/jpeg";
+    const isHeic = uploadMime === "image/heic" || uploadMime === "image/heif" ||
+      String(uploadUri).toLowerCase().endsWith(".heic") ||
+      String(uploadUri).toLowerCase().endsWith(".heif");
+    if (isHeic) {
+      const converted = await ImageManipulator.manipulateAsync(
+        uploadUri,
+        [],
+        { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      uploadUri = converted.uri;
+      uploadMime = "image/jpeg";
+    }
 
-    // 🔒 Upload robusto: bytes reales
-    const bytes = await uriToBytes(pagoImg.uri);
+    const path = makeComprobantePath(empresaActivaId!, compraIdLocal, uploadMime);
+    const bytes = await uriToBytes(uploadUri);
 
     const { error } = await supabase.storage
       .from(BUCKET_COMPROBANTES)
       .upload(path, bytes, {
         upsert: false,
-        contentType: pagoImg.mimeType || "image/jpeg",
+        contentType: uploadMime,
         cacheControl: "3600",
       });
 
