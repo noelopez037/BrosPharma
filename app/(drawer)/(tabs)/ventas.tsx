@@ -1638,7 +1638,6 @@ const s = StyleSheet.create({
     paddingBottom: 6,
     backgroundColor: "transparent",
     zIndex: 10,
-    ...(Platform.OS === "android" ? { elevation: 10 } : {}),
   },
   sectionHeaderText: { fontSize: 13, fontWeight: "900", textAlign: "right" },
 
