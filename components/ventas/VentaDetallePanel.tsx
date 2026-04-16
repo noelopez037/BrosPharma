@@ -1854,25 +1854,27 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                  /* ── Encabezado modo factura ── */
                  Platform.OS === 'web' ? (
                    /* Web: limpio para imprimir/compartir */
-                   <View style={{ position: "relative", paddingRight: 260 }}>
-                     <Text style={[styles.clientName, { color: C.text, fontSize: 18 }]} numberOfLines={1} adjustsFontSizeToFit>
-                       {venta.cliente_nombre ?? clienteMini?.nombre ?? "—"}
-                     </Text>
-                     {clienteMini?.telefono && clienteMini.telefono.trim() !== '-' && clienteMini.telefono.trim() !== '' ? (
-                       <Text style={[styles.clientNit, { color: C.sub, marginTop: 8, fontSize: 15 }]} numberOfLines={1}>
-                         Tel: {clienteMini.telefono}
+                   <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+                     <View style={{ flex: 1, paddingRight: 16 }}>
+                       <Text style={[styles.clientName, { color: C.text, fontSize: 18 }]}>
+                         {venta.cliente_nombre ?? clienteMini?.nombre ?? "—"}
                        </Text>
-                     ) : null}
-                     {clienteMini?.direccion ? (
-                       <Text style={[styles.clientNit, { color: C.sub, marginTop: 8, fontSize: 15 }]}>
-                         {clienteMini.direccion}
-                       </Text>
-                     ) : null}
+                       {clienteMini?.telefono && clienteMini.telefono.trim() !== '-' && clienteMini.telefono.trim() !== '' ? (
+                         <Text style={[styles.clientNit, { color: C.sub, marginTop: 8, fontSize: 15 }]} numberOfLines={1}>
+                           Tel: {clienteMini.telefono}
+                         </Text>
+                       ) : null}
+                       {clienteMini?.direccion ? (
+                         <Text style={[styles.clientNit, { color: C.sub, marginTop: 8, fontSize: 15 }]}>
+                           {clienteMini.direccion}
+                         </Text>
+                       ) : null}
+                     </View>
                      <Image
                        source={isDark
                          ? require("../../assets/images/logo-light.png")
                          : require("../../assets/images/logo-dark.png")}
-                       style={{ position: "absolute", right: -8, top: -8, width: 240, height: 144, resizeMode: "contain" }}
+                       style={{ width: 200, height: 160, resizeMode: "contain", flexShrink: 0, marginTop: -8, marginRight: -8 }}
                      />
                    </View>
                  ) : (
