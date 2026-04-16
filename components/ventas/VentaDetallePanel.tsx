@@ -493,7 +493,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     return () => {
       alive = false;
     };
-  }, [venta?.cliente_id, empresaActivaId]);
+  }, [venta?.id, venta?.cliente_id, empresaActivaId]);
 
   const fetchTags = useCallback(async () => {
     if (!empresaActivaId) return;
