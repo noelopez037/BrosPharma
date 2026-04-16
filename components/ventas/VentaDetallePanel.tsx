@@ -1851,30 +1851,63 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
            {venta ? (
              <View style={[styles.card, { borderColor: C.border, backgroundColor: C.card }]}>
                {venta.estado === 'FACTURADO' ? (
-                 /* ── Encabezado modo factura (limpio para imprimir/compartir) ── */
-                 <View style={{ position: "relative", paddingRight: Platform.OS === 'web' ? 260 : 0 }}>
-                   <Text style={[styles.clientName, { color: C.text, fontSize: Platform.OS === 'web' ? 18 : 14 }]} numberOfLines={1} adjustsFontSizeToFit>
-                     {venta.cliente_nombre ?? clienteMini?.nombre ?? "—"}
-                   </Text>
-                   {clienteMini?.telefono && clienteMini.telefono.trim() !== '-' && clienteMini.telefono.trim() !== '' ? (
-                     <Text style={[styles.clientNit, { color: C.sub, marginTop: 8, fontSize: Platform.OS === 'web' ? 15 : 13 }]} numberOfLines={1}>
-                       Tel: {clienteMini.telefono}
+                 /* ── Encabezado modo factura ── */
+                 Platform.OS === 'web' ? (
+                   /* Web: limpio para imprimir/compartir */
+                   <View style={{ position: "relative", paddingRight: 260 }}>
+                     <Text style={[styles.clientName, { color: C.text, fontSize: 18 }]} numberOfLines={1} adjustsFontSizeToFit>
+                       {venta.cliente_nombre ?? clienteMini?.nombre ?? "—"}
                      </Text>
-                   ) : null}
-                   {clienteMini?.direccion ? (
-                     <Text style={[styles.clientNit, { color: C.sub, marginTop: 8, fontSize: Platform.OS === 'web' ? 15 : 13 }]}>
-                       {clienteMini.direccion}
-                     </Text>
-                   ) : null}
-                   {Platform.OS === 'web' ? (
+                     {clienteMini?.telefono && clienteMini.telefono.trim() !== '-' && clienteMini.telefono.trim() !== '' ? (
+                       <Text style={[styles.clientNit, { color: C.sub, marginTop: 8, fontSize: 15 }]} numberOfLines={1}>
+                         Tel: {clienteMini.telefono}
+                       </Text>
+                     ) : null}
+                     {clienteMini?.direccion ? (
+                       <Text style={[styles.clientNit, { color: C.sub, marginTop: 8, fontSize: 15 }]}>
+                         {clienteMini.direccion}
+                       </Text>
+                     ) : null}
                      <Image
                        source={isDark
                          ? require("../../assets/images/logo-light.png")
                          : require("../../assets/images/logo-dark.png")}
                        style={{ position: "absolute", right: -8, top: -8, width: 240, height: 144, resizeMode: "contain" }}
                      />
-                   ) : null}
-                 </View>
+                   </View>
+                 ) : (
+                   /* Móvil: igual que otros estados pero sin NIT */
+                   <>
+                     <View style={styles.rowBetween}>
+                       <View style={{ flex: 1, paddingRight: 12 }}>
+                         <Text style={[styles.clientName, { color: C.text }]} numberOfLines={2}>
+                           {venta.cliente_nombre ?? clienteMini?.nombre ?? "—"}
+                         </Text>
+                       </View>
+                       <View style={[styles.badgePill, { backgroundColor: badgeStyle.bg, borderColor: alphaColor(badgeStyle.color, isDark ? 0.32 : 0.22) || C.border }]}>
+                         <Text style={[styles.badgeText, { color: badgeStyle.color }]}>{badge.text}</Text>
+                       </View>
+                     </View>
+                     <View style={[styles.kvGrid, { marginTop: 12 }]}>
+                       <View style={styles.kv}>
+                         <Text style={[styles.k, { color: C.sub }]}>Teléfono</Text>
+                         <Text style={[styles.v, { color: C.text }]} numberOfLines={1}>
+                           {clienteMini?.telefono ?? "—"}
+                         </Text>
+                       </View>
+                       <View style={styles.kv}>
+                         <Text style={[styles.k, { color: C.sub }]}>Vendedor</Text>
+                         <Text style={[styles.v, { color: C.text }]} numberOfLines={1}>
+                           {venta.vendedor_codigo ? String(venta.vendedor_codigo) : shortUid(venta.vendedor_id)}
+                         </Text>
+                       </View>
+                     </View>
+                     <Text style={[styles.k, { color: C.sub, marginTop: 12 }]}>Dirección</Text>
+                     <Text style={[styles.note, { color: C.text, marginTop: 6 }]}>
+                       {clienteMini?.direccion ?? "—"}
+                     </Text>
+                   </>
+                 )
                ) : (
                  /* ── Encabezado normal ── */
                  <>
