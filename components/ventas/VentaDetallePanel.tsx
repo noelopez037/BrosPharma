@@ -1853,17 +1853,17 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                {venta.estado === 'FACTURADO' ? (
                  /* ── Encabezado modo factura (limpio para imprimir/compartir) ── */
                  <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
-                   <View style={{ flex: 1, paddingRight: 12 }}>
+                   <View style={{ flex: 1, paddingRight: 16 }}>
                      <Text style={[styles.clientName, { color: C.text }]} numberOfLines={2}>
                        {venta.cliente_nombre ?? clienteMini?.nombre ?? "—"}
                      </Text>
-                     {clienteMini?.telefono ? (
-                       <Text style={[styles.clientNit, { color: C.sub, marginTop: 2 }]} numberOfLines={1}>
+                     {clienteMini?.telefono && clienteMini.telefono.trim() !== '-' && clienteMini.telefono.trim() !== '' ? (
+                       <Text style={[styles.clientNit, { color: C.sub, marginTop: 8 }]} numberOfLines={1}>
                          Tel: {clienteMini.telefono}
                        </Text>
                      ) : null}
                      {clienteMini?.direccion ? (
-                       <Text style={[styles.clientNit, { color: C.sub, marginTop: 2 }]}>
+                       <Text style={[styles.clientNit, { color: C.sub, marginTop: 8 }]}>
                          {clienteMini.direccion}
                        </Text>
                      ) : null}
@@ -1872,7 +1872,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                      source={isDark
                        ? require("../../assets/images/logo-light.png")
                        : require("../../assets/images/logo-dark.png")}
-                     style={{ width: 240, height: 144, resizeMode: "contain" }}
+                     style={{ width: 240, height: 144, resizeMode: "contain", marginTop: -8, marginRight: -8 }}
                    />
                  </View>
                ) : (
