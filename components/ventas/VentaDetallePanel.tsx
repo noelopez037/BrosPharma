@@ -1872,7 +1872,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                      source={isDark
                        ? require("../../assets/images/logo-light.png")
                        : require("../../assets/images/logo-dark.png")}
-                     style={{ width: 80, height: 48, resizeMode: "contain" }}
+                     style={{ width: 240, height: 144, resizeMode: "contain" }}
                    />
                  </View>
                ) : (
