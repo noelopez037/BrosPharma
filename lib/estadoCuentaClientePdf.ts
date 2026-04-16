@@ -532,8 +532,16 @@ function buildEstadoCuentaHtml({ logoSrc, header, totals, rows }: { logoSrc: str
 
 
 export async function generarEstadoCuentaClientePdf(payload: EstadoCuentaClientePdfPayload, opts?: { fileName?: string }) {
-  const logo = await getLogoSrc(require("../assets/images/logo.png"));
-  const logoSrc = logo.kind === "base64" ? `data:image/png;base64,${logo.data}` : logo.data;
+  // Usar logo_url de la empresa (URL pública HTTPS) si está disponible,
+  // de lo contrario cargar el asset local.
+  const headerLogoUrl = (payload.header as any)?.logo_url as string | undefined;
+  let logoSrc: string;
+  if (headerLogoUrl) {
+    logoSrc = headerLogoUrl;
+  } else {
+    const logo = await getLogoSrc(require("../assets/images/logo.png"));
+    logoSrc = logo.kind === "base64" ? `data:image/png;base64,${logo.data}` : logo.data;
+  }
   const html = buildEstadoCuentaHtml({ logoSrc, header: payload.header ?? {}, totals: payload.totals ?? {}, rows: payload.rows ?? [] });
 
   const fileName = (opts?.fileName ?? "estado-cuenta").replace(/[^a-zA-Z0-9._-]+/g, "-");
