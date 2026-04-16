@@ -1853,8 +1853,8 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                {venta.estado === 'FACTURADO' ? (
                  /* ── Encabezado modo factura (limpio para imprimir/compartir) ── */
                  <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
-                   <View style={{ flex: 1, paddingRight: 16 }}>
-                     <Text style={[styles.clientName, { color: C.text }]} numberOfLines={2}>
+                   <View style={{ flex: 1, paddingRight: Platform.OS === 'web' ? 16 : 0 }}>
+                     <Text style={[styles.clientName, { color: C.text }]}>
                        {venta.cliente_nombre ?? clienteMini?.nombre ?? "—"}
                      </Text>
                      {clienteMini?.telefono && clienteMini.telefono.trim() !== '-' && clienteMini.telefono.trim() !== '' ? (
@@ -1868,12 +1868,14 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                        </Text>
                      ) : null}
                    </View>
-                   <Image
-                     source={isDark
-                       ? require("../../assets/images/logo-light.png")
-                       : require("../../assets/images/logo-dark.png")}
-                     style={{ width: 240, height: 144, resizeMode: "contain", marginTop: -8, marginRight: -8 }}
-                   />
+                   {Platform.OS === 'web' ? (
+                     <Image
+                       source={isDark
+                         ? require("../../assets/images/logo-light.png")
+                         : require("../../assets/images/logo-dark.png")}
+                       style={{ width: 240, height: 144, resizeMode: "contain", marginTop: -8, marginRight: -8 }}
+                     />
+                   ) : null}
                  </View>
                ) : (
                  /* ── Encabezado normal ── */
