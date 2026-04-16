@@ -515,17 +515,23 @@ function CxcDetallePanelContent({
     });
   }, [facturas, facturaMonto, pagadoPorFacturaId]);
 
-  // Bloquea "Reportar pago" solo si TODAS las facturas pendientes ya tienen
-  // un reporte pendiente. Con 2 facturas, la segunda sigue disponible.
-  const hasPendingReport = useMemo(() => {
-    if ((pagosReportadosPendientes ?? []).length === 0) return false;
-    const pendingFacturaIds = new Set(
+  // Set de factura_ids que ya tienen un reporte PENDIENTE de aprobación.
+  const pendingReportByFacturaId = useMemo(() => {
+    return new Set(
       (pagosReportadosPendientes ?? [])
         .map((p: any) => Number(p.factura_id))
         .filter((n) => Number.isFinite(n) && n > 0)
     );
-    return (facturasPendientes ?? []).every((f: any) => pendingFacturaIds.has(Number(f?.id)));
-  }, [pagosReportadosPendientes, facturasPendientes]);
+  }, [pagosReportadosPendientes]);
+
+  // Bloquea "Reportar pago" solo si TODAS las facturas pendientes ya tienen
+  // un reporte pendiente. Con 2 facturas, la segunda sigue disponible.
+  const hasPendingReport = useMemo(() => {
+    if ((pagosReportadosPendientes ?? []).length === 0) return false;
+    return (facturasPendientes ?? []).every((f: any) =>
+      pendingReportByFacturaId.has(Number(f?.id))
+    );
+  }, [pagosReportadosPendientes, facturasPendientes, pendingReportByFacturaId]);
 
   const selectedFactura = useMemo(() => {
     if (!pagoFacturaId) return null;
@@ -1321,6 +1327,7 @@ function CxcDetallePanelContent({
                                   ]
                                     .filter(Boolean)
                                     .join(" · ");
+                                  const yaReportada = pendingReportByFacturaId.has(fid);
                                   return (
                                     <Pressable
                                       key={String(fid)}
@@ -1362,6 +1369,18 @@ function CxcDetallePanelContent({
                                           numberOfLines={2}
                                         >
                                           {meta}
+                                        </Text>
+                                      ) : null}
+                                      {yaReportada ? (
+                                        <Text
+                                          style={{
+                                            color: C.warn,
+                                            fontSize: 11,
+                                            fontWeight: "700",
+                                            marginTop: 4,
+                                          }}
+                                        >
+                                          Reporte pendiente de aprobación
                                         </Text>
                                       ) : null}
                                     </Pressable>
