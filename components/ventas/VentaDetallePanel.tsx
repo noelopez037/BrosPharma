@@ -1855,7 +1855,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                     <Text style={[styles.clientName, { color: C.text }]} numberOfLines={2}>
                       {venta.cliente_nombre ?? clienteMini?.nombre ?? "—"}
                     </Text>
-                    {(Number(venta.cliente_id ?? 0) > 0 || clienteMini) ? (
+                    {(Number(venta.cliente_id ?? 0) > 0 || clienteMini) && venta.estado !== 'FACTURADO' ? (
                       <Text style={[styles.clientNit, { color: C.sub }]} numberOfLines={1}>
                         NIT: {clienteMini ? displayNit(clienteMini.nit) : "—"}
                       </Text>
@@ -1887,12 +1887,14 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                      {clienteMini?.telefono ?? "—"}
                    </Text>
                  </View>
+                 {venta.estado !== 'FACTURADO' ? (
                  <View style={styles.kv}>
                    <Text style={[styles.k, { color: C.sub }]}>Vendedor</Text>
                    <Text style={[styles.v, { color: C.text }]} numberOfLines={1}>
                      {venta.vendedor_codigo ? String(venta.vendedor_codigo) : shortUid(venta.vendedor_id)}
                    </Text>
                  </View>
+                 ) : null}
                </View>
 
                <Text style={[styles.k, { color: C.sub, marginTop: 12 }]}>Dirección</Text>
