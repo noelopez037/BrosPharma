@@ -1863,7 +1863,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                        </Text>
                      ) : null}
                      {clienteMini?.direccion ? (
-                       <Text style={[styles.clientNit, { color: C.sub, marginTop: 2 }]} numberOfLines={2}>
+                       <Text style={[styles.clientNit, { color: C.sub, marginTop: 2 }]}>
                          {clienteMini.direccion}
                        </Text>
                      ) : null}
