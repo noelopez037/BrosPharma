@@ -2,7 +2,7 @@
   "expo": {
     "name": "Bros360",
     "slug": "BrosPharma",
-    "version": "1.2.2",
+    "version": "1.2.3",
     "orientation": "portrait",
     "icon": "./assets/images/app-icon.png",
     "scheme": "brospharma",
@@ -71,7 +71,14 @@
       ],
       "@react-native-community/datetimepicker",
       "expo-asset",
-      "expo-updates"
+      [
+        "expo-updates",
+        {
+          "requestHeaders": {
+            "expo-channel-name": "production"
+          }
+        }
+      ]
     ],
     "runtimeVersion": "1.2.2",
     "updates": {
