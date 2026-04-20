@@ -78,8 +78,50 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
     draftRef.current = draft;
   }, [draft]);
 
+  // Hidrata el draft de edición en cuanto draft.lineas tiene las líneas correctas.
+  // Reemplaza el patrón setTimeout(hydrate,0) que leía draftRef.current antes de
+  // que React renderizara el resultado de reset()+addLinea(), causando líneas en blanco.
+  React.useEffect(() => {
+    const pending = pendingHydrationRef.current;
+    if (!pending) return;
+    if (draft.lineas.length < pending.targetN) return;
+
+    pendingHydrationRef.current = null;
+
+    const keys = draft.lineas.slice(0, pending.targetN).map((l) => l.key);
+    pending.detalles.forEach((row: any, idx: number) => {
+      const key = keys[idx];
+      if (!key) return;
+      const nombre = row.productos?.nombre ?? "";
+      const marca = row.productos?.marcas?.nombre ?? row.productos?.marcas?.[0]?.nombre ?? "";
+      const label = `${nombre}${marca ? ` • ${marca}` : ""}`;
+      const pid = Number(row.producto_id);
+      const inv = pending.invByProd.get(pid);
+      updateLinea(key, {
+        producto_id: pid,
+        producto_label: label,
+        stock_disponible: inv ? Number(inv.stock_disponible ?? 0) : null,
+        precio_min_venta: inv?.precio_min_venta == null ? null : Number(inv.precio_min_venta),
+        tiene_iva: inv ? !!inv.tiene_iva : null,
+        requiere_receta: inv ? !!inv.requiere_receta : null,
+        cantidad: String(row.cantidad ?? "1"),
+        precio_unit: String(row.precio_venta_unit ?? "0"),
+      });
+    });
+
+    loadedEditIdRef.current = pending.editId;
+    setLoadingEdit(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.lineas]);
+
   const skipResetOnFocusRef = useRef(false);
   const loadedEditIdRef = useRef<string | null>(null);
+  const pendingHydrationRef = useRef<{
+    targetN: number;
+    detalles: any[];
+    invByProd: Map<number, any>;
+    editId: string;
+  } | null>(null);
   const { role, isReady: roleReady, refreshRole } = useRole();
   const { empresaActivaId, isReady: empresaReady } = useEmpresaActiva();
   const [saving, setSaving] = useState(false);
@@ -353,45 +395,11 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
             // la condición de carrera donde el ref stale provoca duplicados.
             for (let i = 1; i < targetN; i++) addLinea();
 
-            const hydrate = () => {
-              const cur = draftRef.current;
-              if (!cur) return;
-
-              // Solo ESPERAR; no agregar más líneas aquí.
-              if (cur.lineas.length < targetN) {
-                setTimeout(hydrate, 0);
-                return;
-              }
-
-              const keys = cur.lineas.slice(0, targetN).map((l) => l.key);
-
-              detalles.forEach((row: any, idx: number) => {
-                const key = keys[idx];
-                if (!key) return;
-
-                const nombre = row.productos?.nombre ?? "";
-                const marca = row.productos?.marcas?.nombre ?? row.productos?.marcas?.[0]?.nombre ?? "";
-                const label = `${nombre}${marca ? ` • ${marca}` : ""}`;
-                const pid = Number(row.producto_id);
-                const inv = invByProd.get(pid);
-
-                updateLinea(key, {
-                  producto_id: pid,
-                  producto_label: label,
-                  stock_disponible: inv ? Number(inv.stock_disponible ?? 0) : null,
-                  precio_min_venta: inv?.precio_min_venta == null ? null : Number(inv.precio_min_venta),
-                  tiene_iva: inv ? !!inv.tiene_iva : null,
-                  requiere_receta: inv ? !!inv.requiere_receta : null,
-                  cantidad: String(row.cantidad ?? "1"),
-                  precio_unit: String(row.precio_venta_unit ?? "0"),
-                });
-              });
-
-              loadedEditIdRef.current = editId;
-              setLoadingEdit(false);
-            };
-
-            setTimeout(hydrate, 0);
+            // Dejar que el useEffect de hidratación corra cuando draft.lineas
+            // tenga las líneas correctas (post-render). Esto evita que hydrate()
+            // lea draftRef.current con el draft viejo si el render de React aún
+            // no procesó el reset() + addLinea() que acabamos de disparar.
+            pendingHydrationRef.current = { targetN, detalles, invByProd, editId };
           } catch (e) {
             setLoadingEdit(false);
             throw e;
@@ -407,7 +415,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
       return () => {
         alive = false;
       };
-    }, [addLinea, editId, empresaActivaId, isEdit, refreshRole, reset, setCliente, setComentarios, setRecetaUri, updateLinea])
+    }, [addLinea, editId, empresaActivaId, isEdit, refreshRole, reset, setCliente, setComentarios, setRecetaUri])
   );
 
   const roleUp = normalizeUpper(role) as Role;
