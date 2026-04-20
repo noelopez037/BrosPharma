@@ -967,7 +967,7 @@ export default function Ventas() {
       const tags = tagsByVenta[String(item.id)] ?? [];
       const chips: Chip[] = [];
 
-      if (item.requiere_receta && !item.receta_cargada) {
+      if (item.requiere_receta && !item.receta_cargada && item.estado !== "FACTURADO") {
         chips.push({ label: "Falta receta", tone: "amber" });
       }
 
