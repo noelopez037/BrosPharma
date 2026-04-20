@@ -1854,22 +1854,24 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                  /* ── Encabezado modo factura ── */
                  Platform.OS === 'web' ? (
                    /* Web: limpio para imprimir/compartir */
-                   <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
-                     <View style={{ flex: 1, paddingRight: 16 }}>
-                       <Text style={[styles.clientName, { color: C.text, fontSize: 18 }]}>
-                         {venta.cliente_nombre ?? clienteMini?.nombre ?? "—"}
-                       </Text>
-                       {clienteMini?.telefono && clienteMini.telefono.trim() !== '-' && clienteMini.telefono.trim() !== '' ? (
-                         <Text style={[styles.clientNit, { color: C.sub, marginTop: 8, fontSize: 15 }]} numberOfLines={1}>
-                           Tel: {clienteMini.telefono}
+                   <View style={{ flexDirection: "row", alignItems: "stretch" }}>
+                     <View style={{ flex: 1, paddingRight: 16, justifyContent: "space-between" }}>
+                       <View>
+                         <Text style={[styles.clientName, { color: C.text, fontSize: 18 }]}>
+                           {venta.cliente_nombre ?? clienteMini?.nombre ?? "—"}
                          </Text>
-                       ) : null}
-                       {clienteMini?.direccion ? (
-                         <Text style={[styles.clientNit, { color: C.sub, marginTop: 8, fontSize: 15 }]}>
-                           {clienteMini.direccion}
-                         </Text>
-                       ) : null}
-                       <Text style={{ color: "#e53935", fontSize: 15, fontWeight: "700", marginTop: 12 }}>
+                         {clienteMini?.telefono && clienteMini.telefono.trim() !== '-' && clienteMini.telefono.trim() !== '' ? (
+                           <Text style={[styles.clientNit, { color: C.sub, marginTop: 8, fontSize: 15 }]} numberOfLines={1}>
+                             Tel: {clienteMini.telefono}
+                           </Text>
+                         ) : null}
+                         {clienteMini?.direccion ? (
+                           <Text style={[styles.clientNit, { color: C.sub, marginTop: 8, fontSize: 15 }]}>
+                             {clienteMini.direccion}
+                           </Text>
+                         ) : null}
+                       </View>
+                       <Text style={{ color: "#e53935", fontSize: 20, fontWeight: "800", marginTop: 8 }}>
                          Frágil
                        </Text>
                      </View>
