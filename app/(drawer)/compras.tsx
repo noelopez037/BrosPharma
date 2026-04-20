@@ -334,7 +334,22 @@ export default function ComprasScreen() {
       .order("fecha", { ascending: false })
       .range(0, PAGE_SIZE - 1);
 
-    if (dq) { const safe = safeIlike(dq); req = req.or(`proveedor.ilike.%${safe}%,numero_factura.ilike.%${safe}%`); }
+    if (dq) {
+      const safe = safeIlike(dq);
+      let productIds: number[] = [];
+      const { data: pdRows } = await supabase
+        .from("compras_detalle")
+        .select("compra_id, productos!inner(nombre)")
+        .eq("empresa_id", empresaActivaId)
+        .ilike("productos.nombre", `%${safe}%`)
+        .limit(200);
+      if (pdRows?.length) {
+        productIds = [...new Set(pdRows.map((r: any) => r.compra_id as number))];
+      }
+      const orParts = [`proveedor.ilike.%${safe}%`, `numero_factura.ilike.%${safe}%`];
+      if (productIds.length) orParts.push(`id.in.(${productIds.join(",")})`);
+      req = req.or(orParts.join(","));
+    }
 
     // filtros server-side simples
     if (fProveedorId) req = req.eq("proveedor_id", fProveedorId);
@@ -373,7 +388,22 @@ export default function ComprasScreen() {
         .order("fecha", { ascending: false })
         .range(from, to);
 
-      if (dq) { const safe = safeIlike(dq); req = req.or(`proveedor.ilike.%${safe}%,numero_factura.ilike.%${safe}%`); }
+      if (dq) {
+        const safe = safeIlike(dq);
+        let productIds: number[] = [];
+        const { data: pdRows } = await supabase
+          .from("compras_detalle")
+          .select("compra_id, productos!inner(nombre)")
+          .eq("empresa_id", empresaActivaId)
+          .ilike("productos.nombre", `%${safe}%`)
+          .limit(200);
+        if (pdRows?.length) {
+          productIds = [...new Set(pdRows.map((r: any) => r.compra_id as number))];
+        }
+        const orParts = [`proveedor.ilike.%${safe}%`, `numero_factura.ilike.%${safe}%`];
+        if (productIds.length) orParts.push(`id.in.(${productIds.join(",")})`);
+        req = req.or(orParts.join(","));
+      }
       if (fProveedorId) req = req.eq("proveedor_id", fProveedorId);
       if (fDesde) req = req.gte("fecha", startOfDay(fDesde).toISOString());
       if (fHasta) req = req.lte("fecha", endOfDay(fHasta).toISOString());
@@ -575,7 +605,7 @@ export default function ComprasScreen() {
                     <TextInput
                       value={q}
                       onChangeText={setQ}
-                      placeholder="Buscar por proveedor o factura..."
+                      placeholder="Buscar por proveedor, factura o producto..."
                       placeholderTextColor={colors.text + "66"}
                       style={s.searchInput}
                       autoCapitalize="none"
@@ -674,7 +704,7 @@ export default function ComprasScreen() {
                   <TextInput
                     value={q}
                     onChangeText={setQ}
-                    placeholder="Buscar por proveedor o factura..."
+                    placeholder="Buscar por proveedor, factura o producto..."
                     placeholderTextColor={colors.text + "66"}
                     style={s.searchInput}
                     autoCapitalize="none"
