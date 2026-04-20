@@ -1970,7 +1970,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                  </>
                )}
 
-               {venta.requiere_receta && !venta.receta_cargada ? (
+               {venta.requiere_receta && !venta.receta_cargada && venta.estado !== "FACTURADO" ? (
                  <View style={styles.chipsRow}>
                    <View style={[styles.chip, { borderColor: C.border, backgroundColor: C.warnBg }]}>
                      <Text style={[styles.chipText, { color: C.warnText }]}>Falta receta</Text>
