@@ -1869,6 +1869,9 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                            {clienteMini.direccion}
                          </Text>
                        ) : null}
+                       <Text style={{ color: "#e53935", fontSize: 15, fontWeight: "700", marginTop: 12 }}>
+                         Frágil
+                       </Text>
                      </View>
                      <Image
                        source={isDark

@@ -80,8 +80,50 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
   const [originalQtyByProd, setOriginalQtyByProd] = useState<Record<string, number>>({});
   const [stockBaseByProd, setStockBaseByProd] = useState<Record<string, number>>({});
   const loadedEditIdRef = useRef<number | null>(null);
-  const draftRef = useRef(draft);
-  useEffect(() => { draftRef.current = draft; }, [draft]);
+  const pendingHydrationRef = useRef<{
+    targetN: number;
+    detalles: any[];
+    invByProd: Map<number, any>;
+    ventaId: number;
+  } | null>(null);
+
+  // Fires after each render where draft.lineas changes.
+  // Completes hydration once the draft has enough lines (avoids the
+  // setTimeout+draftRef race that caused extra blank lines on web).
+  useEffect(() => {
+    const pending = pendingHydrationRef.current;
+    if (!pending) return;
+    if (draft.lineas.length < pending.targetN) return;
+
+    pendingHydrationRef.current = null;
+
+    const keys = draft.lineas.slice(0, pending.targetN).map((l) => l.key);
+    pending.detalles.forEach((row: any, idx: number) => {
+      const key = keys[idx];
+      if (!key) return;
+      const nombre = (row.productos as any)?.nombre ?? "";
+      const marca =
+        (row.productos as any)?.marcas?.nombre ??
+        (row.productos as any)?.marcas?.[0]?.nombre ??
+        "";
+      const label = `${nombre}${marca ? ` • ${marca}` : ""}`;
+      const pid = Number(row.producto_id);
+      const inv = pending.invByProd.get(pid);
+      updateLinea(key, {
+        producto_id: pid,
+        producto_label: label,
+        stock_disponible: inv ? Number(inv.stock_disponible ?? 0) : null,
+        precio_min_venta: inv?.precio_min_venta == null ? null : Number(inv.precio_min_venta),
+        tiene_iva: inv ? !!inv.tiene_iva : null,
+        requiere_receta: inv ? !!inv.requiere_receta : null,
+        cantidad: String(row.cantidad ?? "1"),
+        precio_unit: String(row.precio_venta_unit ?? "0"),
+      });
+    });
+    loadedEditIdRef.current = pending.ventaId;
+    setLoadingEdit(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.lineas]);
 
   // Reset or load edit data on mount / when ventaId changes
   useEffect(() => {
@@ -187,43 +229,10 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
         });
 
         const targetN = detalles.length;
-        const hydrate = () => {
-          if (!alive) return;
-          const cur = draftRef.current;
-          if (!cur) return;
-          if (cur.lineas.length < targetN) {
-            const missing = targetN - cur.lineas.length;
-            for (let i = 0; i < missing; i++) addLinea();
-            setTimeout(hydrate, 0);
-            return;
-          }
-          const keys = cur.lineas.slice(0, targetN).map((l) => l.key);
-          detalles.forEach((row: any, idx: number) => {
-            const key = keys[idx];
-            if (!key) return;
-            const nombre = (row.productos as any)?.nombre ?? "";
-            const marca =
-              (row.productos as any)?.marcas?.nombre ??
-              (row.productos as any)?.marcas?.[0]?.nombre ??
-              "";
-            const label = `${nombre}${marca ? ` • ${marca}` : ""}`;
-            const pid = Number(row.producto_id);
-            const inv = invByProd.get(pid);
-            updateLinea(key, {
-              producto_id: pid,
-              producto_label: label,
-              stock_disponible: inv ? Number(inv.stock_disponible ?? 0) : null,
-              precio_min_venta: inv?.precio_min_venta == null ? null : Number(inv.precio_min_venta),
-              tiene_iva: inv ? !!inv.tiene_iva : null,
-              requiere_receta: inv ? !!inv.requiere_receta : null,
-              cantidad: String(row.cantidad ?? "1"),
-              precio_unit: String(row.precio_venta_unit ?? "0"),
-            });
-          });
-          loadedEditIdRef.current = ventaId;
-          if (alive) setLoadingEdit(false);
-        };
-        setTimeout(hydrate, 0);
+        // Add missing lines once; hydration runs in the useEffect above
+        // when draft.lineas reaches targetN (avoids setTimeout+ref race).
+        for (let i = 1; i < targetN; i++) addLinea();
+        pendingHydrationRef.current = { targetN, detalles, invByProd, ventaId };
       } catch (e: any) {
         if (!alive) return;
         setLoadingEdit(false);
