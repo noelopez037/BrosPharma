@@ -185,7 +185,25 @@ export function VentaDraftProvider({ children }: { children: React.ReactNode }) 
           ),
         })),
 
-      reset: () => setDraft(initialDraft),
+      reset: () =>
+        setDraft({
+          cliente: null,
+          comentarios: "",
+          receta_uri: null,
+          lineas: [
+            {
+              key: "l1",
+              producto_id: null,
+              producto_label: "",
+              stock_disponible: null,
+              precio_min_venta: null,
+              tiene_iva: null,
+              requiere_receta: null,
+              cantidad: "1",
+              precio_unit: "",
+            },
+          ],
+        }),
     }),
     [] // setDraft is stable from useState; initialDraft is a module-level constant
   );
