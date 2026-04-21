@@ -217,6 +217,12 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
         }
 
         if (!alive) return;
+
+        const targetN = detalles.length;
+        // Set pending BEFORE reset()+addLinea() so the useEffect on draft.lineas
+        // can see it when it fires. If set after, the effect already fired with
+        // pending===null and won't re-fire until another state change.
+        pendingHydrationRef.current = { targetN, detalles, invByProd, ventaId };
         reset();
         setRecetaUri(null);
         setComentarios(String((v as any).comentarios ?? ""));
@@ -227,12 +233,7 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
           telefono: (c as any).telefono == null ? null : String((c as any).telefono),
           direccion: (c as any).direccion == null ? null : String((c as any).direccion),
         });
-
-        const targetN = detalles.length;
-        // Add missing lines once; hydration runs in the useEffect above
-        // when draft.lineas reaches targetN (avoids setTimeout+ref race).
         for (let i = 1; i < targetN; i++) addLinea();
-        pendingHydrationRef.current = { targetN, detalles, invByProd, ventaId };
       } catch (e: any) {
         if (!alive) return;
         setLoadingEdit(false);
