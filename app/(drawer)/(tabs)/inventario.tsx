@@ -16,6 +16,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../../lib/supabase";
 import { ProductoModalContent } from "../../../components/producto/ProductoModalContent";
+import { AjusteInventarioModal } from "../../../components/inventario/AjusteInventarioModal";
 import { useRole } from "../../../lib/useRole";
 import { useEmpresaActiva } from "../../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../../lib/useResumeLoad";
@@ -109,6 +110,8 @@ export default function InventarioScreen() {
 
   const [productoOpen, setProductoOpen] = useState(false);
   const [productoId, setProductoId] = useState<number | null>(null);
+
+  const [ajusteOpen, setAjusteOpen] = useState(false);
 
   const loadingMoreRef = useRef(false);
   const pageRef = useRef(0);
@@ -285,15 +288,25 @@ export default function InventarioScreen() {
           </View>
 
           {isAdmin ? (
-            <View style={s.inactiveRow}>
-              <Text style={s.inactiveLabel}>Mostrar inactivos</Text>
-              <Switch
-                value={showInactive}
-                onValueChange={setShowInactive}
-                trackColor={{ false: colors.border, true: "#34C759" }}
-                thumbColor={Platform.OS === "android" ? "#FFFFFF" : undefined}
-                style={Platform.OS === "android" ? { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] } : undefined}
-              />
+            <View style={s.adminRow}>
+              <View style={[s.inactiveRow, { flex: 1 }]}>
+                <Text style={s.inactiveLabel}>Mostrar inactivos</Text>
+                <Switch
+                  value={showInactive}
+                  onValueChange={setShowInactive}
+                  trackColor={{ false: colors.border, true: "#34C759" }}
+                  thumbColor={Platform.OS === "android" ? "#FFFFFF" : undefined}
+                  style={Platform.OS === "android" ? { transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] } : undefined}
+                />
+              </View>
+              <Pressable
+                style={({ pressed }) => [s.ajusteBtn, pressed && { opacity: 0.75 }]}
+                onPress={() => setAjusteOpen(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Ajuste de inventario"
+              >
+                <Text style={s.ajusteBtnTxt}>⇅ Ajuste</Text>
+              </Pressable>
             </View>
           ) : null}
 
@@ -357,6 +370,12 @@ export default function InventarioScreen() {
           <ProductoModalContent productoId={productoId} onClose={closeProducto} />
         </Modal>
       ) : null}
+
+      <AjusteInventarioModal
+        visible={ajusteOpen}
+        onClose={() => setAjusteOpen(false)}
+        onSuccess={() => { void loadFirstRef.current(); }}
+      />
     </>
   );
 }
@@ -422,8 +441,14 @@ const styles = (colors: any) =>
     retryText: { color: colors.text, fontWeight: "800" },
     retrySub: { color: colors.text + "AA", marginTop: 6, fontSize: 12 },
 
-    inactiveRow: {
+    adminRow: {
       marginTop: 10,
+      flexDirection: "row",
+      gap: 8,
+      alignItems: "stretch",
+    },
+
+    inactiveRow: {
       paddingHorizontal: 12,
       paddingVertical: Platform.OS === "android" ? 8 : 10,
       borderWidth: 1,
@@ -435,6 +460,22 @@ const styles = (colors: any) =>
       justifyContent: "space-between",
     },
     inactiveLabel: {
+      color: colors.text,
+      fontWeight: "700",
+      fontSize: 13,
+    },
+
+    ajusteBtn: {
+      paddingHorizontal: 14,
+      paddingVertical: Platform.OS === "android" ? 8 : 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    ajusteBtnTxt: {
       color: colors.text,
       fontWeight: "700",
       fontSize: 13,

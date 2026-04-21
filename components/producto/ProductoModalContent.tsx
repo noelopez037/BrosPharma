@@ -16,6 +16,7 @@ import {
   View,
 } from "react-native";
 import { ProductoEditContent } from "./ProductoEditContent";
+import { AjusteInventarioModal } from "../inventario/AjusteInventarioModal";
 import ImageViewer from "react-native-image-zoom-viewer";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -112,12 +113,31 @@ async function saveImageToPhotos(imageUrl: string) {
   } catch {}
 }
 
-const LoteItem = memo(function LoteItem({ item, s }: { item: LoteDetalle; s: ReturnType<typeof styles> }) {
+const LoteItem = memo(function LoteItem({
+  item,
+  s,
+  isAdmin,
+  onAjustar,
+}: {
+  item: LoteDetalle;
+  s: ReturnType<typeof styles>;
+  isAdmin: boolean;
+  onAjustar: (loteId: number) => void;
+}) {
   return (
     <View style={s.loteCard}>
       <View style={{ flex: 1 }}>
         <Text style={s.loteTitle}>{item.lote ?? "—"}</Text>
         <Text style={s.loteSub}>Exp: {fmtDate(item.fecha_exp)}</Text>
+        {isAdmin && item.lote_id != null ? (
+          <Pressable
+            style={({ pressed }) => [s.ajustarLoteBtn, pressed && { opacity: 0.7 }]}
+            onPress={() => onAjustar(item.lote_id!)}
+            hitSlop={6}
+          >
+            <Text style={s.ajustarLoteTxt}>⇅ Ajustar</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       <View style={{ alignItems: "flex-end" }}>
@@ -160,6 +180,7 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
   const [savingPhoto, setSavingPhoto] = useState(false);
   const [closing, setClosing] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [ajusteLoteId, setAjusteLoteId] = useState<number | null>(null);
 
   useEffect(() => {
     closingRef.current = closing;
@@ -325,7 +346,16 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
     (it: LoteDetalle) => String(it.lote_id ?? it.lote ?? "?"),
     []
   );
-  const renderItem = useCallback(({ item }: { item: LoteDetalle }) => <LoteItem item={item} s={s} />, [s]);
+  const onAjustarLote = useCallback((loteId: number) => {
+    setAjusteLoteId(loteId);
+  }, []);
+
+  const renderItem = useCallback(
+    ({ item }: { item: LoteDetalle }) => (
+      <LoteItem item={item} s={s} isAdmin={isAdmin} onAjustar={onAjustarLote} />
+    ),
+    [s, isAdmin, onAjustarLote]
+  );
   const listEmpty = useMemo(
     () => (
       <View style={{ paddingVertical: 12 }}>
@@ -474,6 +504,20 @@ export function ProductoModalContent({ productoId, onClose }: Props) {
             </View>
           </View>
         </Modal>
+      ) : null}
+
+      {ajusteLoteId != null ? (
+        <AjusteInventarioModal
+          visible
+          onClose={() => setAjusteLoteId(null)}
+          onSuccess={() => {
+            setAjusteLoteId(null);
+            void fetchAll().catch(() => {});
+          }}
+          productoIdInicial={productoId}
+          productoNombreInicial={headProd?.nombre}
+          loteIdInicial={ajusteLoteId}
+        />
       ) : null}
 
       {viewerOpen ? (
@@ -642,6 +686,21 @@ const styles = (C: SysColors) =>
       color: C.LABEL as any,
       fontWeight: Platform.OS === "ios" ? "700" : "800",
       fontSize: Platform.OS === "web" ? 20 : 18,
+    },
+
+    ajustarLoteBtn: {
+      alignSelf: "flex-start",
+      marginTop: 6,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderWidth: 1,
+      borderColor: C.SEPARATOR as any,
+      borderRadius: 8,
+    },
+    ajustarLoteTxt: {
+      color: C.SECONDARY as any,
+      fontSize: 11,
+      fontWeight: Platform.OS === "ios" ? "600" : "700",
     },
 
     viewerTopBar: {
