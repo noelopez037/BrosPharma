@@ -1979,7 +1979,15 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
               ) : null}
 
               {!!venta.comentarios ? (
-                <Text style={[styles.note, { color: C.text }]}>Notas: {venta.comentarios}</Text>
+                <View style={[styles.notaBox, {
+                  backgroundColor: isDark ? "rgba(255,201,107,0.15)" : "rgba(255,165,0,0.10)",
+                  borderColor: isDark ? "rgba(255,201,107,0.55)" : "#e08000",
+                }]}>
+                  <Text style={[styles.notaLabel, { color: isDark ? "rgba(255,201,107,0.92)" : "#b25a00" }]}>
+                    📝 Notas
+                  </Text>
+                  <Text style={[styles.notaText, { color: C.text }]}>{venta.comentarios}</Text>
+                </View>
               ) : null}
 
               {ventaEventos.map((ev, idx) => (
@@ -2819,6 +2827,27 @@ const styles = StyleSheet.create({
   clientNit: { marginTop: 4, fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: "700" },
   sub: { marginTop: 6, fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: "700" },
   note: { marginTop: 10, fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: "600", lineHeight: 18 },
+
+  notaBox: {
+    marginTop: 12,
+    borderLeftWidth: 4,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  notaLabel: {
+    fontSize: Platform.OS === "web" ? 12 : 11,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+    marginBottom: 4,
+    textTransform: "uppercase",
+  },
+  notaText: {
+    fontSize: Platform.OS === "web" ? 15 : 13,
+    fontWeight: "600",
+    lineHeight: Platform.OS === "web" ? 22 : 19,
+  },
 
   metaRow: { marginTop: 8, flexDirection: "row", alignItems: "center", gap: 8 },
   metaText: { fontSize: Platform.OS === "web" ? 13 : 11, fontWeight: "700" },
