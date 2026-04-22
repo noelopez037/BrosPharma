@@ -1276,7 +1276,15 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       await fetchVenta();
       await fetchFacturas();
     } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "No se pudo facturar");
+      const msg: string = e?.message ?? "";
+      if (msg.includes("MONTO_FACTURA_NO_COINCIDE")) {
+        Alert.alert(
+          "Venta modificada",
+          "El total de la venta cambió mientras tenías esta pantalla abierta. Cierra y vuelve a abrir la venta para ver los valores actualizados.",
+        );
+      } else {
+        Alert.alert("Error", msg || "No se pudo facturar");
+      }
     } finally {
       setFacturando(false);
     }
@@ -1510,7 +1518,15 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       emitVentaEstadoChanged();
       Alert.alert("Listo", "Venta anulada.", [{ text: "OK", onPress: () => goBackSafe("/(drawer)/(tabs)/ventas") }]);
     } catch (e: any) {
-      Alert.alert("Error", e?.message ?? "No se pudo anular");
+      const msg: string = e?.message ?? "";
+      if (msg.includes("MONTO_FACTURA_NO_COINCIDE")) {
+        Alert.alert(
+          "Venta modificada",
+          "El total de la venta cambió mientras tenías esta pantalla abierta. Cierra y vuelve a abrir la venta para ver los valores actualizados.",
+        );
+      } else {
+        Alert.alert("Error", msg || "No se pudo anular");
+      }
     } finally {
       setAnulando(false);
     }
@@ -2592,19 +2608,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
               <>
                 <View style={[styles.divider, { backgroundColor: C.border }]} />
 
-                <View style={styles.rowBetween}>
-                  <Text style={[styles.blockTitle, { color: C.sub }]}>Recetas</Text>
-                  {!canEditRecetas ? null : (
-                    <AppButton
-                      title={uploading ? "Subiendo..." : "+ Agregar receta"}
-                      size="sm"
-                      variant="outline"
-                      onPress={pickAndUploadReceta}
-                      disabled={uploading}
-                      accessibilityLabel="Agregar receta"
-                    />
-                  )}
-                </View>
+                <Text style={[styles.blockTitle, { color: C.sub }]}>Recetas</Text>
 
                 {recetas.length ? (
                   <View style={{ marginTop: 10, gap: 12 }}>
@@ -2660,6 +2664,17 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                 ) : (
                   <Text style={{ marginTop: 10, color: C.sub, fontWeight: "700" }}>Sin recetas</Text>
                 )}
+
+                {canEditRecetas ? (
+                  <View style={{ marginTop: 16 }}>
+                    <AppButton
+                      title={uploading ? "Subiendo receta..." : "📎 Subir receta"}
+                      onPress={pickAndUploadReceta}
+                      disabled={uploading}
+                      accessibilityLabel="Subir receta"
+                    />
+                  </View>
+                ) : null}
               </>
             )}
             </View>

@@ -11,6 +11,7 @@ import { AppButton } from "../../components/ui/app-button";
 import { VentaDetallePanel } from "../../components/ventas/VentaDetallePanel";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useResumeLoad } from "../../lib/useResumeLoad";
+import { onVentaEstadoChanged } from "../../lib/ventaEstadoEvents";
 import { normalizeUpper } from "../../lib/utils/text";
 import { toGTDateKey } from "../../lib/utils/format";
 
@@ -244,6 +245,10 @@ export default function RecetasPendientesScreen() {
   );
 
   useResumeLoad(empresaActivaId, () => { void load(selectedVendedorId, true); });
+
+  useEffect(() => {
+    return onVentaEstadoChanged(() => { void load(selectedVendedorId); });
+  }, [load, selectedVendedorId]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
