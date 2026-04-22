@@ -18,6 +18,7 @@ import {
   ScrollView,
   Share,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -403,6 +404,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
 
   const [uploadingPdfTipo, setUploadingPdfTipo] = useState<"IVA" | "EXENTO" | null>(null);
   const [facturando, setFacturando] = useState(false);
+  const [adminSingleFactura, setAdminSingleFactura] = useState(false);
   const [anulando, setAnulando] = useState(false);
   const [cancelandoAnulacion, setCancelandoAnulacion] = useState(false);
   const [enRutaLoading, setEnRutaLoading] = useState(false);
@@ -460,6 +462,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     setClienteMini(null);
     setSolicitudAnulacion(null);
     setSolicitudAnulacionByName(null);
+    setAdminSingleFactura(false);
   }, [ventaIdNum]);
 
   React.useEffect(() => {
@@ -796,12 +799,20 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     return map;
   }, [facturas]);
 
-  const requiredTipos = useMemo(() => {
+  const baseRequiredTipos = useMemo(() => {
     const req: ("IVA" | "EXENTO")[] = [];
     if (needsIVA) req.push("IVA");
     if (needsEXENTO) req.push("EXENTO");
     return req;
   }, [needsEXENTO, needsIVA]);
+
+  // Admin puede forzar una sola factura IVA aunque haya productos exentos.
+  const requiredTipos = useMemo(() => {
+    if (roleUp === "ADMIN" && adminSingleFactura && baseRequiredTipos.length === 2) {
+      return ["IVA"] as ("IVA" | "EXENTO")[];
+    }
+    return baseRequiredTipos;
+  }, [adminSingleFactura, baseRequiredTipos, roleUp]);
 
   // Autopoblar monto por tipo (solo si no hay monto guardado y el usuario no lo ha tocado).
   React.useEffect(() => {
@@ -2250,11 +2261,39 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                 {!facturaRequiredCount ? null : (
                   <Text style={[styles.sub, { color: C.sub, marginTop: 6 }]}
                   >
-                    {facturaRequiredCount === 1
+                    {baseRequiredTipos.length === 2 && adminSingleFactura
+                      ? "Esta venta requiere 2 facturas, pero el admin autorizó usar solo 1 (IVA)."
+                      : facturaRequiredCount === 1
                       ? "Esta venta requiere 1 factura (segun el tipo de productos)."
                       : "Esta venta requiere 2 facturas (IVA y EXENTO)."}
                   </Text>
                 )}
+
+                {roleUp === "ADMIN" && baseRequiredTipos.length === 2 && !isFacturado ? (
+                  <View style={[styles.adminOverrideRow, { borderColor: C.border }]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.adminOverrideLabel, { color: C.text }]}>
+                        Facturar con una sola factura
+                      </Text>
+                      <Text style={[styles.adminOverrideSub, { color: C.sub }]}>
+                        Solo admin — para clientes que emiten una sola factura
+                      </Text>
+                    </View>
+                    <Switch
+                      value={adminSingleFactura}
+                      onValueChange={(v) => {
+                        setAdminSingleFactura(v);
+                        if (v) {
+                          setFacturaDraft((prev) => {
+                            const next = { ...prev };
+                            delete next["EXENTO"];
+                            return next;
+                          });
+                        }
+                      }}
+                    />
+                  </View>
+                ) : null}
 
                 {facturaTipo1
                   ? (() => {
@@ -2920,6 +2959,10 @@ const styles = StyleSheet.create({
 
   facturaInputsRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   facturaMontoCol: { width: 150 },
+
+  adminOverrideRow: { marginTop: 12, borderWidth: 1, borderRadius: 12, padding: 12, flexDirection: "row", alignItems: "center", gap: 12 },
+  adminOverrideLabel: { fontSize: Platform.OS === "web" ? 14 : 13, fontWeight: "800" },
+  adminOverrideSub: { marginTop: 2, fontSize: 11, fontWeight: "700" },
 
   pdfRow: { marginTop: 10, flexDirection: "row", alignItems: "center", gap: 12 },
   pdfOpen: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 },
