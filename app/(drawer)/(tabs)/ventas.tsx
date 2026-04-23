@@ -434,8 +434,7 @@ export default function Ventas() {
           .eq("empresa_id", empresaActivaId)
           .eq("estado", estado)
           .ilike("cliente_nombre", `%${safeIlike(trimmed)}%`)
-          .order("fecha", { ascending: false })
-          .limit(50);
+          .order("fecha", { ascending: false });
 
         // Si el texto es numérico también buscar por id exacto
         const isNumeric = /^\d+$/.test(trimmed);
@@ -446,8 +445,7 @@ export default function Ventas() {
             .eq("empresa_id", empresaActivaId)
             .eq("estado", estado)
             .or(`cliente_nombre.ilike.%${safeIlike(trimmed)}%,id.eq.${trimmed}`)
-            .order("fecha", { ascending: false })
-            .limit(50);
+            .order("fecha", { ascending: false });
         }
 
         const { data, error } = await query;
