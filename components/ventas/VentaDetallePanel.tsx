@@ -39,7 +39,7 @@ import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../lib/useResumeLoad";
 import { useRole } from "../../lib/useRole";
 import { uriToArrayBuffer } from "../../lib/utils/file";
-import { fmtQ, fmtDate } from "../../lib/utils/format";
+import { fmtQ, fmtDate, fmtDateTimeGT } from "../../lib/utils/format";
 import { normalizeUpper } from "../../lib/utils/text";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
@@ -399,6 +399,11 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
   const [solNota, setSolNota] = useState("");
   const [solSending, setSolSending] = useState(false);
 
+  const [notas, setNotas] = useState<{ id: number; nota: string | null; creado_en: string; autor: string | null }[]>([]);
+  const [notaOpen, setNotaOpen] = useState(false);
+  const [notaText, setNotaText] = useState("");
+  const [savingNota, setSavingNota] = useState(false);
+
   const [uploading, setUploading] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
@@ -571,6 +576,44 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     );
   }, [ventaIdNum]);
 
+  const fetchNotas = useCallback(async () => {
+    if (!ventaIdNum || ventaIdNum <= 0 || !empresaActivaId) return;
+    const { data } = await supabase
+      .from("ventas_eventos")
+      .select("id, nota, creado_en, profiles!ventas_eventos_creado_por_fkey(full_name)")
+      .eq("venta_id", ventaIdNum)
+      .eq("empresa_id", empresaActivaId)
+      .eq("tipo", "NOTA")
+      .order("creado_en", { ascending: true });
+    setNotas(
+      (data ?? []).map((e: any) => ({
+        id: Number(e.id),
+        nota: e.nota ?? null,
+        creado_en: String(e.creado_en ?? ""),
+        autor: (e as any).profiles?.full_name ?? null,
+      }))
+    );
+  }, [ventaIdNum, empresaActivaId]);
+
+  const addNota = useCallback(async () => {
+    if (!notaText.trim() || savingNota) return;
+    setSavingNota(true);
+    try {
+      const { error } = await supabase.rpc("rpc_venta_agregar_nota" as any, {
+        p_venta_id: ventaIdNum,
+        p_contenido: notaText.trim(),
+      });
+      if (error) throw error;
+      setNotaText("");
+      setNotaOpen(false);
+      await fetchNotas();
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "No se pudo agregar la nota");
+    } finally {
+      setSavingNota(false);
+    }
+  }, [notaText, savingNota, ventaIdNum, fetchNotas]);
+
   const fetchLineas = useCallback(async (allowSplit: boolean) => {
     if (!empresaActivaId) return;
     const base = "id,producto_id,lote_id,cantidad,precio_venta_unit,subtotal,producto_lotes(lote,fecha_exp),productos(nombre,marca_id,marcas(nombre)";
@@ -682,12 +725,13 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       fetchFacturas(),
       fetchTags(),
       fetchVentaEventos(),
+      fetchNotas(),
       fetchSolicitudAnulacion().catch(() => {
         // non-blocking: view may be missing or RLS may restrict
         setSolicitudAnulacion(null);
       }),
     ]);
-  }, [fetchVentaEventos, fetchFacturas, fetchLineas, fetchRecetas, fetchSolicitudAnulacion, fetchTags, fetchVenta, refreshRole, ventaIdNum, empresaActivaId]);
+  }, [fetchNotas, fetchVentaEventos, fetchFacturas, fetchLineas, fetchRecetas, fetchSolicitudAnulacion, fetchTags, fetchVenta, refreshRole, ventaIdNum, empresaActivaId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -2045,6 +2089,38 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
             </View>
           ) : null}
 
+          {/* Notas del equipo */}
+          {!!venta ? (
+            <View style={[styles.card, { borderColor: C.border, backgroundColor: C.card }]}>
+              <View style={[styles.rowBetween, { marginBottom: 10 }]}>
+                <Text style={[styles.sectionTitle, { color: C.text }]}>Notas del equipo</Text>
+                <AppButton title="+ Agregar nota" size="sm" onPress={() => setNotaOpen(true)} />
+              </View>
+
+              {notas.length === 0 ? (
+                <Text style={[styles.note, { color: C.sub, marginTop: 0 }]}>Sin notas aún.</Text>
+              ) : (
+                notas.map((n) => (
+                  <View
+                    key={String(n.id)}
+                    style={[
+                      styles.notaBox,
+                      {
+                        backgroundColor: isDark ? "rgba(100,160,255,0.10)" : "rgba(21,60,158,0.06)",
+                        borderColor: isDark ? "rgba(100,160,255,0.40)" : "rgba(21,60,158,0.30)",
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.notaText, { color: C.text }]}>{n.nota ?? ""}</Text>
+                    <Text style={[styles.notaLabel, { color: C.sub, marginTop: 6, marginBottom: 0 }]}>
+                      {n.autor ?? "—"} • {fmtDateTimeGT(n.creado_en)}
+                    </Text>
+                  </View>
+                ))
+              )}
+            </View>
+          ) : null}
+
           {/* Productos */}
           <View style={[styles.card, { borderColor: C.border, backgroundColor: C.card }]}>
             <View style={styles.rowBetween}>
@@ -2811,6 +2887,30 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
           <View style={{ flexDirection: "row", gap: 10, justifyContent: "flex-end" }}>
             <AppButton title="Cancelar" variant="outline" size="sm" onPress={() => setSolOpen(false)} disabled={solSending} />
             <AppButton title={solSending ? "Enviando..." : "Enviar"} size="sm" onPress={enviarSolicitud} disabled={solSending} />
+          </View>
+        </KeyboardAwareModal>
+
+        <KeyboardAwareModal
+          visible={notaOpen}
+          onClose={() => { setNotaOpen(false); setNotaText(""); }}
+          cardStyle={{ backgroundColor: C.card, borderColor: C.border }}
+          backdropOpacity={isDark ? 0.6 : 0.4}
+        >
+          <Text style={[styles.sectionTitle, { color: C.text }]}>Agregar nota</Text>
+          <View style={{ height: 8 }} />
+          <TextInput
+            value={notaText}
+            onChangeText={setNotaText}
+            placeholder="Escribe una nota..."
+            placeholderTextColor={C.sub}
+            multiline
+            autoFocus
+            style={[styles.input, { borderColor: C.border, color: C.text, backgroundColor: C.card, height: 110, textAlignVertical: "top" }]}
+          />
+          <View style={{ height: 10 }} />
+          <View style={{ flexDirection: "row", gap: 10, justifyContent: "flex-end" }}>
+            <AppButton title="Cancelar" variant="outline" size="sm" onPress={() => { setNotaOpen(false); setNotaText(""); }} disabled={savingNota} />
+            <AppButton title={savingNota ? "Guardando..." : "Agregar"} size="sm" onPress={addNota} disabled={savingNota || !notaText.trim()} />
           </View>
         </KeyboardAwareModal>
 

@@ -37,6 +37,17 @@ export function fmtDateTime(iso: string | null | undefined): string {
   return s.slice(0, 16);
 }
 
+/** Formatea ISO datetime en hora Guatemala (UTC-6, sin DST): "YYYY-MM-DD HH:MM". */
+export function fmtDateTimeGT(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const normalized = String(iso).replace(" ", "T").replace(/\+00$/, "+00:00").replace(/\+00:00:00$/, "+00:00");
+  const d = new Date(normalized);
+  if (!Number.isFinite(d.getTime())) return String(iso).slice(0, 16);
+  const gt = new Date(d.getTime() - 6 * 60 * 60 * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${gt.getUTCFullYear()}-${pad(gt.getUTCMonth() + 1)}-${pad(gt.getUTCDate())} ${pad(gt.getUTCHours())}:${pad(gt.getUTCMinutes())}`;
+}
+
 /** Formatea un ISO/YMD como fecha larga en español: "lunes, 01 de ene de 2025". */
 export function fmtDateLongEs(isoOrYmd: string | null | undefined): string {
   if (!isoOrYmd) return "—";
