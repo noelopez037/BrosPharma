@@ -2049,17 +2049,6 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                 </View>
               ) : null}
 
-              {!!venta.comentarios ? (
-                <View style={[styles.notaBox, {
-                  backgroundColor: isDark ? "rgba(255,201,107,0.15)" : "rgba(255,165,0,0.10)",
-                  borderColor: isDark ? "rgba(255,201,107,0.55)" : "#e08000",
-                }]}>
-                  <Text style={[styles.notaLabel, { color: isDark ? "rgba(255,201,107,0.92)" : "#b25a00" }]}>
-                    📝 Notas
-                  </Text>
-                  <Text style={[styles.notaText, { color: C.text }]}>{venta.comentarios}</Text>
-                </View>
-              ) : null}
 
               {ventaEventos.map((ev, idx) => (
                 <Text key={idx} style={[styles.note, { color: C.text, marginTop: 6 }]}>
@@ -2097,26 +2086,43 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                 <AppButton title="+ Agregar nota" size="sm" onPress={() => setNotaOpen(true)} />
               </View>
 
-              {notas.length === 0 ? (
+              {!!venta.comentarios && (
+                <View
+                  style={[
+                    styles.notaBox,
+                    {
+                      backgroundColor: isDark ? "rgba(255,201,107,0.15)" : "rgba(255,165,0,0.10)",
+                      borderColor: isDark ? "rgba(255,201,107,0.55)" : "#e08000",
+                    },
+                  ]}
+                >
+                  <Text style={[styles.notaText, { color: C.text }]}>{venta.comentarios}</Text>
+                  <Text style={[styles.notaLabel, { color: isDark ? "rgba(255,201,107,0.72)" : "#b25a00", marginTop: 6, marginBottom: 0 }]}>
+                    📝 Nota de la venta
+                  </Text>
+                </View>
+              )}
+
+              {notas.map((n) => (
+                <View
+                  key={String(n.id)}
+                  style={[
+                    styles.notaBox,
+                    {
+                      backgroundColor: isDark ? "rgba(255,201,107,0.15)" : "rgba(255,165,0,0.10)",
+                      borderColor: isDark ? "rgba(255,201,107,0.55)" : "#e08000",
+                    },
+                  ]}
+                >
+                  <Text style={[styles.notaText, { color: C.text }]}>{n.nota ?? ""}</Text>
+                  <Text style={[styles.notaLabel, { color: isDark ? "rgba(255,201,107,0.72)" : "#b25a00", marginTop: 6, marginBottom: 0 }]}>
+                    {n.autor ?? "—"} • {fmtDateTimeGT(n.creado_en)}
+                  </Text>
+                </View>
+              ))}
+
+              {!venta.comentarios && notas.length === 0 && (
                 <Text style={[styles.note, { color: C.sub, marginTop: 0 }]}>Sin notas aún.</Text>
-              ) : (
-                notas.map((n) => (
-                  <View
-                    key={String(n.id)}
-                    style={[
-                      styles.notaBox,
-                      {
-                        backgroundColor: isDark ? "rgba(100,160,255,0.10)" : "rgba(21,60,158,0.06)",
-                        borderColor: isDark ? "rgba(100,160,255,0.40)" : "rgba(21,60,158,0.30)",
-                      },
-                    ]}
-                  >
-                    <Text style={[styles.notaText, { color: C.text }]}>{n.nota ?? ""}</Text>
-                    <Text style={[styles.notaLabel, { color: C.sub, marginTop: 6, marginBottom: 0 }]}>
-                      {n.autor ?? "—"} • {fmtDateTimeGT(n.creado_en)}
-                    </Text>
-                  </View>
-                ))
               )}
             </View>
           ) : null}
