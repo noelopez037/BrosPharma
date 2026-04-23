@@ -366,9 +366,22 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
             });
             setOriginalQtyByProd(origMap);
 
-            const prodIds = Array.from(
-              new Set(detalles.map((x) => Number(x.producto_id)).filter((x) => Number.isFinite(x) && x > 0))
-            );
+            // Consolidar filas con el mismo producto_id (pueden venir de distintos lotes).
+            // El form y el RPC trabajan 1 línea por producto; sumamos cantidades.
+            const consolidadoMap = new Map<number, any>();
+            detalles.forEach((row: any) => {
+              const pid = Number(row.producto_id);
+              if (!Number.isFinite(pid) || pid <= 0) return;
+              if (consolidadoMap.has(pid)) {
+                consolidadoMap.get(pid).cantidad =
+                  Number(consolidadoMap.get(pid).cantidad ?? 0) + Number(row.cantidad ?? 0);
+              } else {
+                consolidadoMap.set(pid, { ...row });
+              }
+            });
+            const detallesConsolidados = Array.from(consolidadoMap.values());
+
+            const prodIds = Array.from(consolidadoMap.keys());
 
             const invByProd = new Map<number, any>();
             if (prodIds.length) {
@@ -404,7 +417,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
               direccion: (c as any).direccion == null ? null : String((c as any).direccion),
             });
 
-            const targetN = detalles.length;
+            const targetN = detallesConsolidados.length;
 
             // Añadir líneas faltantes UNA SOLA VEZ de forma síncrona.
             // reset() siempre deja 1 línea; addLinea usa updater funcional
@@ -418,7 +431,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
             // tenga las líneas correctas (post-render). Esto evita que hydrate()
             // lea draftRef.current con el draft viejo si el render de React aún
             // no procesó el reset() + addLinea() que acabamos de disparar.
-            pendingHydrationRef.current = { targetN, detalles, invByProd, editId };
+            pendingHydrationRef.current = { targetN, detalles: detallesConsolidados, invByProd, editId };
           } catch (e) {
             setLoadingEdit(false);
             throw e;
