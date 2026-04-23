@@ -128,6 +128,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
   const [loadingEdit, setLoadingEdit] = useState(false);
 
   // Web inline dropdown state (only used when Platform.OS === 'web' && !!onDone)
+  const [webBlockedIds, setWebBlockedIds] = useState<Set<number>>(new Set());
   const [clienteDropOpen, setClienteDropOpen] = useState(false);
   const [clienteDropQ, setClienteDropQ] = useState("");
   const [clienteDropResults, setClienteDropResults] = useState<any[]>([]);
@@ -449,6 +450,19 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
     ]);
   }, [canCreate, roleReady, roleUp]);
 
+  // Cargar IDs bloqueados para el dropdown web (solo no-ADMIN)
+  React.useEffect(() => {
+    if (Platform.OS !== "web") return;
+    if (!empresaActivaId || !roleReady || roleUp === "ADMIN") {
+      setWebBlockedIds(new Set());
+      return;
+    }
+    supabase
+      .rpc("fn_clientes_bloqueados_cxc", { p_empresa_id: empresaActivaId })
+      .then(({ data }) => setWebBlockedIds(new Set((data ?? []).map((r: any) => Number(r.cliente_id)))))
+      .catch(() => setWebBlockedIds(new Set()));
+  }, [empresaActivaId, roleReady, roleUp]);
+
   const lineValidation = useCallback(
     (l: any) => {
       if (!l.producto_id) return { ok: false, msg: "Selecciona un producto" };
@@ -719,31 +733,48 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
                     ) : clienteDropResults.length === 0 ? (
                       <Text style={[styles.dropdownMsg, { color: C.sub }]}>Sin resultados</Text>
                     ) : (
-                      clienteDropResults.map((c: any) => (
-                        <Pressable
-                          key={String(c.id)}
-                          onPressIn={() => {
-                            setCliente({
-                              id: Number(c.id),
-                              nombre: String(c.nombre ?? ""),
-                              nit: c.nit ?? null,
-                              telefono: c.telefono ?? null,
-                              direccion: c.direccion ?? null,
-                            });
-                            setClienteDropOpen(false);
-                            setClienteDropQ("");
-                            setClienteDropResults([]);
-                          }}
-                          style={({ pressed }) => [
-                            styles.dropdownItem,
-                            { borderBottomColor: C.border },
-                            pressed ? { backgroundColor: C.blue } : null,
-                          ]}
-                        >
-                          <Text style={[styles.dropdownItemText, { color: C.text }]} numberOfLines={1}>{c.nombre}</Text>
-                          <Text style={[styles.dropdownItemSub, { color: C.sub }]}>NIT: {c.nit ?? "CF"}</Text>
-                        </Pressable>
-                      ))
+                      clienteDropResults.map((c: any) => {
+                        const isBlocked = webBlockedIds.has(Number(c.id));
+                        return (
+                          <Pressable
+                            key={String(c.id)}
+                            onPressIn={() => {
+                              if (isBlocked) {
+                                Alert.alert(
+                                  "Cliente bloqueado",
+                                  "Este cliente tiene facturas vencidas de más de 60 días. Regulariza la deuda en CxC antes de realizar una venta."
+                                );
+                                return;
+                              }
+                              setCliente({
+                                id: Number(c.id),
+                                nombre: String(c.nombre ?? ""),
+                                nit: c.nit ?? null,
+                                telefono: c.telefono ?? null,
+                                direccion: c.direccion ?? null,
+                              });
+                              setClienteDropOpen(false);
+                              setClienteDropQ("");
+                              setClienteDropResults([]);
+                            }}
+                            style={({ pressed }) => [
+                              styles.dropdownItem,
+                              { borderBottomColor: C.border },
+                              pressed ? { backgroundColor: C.blue } : null,
+                            ]}
+                          >
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                              <Text style={[styles.dropdownItemText, { color: isBlocked ? C.sub : C.text, flex: 1 }]} numberOfLines={1}>{c.nombre}</Text>
+                              {isBlocked && (
+                                <View style={{ backgroundColor: "rgba(220,50,50,0.15)", borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 }}>
+                                  <Text style={{ color: "#c0392b", fontSize: 10, fontWeight: "700" }}>DEUDA VENCIDA</Text>
+                                </View>
+                              )}
+                            </View>
+                            <Text style={[styles.dropdownItemSub, { color: C.sub }]}>NIT: {c.nit ?? "CF"}</Text>
+                          </Pressable>
+                        );
+                      })
                     )}
                   </ScrollView>
                   <Pressable
