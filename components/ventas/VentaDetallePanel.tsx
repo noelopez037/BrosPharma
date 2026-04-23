@@ -584,7 +584,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       .eq("venta_id", ventaIdNum)
       .eq("empresa_id", empresaActivaId)
       .eq("tipo", "NOTA")
-      .order("creado_en", { ascending: true });
+      .order("creado_en", { ascending: false });
     setNotas(
       (data ?? []).map((e: any) => ({
         id: Number(e.id),
