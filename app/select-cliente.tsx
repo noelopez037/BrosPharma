@@ -82,6 +82,7 @@ export default function SelectCliente() {
 
   const [q, setQ] = useState("");
   const [items, setItems] = useState<ClienteRow[]>([]);
+  const [blockedIds, setBlockedIds] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -89,6 +90,7 @@ export default function SelectCliente() {
   const { empresaActivaId } = useEmpresaActiva();
   const roleUp = String(role ?? "").trim().toUpperCase() as Role;
   const isVentas = isReady && (roleUp === "VENTAS" || roleUp === "MENSAJERO");
+  const isAdmin = isReady && roleUp === "ADMIN";
   const canCreateCliente = isReady && (roleUp === "ADMIN" || roleUp === "VENTAS" || roleUp === "MENSAJERO");
 
   const [mode, setMode] = useState<"LISTA" | "CREAR">("LISTA");
@@ -126,14 +128,25 @@ export default function SelectCliente() {
         req = req.eq("vendedor_id", uid);
       }
 
-      const { data, error } = await Promise.race([
-        req,
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Tiempo agotado, verifica tu conexión")), 8_000)
-        ),
+      const blockedPromise = isAdmin
+        ? Promise.resolve({ data: [] as { cliente_id: number }[] })
+        : supabase
+            .rpc("fn_clientes_bloqueados_cxc", { p_empresa_id: empresaActivaId })
+            .catch(() => ({ data: [] as { cliente_id: number }[] }));
+
+      const [clientesRes, blockedRes] = await Promise.all([
+        Promise.race([
+          req,
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("Tiempo agotado, verifica tu conexión")), 8_000)
+          ),
+        ]),
+        blockedPromise,
       ]);
-      if (error) throw error;
-      setItems((data ?? []) as any);
+
+      if ((clientesRes as any).error) throw (clientesRes as any).error;
+      setItems(((clientesRes as any).data ?? []) as any);
+      setBlockedIds(new Set(((blockedRes as any).data ?? []).map((r: any) => Number(r.cliente_id))));
     } catch (e: any) {
       setLoadError(e?.message ?? "No se pudieron cargar clientes");
     } finally {
@@ -160,6 +173,13 @@ export default function SelectCliente() {
   }, [q, isVentas, isReady, uid, mode, empresaActivaId]);
 
   const pick = useCallback((c: ClienteRow) => {
+    if (!isAdmin && blockedIds.has(c.id)) {
+      Alert.alert(
+        "Cliente bloqueado",
+        "Este cliente tiene facturas vencidas de más de 60 días. Regulariza la deuda en CxC antes de realizar una venta."
+      );
+      return;
+    }
     const payload: Cliente = {
       id: c.id,
       nombre: c.nombre,
@@ -169,32 +189,42 @@ export default function SelectCliente() {
     };
     setCliente(payload);
     goBackSafe("/venta-nueva");
-  }, [setCliente]);
+  }, [isAdmin, blockedIds, setCliente]);
 
   const renderClienteItem = useCallback(
-    ({ item }: { item: ClienteRow }) => (
-      <Pressable
-        onPress={() => pick(item)}
-        style={({ pressed }) => [
-          styles.rowItem,
-          { borderTopColor: C.border },
-          pressed && { opacity: 0.8 },
-        ]}
-      >
-        <Text style={[styles.itemTitle, { color: C.text }]} numberOfLines={1}>
-          {item.nombre}
-        </Text>
-        <Text style={[styles.itemSub, { color: C.sub }]} numberOfLines={1}>
-          NIT: {displayNit(item.nit)} • Tel: {item.telefono ?? "—"}
-        </Text>
-        {!!item.direccion ? (
+    ({ item }: { item: ClienteRow }) => {
+      const isBlocked = !isAdmin && blockedIds.has(item.id);
+      return (
+        <Pressable
+          onPress={() => pick(item)}
+          style={({ pressed }) => [
+            styles.rowItem,
+            { borderTopColor: C.border },
+            pressed && { opacity: 0.8 },
+          ]}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text style={[styles.itemTitle, { color: isBlocked ? C.sub : C.text, flex: 1 }]} numberOfLines={1}>
+              {item.nombre}
+            </Text>
+            {isBlocked && (
+              <View style={{ backgroundColor: "rgba(220,50,50,0.15)", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                <Text style={{ color: "#c0392b", fontSize: 10, fontWeight: "700" }}>DEUDA VENCIDA</Text>
+              </View>
+            )}
+          </View>
           <Text style={[styles.itemSub, { color: C.sub }]} numberOfLines={1}>
-            Dir: {item.direccion}
+            NIT: {displayNit(item.nit)} • Tel: {item.telefono ?? "—"}
           </Text>
-        ) : null}
-      </Pressable>
-    ),
-    [C, pick]
+          {!!item.direccion ? (
+            <Text style={[styles.itemSub, { color: C.sub }]} numberOfLines={1}>
+              Dir: {item.direccion}
+            </Text>
+          ) : null}
+        </Pressable>
+      );
+    },
+    [C, isAdmin, blockedIds, pick]
   );
 
   const resetCrear = () => {

@@ -280,6 +280,24 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
       // reset al entrar, excepto cuando volvemos de selectores
       if (skipResetOnFocusRef.current) {
         skipResetOnFocusRef.current = false;
+        // Al volver de un selector, verificar si el cliente en draft sigue válido (no bloqueado)
+        const draftCliente = draftRef.current.cliente;
+        if (!isEdit && draftCliente?.id && roleUp !== "ADMIN" && empresaActivaId) {
+          supabase
+            .rpc("fn_clientes_bloqueados_cxc", { p_empresa_id: empresaActivaId })
+            .then(({ data }) => {
+              if (!alive) return;
+              const blocked = new Set((data ?? []).map((r: any) => Number(r.cliente_id)));
+              if (blocked.has(Number(draftCliente.id))) {
+                Alert.alert(
+                  "Cliente bloqueado",
+                  "Este cliente tiene facturas vencidas de más de 60 días y no puede recibir ventas. Regulariza la deuda en CxC."
+                );
+                setCliente(null);
+              }
+            })
+            .catch(() => {});
+        }
       } else if (!isEdit) {
         reset();
       }
@@ -415,7 +433,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
       return () => {
         alive = false;
       };
-    }, [addLinea, editId, empresaActivaId, isEdit, refreshRole, reset, setCliente, setComentarios, setRecetaUri])
+    }, [addLinea, editId, empresaActivaId, isEdit, refreshRole, reset, roleUp, setCliente, setComentarios, setRecetaUri])
   );
 
   const roleUp = normalizeUpper(role) as Role;
@@ -625,6 +643,8 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
         ) {
           msg =
             "No se puede agregar el mismo producto más de una vez en la venta. Edita la cantidad en una sola línea.";
+        } else if (raw.includes("cliente_bloqueado_deuda_vencida")) {
+          msg = "Este cliente tiene facturas vencidas de más de 60 días y no puede recibir ventas. Regulariza la deuda en CxC.";
         } else if (e?.message) {
           msg = String(e.message);
         }
