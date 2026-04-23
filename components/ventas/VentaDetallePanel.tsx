@@ -2086,23 +2086,6 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                 <AppButton title="+ Agregar nota" size="sm" onPress={() => setNotaOpen(true)} />
               </View>
 
-              {!!venta.comentarios && (
-                <View
-                  style={[
-                    styles.notaBox,
-                    {
-                      backgroundColor: isDark ? "rgba(255,201,107,0.15)" : "rgba(255,165,0,0.10)",
-                      borderColor: isDark ? "rgba(255,201,107,0.55)" : "#e08000",
-                    },
-                  ]}
-                >
-                  <Text style={[styles.notaText, { color: C.text }]}>{venta.comentarios}</Text>
-                  <Text style={[styles.notaLabel, { color: isDark ? "rgba(255,201,107,0.72)" : "#b25a00", marginTop: 6, marginBottom: 0 }]}>
-                    📝 Nota de la venta
-                  </Text>
-                </View>
-              )}
-
               {notas.map((n) => (
                 <View
                   key={String(n.id)}
@@ -2120,6 +2103,23 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                   </Text>
                 </View>
               ))}
+
+              {!!venta.comentarios && (
+                <View
+                  style={[
+                    styles.notaBox,
+                    {
+                      backgroundColor: isDark ? "rgba(255,201,107,0.15)" : "rgba(255,165,0,0.10)",
+                      borderColor: isDark ? "rgba(255,201,107,0.55)" : "#e08000",
+                    },
+                  ]}
+                >
+                  <Text style={[styles.notaText, { color: C.text }]}>{venta.comentarios}</Text>
+                  <Text style={[styles.notaLabel, { color: isDark ? "rgba(255,201,107,0.72)" : "#b25a00", marginTop: 6, marginBottom: 0 }]}>
+                    📝 Nota de la venta
+                  </Text>
+                </View>
+              )}
 
               {!venta.comentarios && notas.length === 0 && (
                 <Text style={[styles.note, { color: C.sub, marginTop: 0 }]}>Sin notas aún.</Text>
