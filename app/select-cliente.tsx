@@ -132,7 +132,10 @@ export default function SelectCliente() {
         ? Promise.resolve({ data: [] as { cliente_id: number }[] })
         : supabase
             .rpc("fn_clientes_bloqueados_cxc", { p_empresa_id: empresaActivaId })
-            .catch(() => ({ data: [] as { cliente_id: number }[] }));
+            .then(
+              (res) => res,
+              () => ({ data: [] as { cliente_id: number }[] })
+            );
 
       const [clientesRes, blockedRes] = await Promise.all([
         Promise.race([
