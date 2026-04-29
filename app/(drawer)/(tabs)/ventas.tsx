@@ -188,10 +188,11 @@ type VentaCardProps = {
   onPress: (id: number) => void;
   C: Colors;
   hasUrgent?: boolean;
+  isSelected?: boolean;
 };
 
 const VentaCard = React.memo(
-  ({ item, chips, facturas, onPress, C, hasUrgent }: VentaCardProps) => {
+  ({ item, chips, facturas, onPress, C, hasUrgent, isSelected }: VentaCardProps) => {
     const vendedorChip = item.vendedor_codigo ? String(item.vendedor_codigo) : shortUid(item.vendedor_id);
     const facturaLabel =
       facturas.length === 1 ? `Factura: ${facturas[0]}` : facturas.length > 1 ? `Facturas: ${facturas.join(", ")}` : null;
@@ -202,6 +203,7 @@ const VentaCard = React.memo(
         style={({ pressed }) => [
           s.card,
           { borderColor: C.border, backgroundColor: C.card },
+          isSelected ? { borderColor: C.tint, borderWidth: 2 } : null,
           hasUrgent ? { borderLeftColor: FB_DARK_DANGER, borderLeftWidth: 3 } : null,
           pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
         ]}
@@ -260,7 +262,8 @@ const VentaCard = React.memo(
     prev.facturas === next.facturas &&
     prev.onPress === next.onPress &&
     prev.C === next.C &&
-    prev.hasUrgent === next.hasUrgent
+    prev.hasUrgent === next.hasUrgent &&
+    prev.isSelected === next.isSelected
 );
 
 type VentasListEmptyProps = {
@@ -1079,9 +1082,10 @@ export default function Ventas() {
         onPress={handleVentaPress}
         C={C}
         hasUrgent={urgentIds.has(item.id)}
+        isSelected={selectedVentaId === item.id}
       />
     ),
-    [C, chipsById, activeFacturasByVenta, handleVentaPress, urgentIds]
+    [C, chipsById, activeFacturasByVenta, handleVentaPress, urgentIds, selectedVentaId]
   );
 
   const listEmptyComponent = (
