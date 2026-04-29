@@ -436,28 +436,36 @@ export default function Ventas() {
           ventas_tags!ventas_tags_venta_id_fkey(tag,removed_at),
           ventas_facturas!ventas_facturas_venta_id_fkey(numero_factura)`;
 
-        // Buscar por nombre de cliente (siempre)
-        let query = supabase
+        // Buscar venta_ids por número de factura y por nombre de producto (en paralelo)
+        const [{ data: facturaMatches }, { data: productoMatches }] = await Promise.all([
+          supabase
+            .from("ventas_facturas")
+            .select("venta_id")
+            .eq("empresa_id", empresaActivaId)
+            .ilike("numero_factura", `%${safeIlike(trimmed)}%`),
+          supabase
+            .from("ventas_detalle")
+            .select("venta_id, productos!inner(nombre)")
+            .eq("empresa_id", empresaActivaId)
+            .ilike("productos.nombre", `%${safeIlike(trimmed)}%`),
+        ]);
+        const facturaVentaIds = (facturaMatches ?? []).map((f: any) => f.venta_id as number);
+        const productoVentaIds = (productoMatches ?? []).map((d: any) => d.venta_id as number);
+
+        // Construir el filtro OR: nombre de cliente + facturas + productos + id exacto si es numérico
+        const isNumeric = /^\d+$/.test(trimmed);
+        const extraIds = [...new Set([...facturaVentaIds, ...productoVentaIds])];
+        const orParts = [`cliente_nombre.ilike.%${safeIlike(trimmed)}%`];
+        if (isNumeric) orParts.push(`id.eq.${trimmed}`);
+        if (extraIds.length > 0) orParts.push(`id.in.(${extraIds.join(",")})`);
+
+        const { data, error } = await supabase
           .from("ventas")
           .select(searchSelectFields)
           .eq("empresa_id", empresaActivaId)
           .eq("estado", estado)
-          .ilike("cliente_nombre", `%${safeIlike(trimmed)}%`)
+          .or(orParts.join(","))
           .order("fecha", { ascending: false });
-
-        // Si el texto es numérico también buscar por id exacto
-        const isNumeric = /^\d+$/.test(trimmed);
-        if (isNumeric) {
-          query = supabase
-            .from("ventas")
-            .select(searchSelectFields)
-            .eq("empresa_id", empresaActivaId)
-            .eq("estado", estado)
-            .or(`cliente_nombre.ilike.%${safeIlike(trimmed)}%,id.eq.${trimmed}`)
-            .order("fecha", { ascending: false });
-        }
-
-        const { data, error } = await query;
         if (mySeq !== searchSeq.current) return;
         if (error) throw error;
 
