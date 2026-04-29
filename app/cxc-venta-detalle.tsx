@@ -390,7 +390,6 @@ export default function CxcVentaDetalle() {
   };
 
   const saldoNum = useMemo(() => safeNumber(row?.saldo), [row?.saldo]);
-  const hasPendingReport = useMemo(() => (pagosReportadosPendientes ?? []).length > 0, [pagosReportadosPendientes]);
   const totalProductos = useMemo(() => {
     return (lineas ?? []).reduce((acc: number, d: any) => {
       const sub = d?.subtotal ?? safeNumber(d?.cantidad) * safeNumber(d?.precio_venta_unit);
@@ -461,6 +460,21 @@ export default function CxcVentaDetalle() {
       return total - pagado > TOL;
     });
   }, [facturas, facturaMonto, pagadoPorFacturaId]);
+
+  const pendingReportByFacturaId = useMemo(() => {
+    return new Set(
+      (pagosReportadosPendientes ?? [])
+        .map((p: any) => Number(p.factura_id))
+        .filter((n) => Number.isFinite(n) && n > 0)
+    );
+  }, [pagosReportadosPendientes]);
+
+  const hasPendingReport = useMemo(() => {
+    if ((pagosReportadosPendientes ?? []).length === 0) return false;
+    return (facturasPendientes ?? []).every((f: any) =>
+      pendingReportByFacturaId.has(Number(f?.id))
+    );
+  }, [pagosReportadosPendientes, facturasPendientes, pendingReportByFacturaId]);
 
   const selectedFactura = useMemo(() => {
     if (!pagoFacturaId) return null;
@@ -1120,13 +1134,13 @@ export default function CxcVentaDetalle() {
                                 const fid = Number(f?.id);
                                 const active = !!pagoFacturaId && fid === Number(pagoFacturaId);
                                 const numero = String(f?.numero_factura ?? "").trim() || `Factura #${fid || "—"}`;
-                                const venc = fmtDate(f?.fecha_vencimiento);
                                 const monto = facturaMonto(f);
                                 const meta = [
                                   monto != null && monto > 0 ? `Total: ${fmtQ(monto)}` : "",
                                 ]
                                   .filter(Boolean)
                                   .join(" · ");
+                                const yaReportada = pendingReportByFacturaId.has(fid);
                                 return (
                                   <Pressable
                                     key={String(fid)}
@@ -1154,6 +1168,11 @@ export default function CxcVentaDetalle() {
                                     {meta ? (
                                       <Text style={{ color: C.sub, marginTop: 4, fontWeight: "700" }} numberOfLines={2}>
                                         {meta}
+                                      </Text>
+                                    ) : null}
+                                    {yaReportada ? (
+                                      <Text style={{ color: C.warn, fontSize: 11, fontWeight: "700", marginTop: 4 }}>
+                                        Reporte pendiente de aprobación
                                       </Text>
                                     ) : null}
                                   </Pressable>
