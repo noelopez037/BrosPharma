@@ -414,8 +414,8 @@ function CxcDetallePanelContent({
     const a = res.assets?.[0];
     if (!a) return;
     // base64: true hace que iOS decodifique HEIC a JPEG antes de encodear.
-    // Escribimos ese base64 como archivo local para poder subirlo normalmente.
-    if (a.base64) {
+    // En web FileSystem no está disponible, usar la URI directamente (blob URL).
+    if (Platform.OS !== "web" && a.base64) {
       const localUri = (FileSystem as any).cacheDirectory + `comprobante_${Date.now()}.jpg`;
       await (FileSystem as any).writeAsStringAsync(localUri, a.base64, {
         encoding: (FileSystem as any).EncodingType?.Base64 ?? "base64",
@@ -423,7 +423,6 @@ function CxcDetallePanelContent({
       setPagoImg({ uri: localUri, mimeType: "image/jpeg" });
       return;
     }
-    // Fallback: si no hay base64, usar la URI directa
     if (!a.uri) return;
     setPagoImg({ uri: a.uri, mimeType: "image/jpeg" });
   };
