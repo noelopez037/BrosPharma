@@ -11,6 +11,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   useWindowDimensions,
 } from "react-native";
@@ -178,6 +179,39 @@ export default function ComisionesScreen() {
   const [vendedorOpen, setVendedorOpen] = useState(false);
   const [fVendedorId, setFVendedorId] = useState<string | null>(null);
   const [vendedoresCache, setVendedoresCache] = useState<VendedorOption[]>([]);
+
+  // buscador
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<CxCVentaRow[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    const q = searchQuery.trim();
+    if (!q || !uid || !empresaActivaId) {
+      setSearchResults([]);
+      return;
+    }
+    setIsSearching(true);
+    searchDebounceRef.current = setTimeout(async () => {
+      try {
+        const { data, error } = await supabase.rpc("rpc_buscar_venta_comision", {
+          p_empresa_id: empresaActivaId,
+          p_busqueda: q,
+        });
+        if (error) throw error;
+        setSearchResults((data ?? []) as CxCVentaRow[]);
+      } catch (e: any) {
+        if (__DEV__) console.warn("[comisiones] search error:", e?.message ?? e);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 400);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [searchQuery, uid, empresaActivaId]);
 
   // data
   const [rowsRaw, setRowsRaw] = useState<RpcComisionRow[]>([]);
@@ -416,13 +450,24 @@ export default function ComisionesScreen() {
     }));
   }, [ventasPagadasRaw]);
 
-  const renderSectionHeader = useCallback(({ section }: { section: SectionData }) => (
-    <View style={[s.sectionHeader, { backgroundColor: colors.background, alignItems: "flex-end" }]}>
-      <Text style={[s.sectionHeaderText, { color: colors.text + "AA" }]}>
-        {section.ymd === "SIN_FECHA" ? "Sin fecha" : fmtDateLongEs(section.ymd)}
-      </Text>
-    </View>
-  ), [s, colors]);
+  const renderSectionHeader = useCallback(({ section }: { section: SectionData }) => {
+    if (!section.ymd) return null;
+    return (
+      <View style={[s.sectionHeader, { backgroundColor: colors.background, alignItems: "flex-end" }]}>
+        <Text style={[s.sectionHeaderText, { color: colors.text + "AA" }]}>
+          {section.ymd === "SIN_FECHA" ? "Sin fecha" : fmtDateLongEs(section.ymd)}
+        </Text>
+      </View>
+    );
+  }, [s, colors]);
+
+  const displaySections = useMemo<SectionData[]>(() => {
+    if (searchQuery.trim()) {
+      if (searchResults.length === 0) return [];
+      return [{ key: "search", ymd: "", data: searchResults }];
+    }
+    return sections;
+  }, [searchQuery, searchResults, sections]);
 
   const hasActiveFilters = !!fVendedorId;
 
@@ -559,18 +604,40 @@ export default function ComisionesScreen() {
         {/* Título sección ventas pagadas */}
         <View style={s.ventasPagadasHeader}>
           <Text style={s.ventasPagadasTitle}>Ventas pagadas</Text>
-          <Text style={[s.sub, { marginTop: 0 }]}>{monthLabel}</Text>
+          {!searchQuery.trim() && <Text style={[s.sub, { marginTop: 0 }]}>{monthLabel}</Text>}
         </View>
 
+        {/* Buscador */}
+        <TextInput
+          style={[s.searchInput, { borderColor: M.border, backgroundColor: M.card, color: M.text }]}
+          placeholder="Buscar por # factura o cliente..."
+          placeholderTextColor={M.sub}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          clearButtonMode="while-editing"
+          autoCorrect={false}
+          autoCapitalize="none"
+        />
+
         {/* Empty state ventas pagadas */}
-        {ventasPagadasRaw.length === 0 && !initialLoading ? (
+        {searchQuery.trim() ? (
+          isSearching ? (
+            <View style={s.card}>
+              <Text style={s.empty}>Buscando...</Text>
+            </View>
+          ) : searchResults.length === 0 ? (
+            <View style={s.card}>
+              <Text style={s.empty}>Sin resultados para "{searchQuery.trim()}"</Text>
+            </View>
+          ) : null
+        ) : ventasPagadasRaw.length === 0 && !initialLoading ? (
           <View style={s.card}>
             <Text style={s.empty}>No hay ventas pagadas en este mes</Text>
           </View>
         ) : null}
       </>
     ),
-    [s, openMonthPicker, monthLabel, selYear, selMonthIndex0, M, isAdmin, isVentas, totals, initialLoading, loadError, rows, ventasPagadasRaw.length, hasActiveFilters, colors.border, colors.text]
+    [s, openMonthPicker, monthLabel, selYear, selMonthIndex0, M, isAdmin, isVentas, totals, initialLoading, loadError, rows, ventasPagadasRaw.length, hasActiveFilters, colors.border, colors.text, searchQuery, isSearching, searchResults.length]
   );
 
   return (
@@ -592,7 +659,7 @@ export default function ComisionesScreen() {
               <View style={{ width: 420, maxWidth: 420, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: colors.border }}>
                 <SectionList<CxCVentaRow, SectionData>
                   style={{ backgroundColor: colors.background }}
-                  sections={sections}
+                  sections={displaySections}
                   keyExtractor={(item) => String(item.venta_id)}
                   renderItem={renderVentaPagada}
                   renderSectionHeader={renderSectionHeader}
@@ -632,7 +699,7 @@ export default function ComisionesScreen() {
           ) : (
             <SectionList<CxCVentaRow, SectionData>
               style={{ backgroundColor: colors.background }}
-              sections={sections}
+              sections={displaySections}
               keyExtractor={(item) => String(item.venta_id)}
               renderItem={renderVentaPagada}
               renderSectionHeader={renderSectionHeader}
@@ -919,6 +986,14 @@ const styles = (colors: any) =>
       marginBottom: 4,
     },
     ventasPagadasTitle: { fontSize: Platform.OS === "web" ? 15 : 13, fontWeight: "900" as const, color: colors.text },
+    searchInput: {
+      borderWidth: 1,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      paddingVertical: Platform.OS === "ios" ? 12 : 10,
+      fontSize: Platform.OS === "web" ? 15 : 13,
+      marginBottom: 10,
+    },
 
     modalBackdrop: { ...StyleSheet.absoluteFillObject },
     modalCard: {

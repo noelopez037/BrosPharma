@@ -416,6 +416,8 @@ export default function Ventas() {
     if (!trimmed) {
       // Sin texto → volver a resultados en memoria (limpiar búsqueda)
       setSearchRows(null);
+      setSearchTagsByVenta({});
+      setSearchFacturasByVenta({});
       setSearchLoading(false);
       return;
     }
@@ -427,10 +429,14 @@ export default function Ventas() {
       try {
         if (!empresaActivaId) { setSearchRows([]); return; }
 
+        const searchSelectFields = `id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada,
+          ventas_tags!ventas_tags_venta_id_fkey(tag,removed_at),
+          ventas_facturas!ventas_facturas_venta_id_fkey(numero_factura)`;
+
         // Buscar por nombre de cliente (siempre)
         let query = supabase
           .from("ventas")
-          .select("id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada")
+          .select(searchSelectFields)
           .eq("empresa_id", empresaActivaId)
           .eq("estado", estado)
           .ilike("cliente_nombre", `%${safeIlike(trimmed)}%`)
@@ -441,7 +447,7 @@ export default function Ventas() {
         if (isNumeric) {
           query = supabase
             .from("ventas")
-            .select("id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,requiere_receta,receta_cargada")
+            .select(searchSelectFields)
             .eq("empresa_id", empresaActivaId)
             .eq("estado", estado)
             .or(`cliente_nombre.ilike.%${safeIlike(trimmed)}%,id.eq.${trimmed}`)
@@ -451,10 +457,34 @@ export default function Ventas() {
         const { data, error } = await query;
         if (mySeq !== searchSeq.current) return;
         if (error) throw error;
-        // No se guarda en cache — resultado de búsqueda temporal
-        setSearchRows((data ?? []) as VentaRow[]);
+
+        const raw = (data ?? []) as any[];
+        const rows: VentaRow[] = raw.map(({ ventas_tags: _t, ventas_facturas: _f, ...rest }) => rest as VentaRow);
+
+        const tagMap: Record<string, string[]> = {};
+        const facturasMap: Record<string, string[]> = {};
+        raw.forEach((r: any) => {
+          const vid = String(r.id);
+          (r.ventas_tags ?? []).forEach((tr: any) => {
+            if (tr.removed_at != null) return;
+            const tg = String(tr.tag ?? "").trim().toUpperCase();
+            if (!tg) return;
+            if (!tagMap[vid]) tagMap[vid] = [];
+            tagMap[vid].push(tg);
+          });
+          (r.ventas_facturas ?? []).forEach((fr: any) => {
+            const num = String(fr.numero_factura ?? "").trim();
+            if (!num) return;
+            const bucket = facturasMap[vid] ?? (facturasMap[vid] = []);
+            if (!bucket.includes(num)) bucket.push(num);
+          });
+        });
+
+        setSearchRows(rows);
+        setSearchTagsByVenta(tagMap);
+        setSearchFacturasByVenta(facturasMap);
       } catch {
-        if (mySeq === searchSeq.current) setSearchRows([]);
+        if (mySeq === searchSeq.current) { setSearchRows([]); setSearchTagsByVenta({}); setSearchFacturasByVenta({}); }
       } finally {
         if (mySeq === searchSeq.current) setSearchLoading(false);
       }
@@ -489,6 +519,8 @@ export default function Ventas() {
   // [búsqueda server-side] estado separado para no interferir con listLoading
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchRows, setSearchRows] = useState<VentaRow[] | null>(null);
+  const [searchTagsByVenta, setSearchTagsByVenta] = useState<Record<string, string[]>>({});
+  const [searchFacturasByVenta, setSearchFacturasByVenta] = useState<Record<string, string[]>>({});
   const searchSeq = useRef(0);
 
   const [facturadosAlert, setFacturadosAlert] = useState(false);
@@ -852,13 +884,17 @@ export default function Ventas() {
     // usuario puede estar viendo una venta en el panel derecho.
   }), [estado, fetchVentas, refreshDots]);
 
+  // Cuando hay búsqueda activa, usar resultados del servidor; si no, los cargados localmente
+  const activeTagsByVenta = searchRows !== null ? searchTagsByVenta : tagsByVenta;
+  const activeFacturasByVenta = searchRows !== null ? searchFacturasByVenta : facturasByVenta;
+
   const rows = useMemo(() => {
-    const search = debouncedQ.trim().toLowerCase();
     const desdeMs = fDesde ? startOfDay(fDesde).getTime() : null;
     const hastaMs = fHasta ? endOfDay(fHasta).getTime() : null;
+    const baseRows = searchRows !== null ? searchRows : rowsRaw;
 
-    const filtered = rowsRaw.filter((r) => {
-      const tags = tagsByVenta[String(r.id)] ?? [];
+    const filtered = baseRows.filter((r) => {
+      const tags = activeTagsByVenta[String(r.id)] ?? [];
       const isAnulado = tags.includes("ANULADO");
       if (isAnulado) return false;
 
@@ -869,27 +905,25 @@ export default function Ventas() {
       if (desdeMs && (rowDateMs == null || rowDateMs < desdeMs)) return false;
       if (hastaMs && (rowDateMs == null || rowDateMs > hastaMs)) return false;
 
-      if (!search) return true;
+      // El filtro de texto ya lo hizo el servidor; solo aplicar filtro local cuando no hay búsqueda
+      if (searchRows !== null) return true;
 
+      const search = debouncedQ.trim().toLowerCase();
+      if (!search) return true;
 
       const id = String(r.id);
       const cliente = String(r.cliente_nombre ?? "").toLowerCase();
       const vcode = String(r.vendedor_codigo ?? "").toLowerCase();
-
-
-      const facturas = (facturasByVenta[String(r.id)] ?? []).map((x) => String(x ?? "").toLowerCase());
-
-
+      const facturas = (activeFacturasByVenta[String(r.id)] ?? []).map((x) => String(x ?? "").toLowerCase());
       const searchDigits = search.replace(/\D+/g, "");
       const facturaMatch =
         facturas.some((n) => n.includes(search)) ||
         (!!searchDigits && facturas.some((n) => n.replace(/\D+/g, "").includes(searchDigits)));
 
-
       return id.includes(search) || cliente.includes(search) || vcode.includes(search) || facturaMatch;
     });
     return filtered;
-  }, [debouncedQ, rowsRaw, tagsByVenta, facturasByVenta, fClienteId, fDesde, fHasta]);
+  }, [debouncedQ, rowsRaw, searchRows, activeTagsByVenta, activeFacturasByVenta, fClienteId, fDesde, fHasta]);
 
   const filteredClientes = useMemo(() => {
     const qq = (fClienteQ ?? "").trim().toLowerCase();
@@ -956,13 +990,16 @@ export default function Ventas() {
     setShowHastaIOS(false);
   }, []);
 
-  const visibleRows = useMemo(() => (loadedEstado === estado ? rows : []), [estado, loadedEstado, rows]);
+  const visibleRows = useMemo(() => {
+    if (searchRows !== null) return rows; // búsqueda server-side: mostrar siempre
+    return loadedEstado === estado ? rows : [];
+  }, [estado, loadedEstado, rows, searchRows]);
 
   const chipsById = useMemo(() => {
     const map: Record<number, Chip[]> = {};
 
     visibleRows.forEach((item) => {
-      const tags = tagsByVenta[String(item.id)] ?? [];
+      const tags = activeTagsByVenta[String(item.id)] ?? [];
       const chips: Chip[] = [];
 
       if (item.requiere_receta && !item.receta_cargada && item.estado !== "FACTURADO") {
@@ -995,10 +1032,10 @@ export default function Ventas() {
     if (estado !== "FACTURADO") return new Set<number>();
     const ids = new Set<number>();
     visibleRows.forEach((r) => {
-      if ((tagsByVenta[String(r.id)] ?? []).includes("ANULACION_REQUERIDA")) ids.add(r.id);
+      if ((activeTagsByVenta[String(r.id)] ?? []).includes("ANULACION_REQUERIDA")) ids.add(r.id);
     });
     return ids;
-  }, [estado, visibleRows, tagsByVenta]);
+  }, [estado, visibleRows, activeTagsByVenta]);
 
   const sections = useMemo(() => {
     if (urgentIds.size === 0) return groupVentasByDay(visibleRows);
@@ -1038,13 +1075,13 @@ export default function Ventas() {
       <VentaCard
         item={item}
         chips={chipsById[item.id] ?? EMPTY_CHIPS}
-        facturas={facturasByVenta[String(item.id)] ?? EMPTY_FACTURAS}
+        facturas={activeFacturasByVenta[String(item.id)] ?? EMPTY_FACTURAS}
         onPress={handleVentaPress}
         C={C}
         hasUrgent={urgentIds.has(item.id)}
       />
     ),
-    [C, chipsById, facturasByVenta, handleVentaPress, urgentIds]
+    [C, chipsById, activeFacturasByVenta, handleVentaPress, urgentIds]
   );
 
   const listEmptyComponent = (
@@ -1105,7 +1142,11 @@ export default function Ventas() {
         ) : null
       }
       ListHeaderComponent={
-        revalidating && revalidatingEstado === estado && visibleRows.length ? (
+        searchLoading ? (
+          <View style={{ paddingVertical: 14, alignItems: "center" }}>
+            <ActivityIndicator size="small" color={C.tint} />
+          </View>
+        ) : revalidating && revalidatingEstado === estado && visibleRows.length ? (
           <View pointerEvents="none" style={{ height: 18, marginBottom: 8, justifyContent: "center" }}>
             <Text style={{ color: C.sub, fontWeight: "800", fontSize: 12 }}>
               Actualizando...

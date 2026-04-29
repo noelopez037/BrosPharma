@@ -3963,9 +3963,13 @@ CREATE OR REPLACE FUNCTION "public"."rpc_reporte_utilidad_productos"("p_desde" t
   from public.ventas_detalle d
   join public.ventas v
     on v.id = d.venta_id
-  join public.compras_detalle cd
-    on cd.lote_id = d.lote_id
-   and cd.producto_id = d.producto_id
+  join (
+    select distinct on (lote_id, producto_id)
+      lote_id, producto_id, precio_compra_unit
+    from public.compras_detalle
+    order by lote_id, producto_id, id
+  ) cd on cd.lote_id    = d.lote_id
+      and cd.producto_id = d.producto_id
   join public.productos p
     on p.id = d.producto_id
   left join public.marcas m
@@ -4008,9 +4012,13 @@ CREATE OR REPLACE FUNCTION "public"."rpc_reporte_utilidad_productos_v2"("p_desde
       sum(d.cantidad * cd.precio_compra_unit) as costo_total
     from public.ventas_detalle d
     join public.ventas v on v.id = d.venta_id
-    join public.compras_detalle cd
-      on cd.lote_id = d.lote_id
-     and cd.producto_id = d.producto_id
+    join (
+      select distinct on (lote_id, producto_id)
+        lote_id, producto_id, precio_compra_unit
+      from public.compras_detalle
+      order by lote_id, producto_id, id
+    ) cd on cd.lote_id    = d.lote_id
+        and cd.producto_id = d.producto_id
     join public.productos p on p.id = d.producto_id
     left join public.marcas m on m.id = p.marca_id
     where v.created_at >= p_desde
@@ -4061,9 +4069,13 @@ CREATE OR REPLACE FUNCTION "public"."rpc_reporte_utilidad_productos_v3"("p_desde
       sum(d.cantidad * cd.precio_compra_unit) as costo_total
     from public.ventas_detalle d
     join public.ventas v on v.id = d.venta_id
-    join public.compras_detalle cd
-      on cd.lote_id = d.lote_id
-     and cd.producto_id = d.producto_id
+    join (
+      select distinct on (lote_id, producto_id)
+        lote_id, producto_id, precio_compra_unit
+      from public.compras_detalle
+      order by lote_id, producto_id, id
+    ) cd on cd.lote_id    = d.lote_id
+        and cd.producto_id = d.producto_id
     join public.productos p on p.id = d.producto_id
     left join public.marcas m on m.id = p.marca_id
     where v.created_at >= p_desde
@@ -4116,9 +4128,13 @@ CREATE OR REPLACE FUNCTION "public"."rpc_reporte_utilidad_resumen"("p_desde" tim
       (d.cantidad * cd.precio_compra_unit) as costo
     from public.ventas_detalle d
     join public.ventas v on v.id = d.venta_id
-    join public.compras_detalle cd
-      on cd.lote_id = d.lote_id
-     and cd.producto_id = d.producto_id
+    join (
+      select distinct on (lote_id, producto_id)
+        lote_id, producto_id, precio_compra_unit
+      from public.compras_detalle
+      order by lote_id, producto_id, id
+    ) cd on cd.lote_id    = d.lote_id
+        and cd.producto_id = d.producto_id
     where v.created_at >= p_desde
       and v.created_at <  p_hasta
       and not exists (
