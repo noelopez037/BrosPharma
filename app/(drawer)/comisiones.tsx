@@ -155,6 +155,12 @@ export default function ComisionesScreen() {
     return `${m} ${selYear}`;
   }, [selMonthIndex0, selYear]);
 
+  useEffect(() => {
+    searchInputRef.current?.clear();
+    setSearchQuery("");
+    setSearchResults([]);
+  }, [selYear, selMonthIndex0]);
+
   const { desde, hasta } = useMemo(() => monthRangeGtIso(selYear, selMonthIndex0), [selYear, selMonthIndex0]);
 
   const openMonthPicker = useCallback(() => {
@@ -185,6 +191,7 @@ export default function ComisionesScreen() {
   const [searchResults, setSearchResults] = useState<CxCVentaRow[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchInputRef = useRef<TextInput>(null);
 
   useEffect(() => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
@@ -607,12 +614,12 @@ export default function ComisionesScreen() {
           {!searchQuery.trim() && <Text style={[s.sub, { marginTop: 0 }]}>{monthLabel}</Text>}
         </View>
 
-        {/* Buscador */}
+        {/* Buscador — sin value prop para evitar pérdida de foco al re-renderizar el ListHeader */}
         <TextInput
+          ref={searchInputRef}
           style={[s.searchInput, { borderColor: M.border, backgroundColor: M.card, color: M.text }]}
           placeholder="Buscar por # factura o cliente..."
           placeholderTextColor={M.sub}
-          value={searchQuery}
           onChangeText={setSearchQuery}
           clearButtonMode="while-editing"
           autoCorrect={false}
