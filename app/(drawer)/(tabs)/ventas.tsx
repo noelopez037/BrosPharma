@@ -366,6 +366,7 @@ export default function Ventas() {
     }
   }, [canSplit]);
 
+
   // filtros (tipo CxC): cliente + rango de fechas
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [nuevaVentaOpen, setNuevaVentaOpen] = useState(false);
@@ -1005,6 +1006,14 @@ export default function Ventas() {
     if (searchRows !== null) return rows; // búsqueda server-side: mostrar siempre
     return loadedEstado === estado ? rows : [];
   }, [estado, loadedEstado, rows, searchRows]);
+
+  // Si la venta seleccionada ya no está en la lista (cambió de estado), limpiar el panel
+  React.useEffect(() => {
+    if (!canSplit || selectedVentaId === null) return;
+    if (!visibleRows.some((r) => r.id === selectedVentaId)) {
+      setSelectedVentaId(null);
+    }
+  }, [visibleRows, canSplit, selectedVentaId]);
 
   const chipsById = useMemo(() => {
     const map: Record<number, Chip[]> = {};
