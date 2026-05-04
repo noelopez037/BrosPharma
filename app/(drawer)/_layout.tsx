@@ -162,6 +162,7 @@ export default function DrawerLayout() {
   const isAnuladasRoute = pathname === "/ventas-anuladas" || pathname.startsWith("/ventas-anuladas");
   const isRecetasRoute = pathname === "/recetas-pendientes" || pathname.startsWith("/recetas-pendientes");
   const isVentasRecetasRoute = pathname === "/ventas-recetas" || pathname.startsWith("/ventas-recetas/");
+  const isResumenRecetasRoute = pathname === "/resumen-recetas" || pathname.startsWith("/resumen-recetas/");
   const isComisionesRoute = pathname === "/comisiones" || pathname.startsWith("/comisiones");
   const isKardexRoute = pathname === "/kardex" || pathname.startsWith("/kardex");
   const isReportesRoute = pathname === "/reportes" || pathname.startsWith("/reportes");
@@ -254,6 +255,7 @@ export default function DrawerLayout() {
   const showReportes = role === "ADMIN";
   const canSeeRecetas = role === "ADMIN" || role === "VENTAS" || role === "MENSAJERO";
   const showVentasRecetas = role === "ADMIN";
+  const showResumenRecetas = role === "ADMIN";
 
   const webNavItems = useMemo(() => {
     const items = [
@@ -280,6 +282,14 @@ export default function DrawerLayout() {
         href: "/(drawer)/ventas-recetas",
         active: isVentasRecetasRoute,
         visible: showVentasRecetas,
+      },
+      {
+        key: "resumenRecetas",
+        label: "Resumen recetas",
+        icon: "stats-chart-outline",
+        href: "/(drawer)/resumen-recetas",
+        active: isResumenRecetasRoute,
+        visible: showResumenRecetas,
       },
       {
         key: "clientes",
@@ -363,6 +373,7 @@ export default function DrawerLayout() {
     isSolicitudesRoute,
     isTabsRoute,
     isVentasRecetasRoute,
+    isResumenRecetasRoute,
     canSeeRecetas,
     showAnuladas,
     showComisiones,
@@ -370,6 +381,7 @@ export default function DrawerLayout() {
     showReportes,
     showSolicitudes,
     showVentasRecetas,
+    showResumenRecetas,
     solicitudesCount,
   ]);
 
@@ -888,6 +900,24 @@ export default function DrawerLayout() {
                 >
                   <Ionicons name="document-text-outline" size={22} color={isVentasRecetasRoute ? drawerActiveTint : drawerMuted} />
                   <Text style={[styles.menuLabel, { color: isVentasRecetasRoute ? drawerActiveTint : drawerMuted }]}>Recetas del mes</Text>
+                </Pressable>
+              )}
+
+              {!showResumenRecetas ? null : (
+                <Pressable
+                  onPress={() => {
+                    closeDrawer();
+                    router.push("/(drawer)/resumen-recetas" as any);
+                  }}
+                  style={({ pressed }) => [
+                    styles.menuItem,
+                    { backgroundColor: isResumenRecetasRoute ? drawerActiveBg : "transparent" },
+                    pressed && { opacity: 0.85 },
+                  ]}
+                  accessibilityRole="button"
+                >
+                  <Ionicons name="stats-chart-outline" size={22} color={isResumenRecetasRoute ? drawerActiveTint : drawerMuted} />
+                  <Text style={[styles.menuLabel, { color: isResumenRecetasRoute ? drawerActiveTint : drawerMuted }]}>Resumen recetas</Text>
                 </Pressable>
               )}
 
