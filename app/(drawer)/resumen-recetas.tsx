@@ -58,39 +58,24 @@ function nowGtMonthYear() {
 
 // ─── Tarjeta de producto ─────────────────────────────────────────────────────
 
+type ColVis = { showInicio: boolean; showEntradas: boolean; showVentas: boolean; showFinal: boolean };
+
 const ResumenCard = React.memo(function ResumenCard({
   item,
   s,
+  vis,
 }: {
   item: ResumenRow;
   s: ReturnType<typeof styles>;
+  vis: ColVis;
 }) {
   return (
-    <View style={s.card}>
-      <Text style={s.cardName} numberOfLines={2}>{item.nombre}</Text>
-      <View style={s.cardCols}>
-        <View style={s.col}>
-          <Text style={s.colLabel}>Inicio</Text>
-          <Text style={s.colValue}>{item.stock_inicial}</Text>
-        </View>
-        <View style={s.colDivider} />
-        <View style={s.col}>
-          <Text style={s.colLabel}>Entradas</Text>
-          <Text style={[s.colValue, s.colGreen]}>+{item.entradas}</Text>
-        </View>
-        <View style={s.colDivider} />
-        <View style={s.col}>
-          <Text style={s.colLabel}>Ventas</Text>
-          <Text style={[s.colValue, item.salidas > 0 ? s.colRed : null]}>
-            {item.salidas > 0 ? `-${item.salidas}` : "0"}
-          </Text>
-        </View>
-        <View style={s.colDivider} />
-        <View style={s.col}>
-          <Text style={s.colLabel}>Final</Text>
-          <Text style={[s.colValue, s.colBold]}>{item.stock_final}</Text>
-        </View>
-      </View>
+    <View style={s.row}>
+      <Text style={s.rowName} numberOfLines={1}>{item.nombre}</Text>
+      {vis.showInicio   ? <Text style={s.rowNum}>{item.stock_inicial}</Text> : null}
+      {vis.showEntradas ? <Text style={[s.rowNum, s.colGreen]}>+{item.entradas}</Text> : null}
+      {vis.showVentas   ? <Text style={[s.rowNum, item.salidas > 0 ? s.colRed : null]}>{item.salidas > 0 ? `-${item.salidas}` : "0"}</Text> : null}
+      {vis.showFinal    ? <Text style={[s.rowNum, s.colBold]}>{item.stock_final}</Text> : null}
     </View>
   );
 });
@@ -116,8 +101,9 @@ export default function ResumenRecetasScreen() {
       border: isDark ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.14)",
       fieldBg: isDark ? "rgba(255,255,255,0.10)" : "#ffffff",
       back: isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.35)",
+      primary: String(colors.primary ?? "#153c9e"),
     }),
-    [isDark]
+    [isDark, colors.primary]
   );
 
   // CSS reset para inputs web
@@ -185,6 +171,12 @@ export default function ResumenRecetasScreen() {
     setMonthOpenIOS(true);
   }, [selYear, selMonthIndex0]);
 
+  // ─── Columnas visibles ────────────────────────────────────────────────────
+  const [showInicio, setShowInicio] = useState(true);
+  const [showEntradas, setShowEntradas] = useState(true);
+  const [showVentas, setShowVentas] = useState(true);
+  const [showFinal, setShowFinal] = useState(true);
+
   // ─── Datos ────────────────────────────────────────────────────────────────
   const [rows, setRows] = useState<ResumenRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -228,9 +220,11 @@ export default function ResumenRecetasScreen() {
   }, [rows]);
 
   // ─── Render ───────────────────────────────────────────────────────────────
+  const vis: ColVis = { showInicio, showEntradas, showVentas, showFinal };
+
   const renderItem = useCallback(
-    ({ item }: { item: ResumenRow }) => <ResumenCard item={item} s={s} />,
-    [s]
+    ({ item }: { item: ResumenRow }) => <ResumenCard item={item} s={s} vis={vis} />,
+    [s, showInicio, showEntradas, showVentas, showFinal] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const isWeb = Platform.OS === "web";
@@ -291,6 +285,34 @@ export default function ResumenRecetasScreen() {
           <Text style={[s.arrowTxt, { color: M.text }]}>›</Text>
         </Pressable>
       </View>
+
+      {/* Chips para ocultar/mostrar columnas */}
+      <View style={s.chipsRow}>
+        {(
+          [
+            { label: "Inicio",   active: showInicio,   toggle: () => setShowInicio((v) => !v) },
+            { label: "Entradas", active: showEntradas, toggle: () => setShowEntradas((v) => !v) },
+            { label: "Ventas",   active: showVentas,   toggle: () => setShowVentas((v) => !v) },
+            { label: "Final",    active: showFinal,    toggle: () => setShowFinal((v) => !v) },
+          ] as const
+        ).map(({ label, active, toggle }) => (
+          <Pressable
+            key={label}
+            onPress={toggle}
+            style={[
+              s.chip,
+              {
+                borderColor: active ? M.primary : M.border,
+                backgroundColor: active
+                  ? (isDark ? "rgba(0,122,255,0.22)" : "rgba(0,122,255,0.12)")
+                  : "transparent",
+              },
+            ]}
+          >
+            <Text style={[s.chipTxt, { color: active ? M.primary : M.sub }]}>{label}</Text>
+          </Pressable>
+        ))}
+      </View>
     </View>
   );
 
@@ -301,18 +323,27 @@ export default function ResumenRecetasScreen() {
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={["bottom"]}>
         {MonthHeader}
 
+        {/* Encabezado de columnas fijo */}
+        <View style={[s.colHeader, { borderBottomColor: colors.border, backgroundColor: colors.background }]}>
+          <Text style={[s.colHeaderName, { color: M.sub }]}>Producto</Text>
+          {vis.showInicio   ? <Text style={[s.colHeaderNum, { color: M.sub }]}>Inicio</Text>   : null}
+          {vis.showEntradas ? <Text style={[s.colHeaderNum, { color: M.sub }]}>Entradas</Text> : null}
+          {vis.showVentas   ? <Text style={[s.colHeaderNum, { color: M.sub }]}>Ventas</Text>   : null}
+          {vis.showFinal    ? <Text style={[s.colHeaderNum, { color: M.sub }]}>Final</Text>    : null}
+        </View>
+
         <FlatList<ResumenRow>
           style={{ flex: 1, backgroundColor: colors.background }}
           data={rows}
           keyExtractor={(it) => String(it.producto_id)}
           renderItem={renderItem}
           keyboardShouldPersistTaps="handled"
-          initialNumToRender={Platform.OS === "web" ? 999 : 15}
-          maxToRenderPerBatch={Platform.OS === "web" ? 999 : 15}
+          initialNumToRender={Platform.OS === "web" ? 999 : 20}
+          maxToRenderPerBatch={Platform.OS === "web" ? 999 : 20}
           windowSize={Platform.OS === "web" ? 999 : 7}
           contentContainerStyle={{
             paddingHorizontal: 12,
-            paddingTop: 12,
+            paddingTop: 4,
             paddingBottom: 16 + bottomRail,
           }}
           ListEmptyComponent={
@@ -328,31 +359,12 @@ export default function ResumenRecetasScreen() {
           }
           ListFooterComponent={
             rows.length > 0 ? (
-              <View style={[s.totalesCard, { borderColor: M.border, backgroundColor: M.card }]}>
-                <Text style={[s.totalesTitle, { color: M.text }]}>Totales</Text>
-                <View style={s.cardCols}>
-                  <View style={s.col}>
-                    <Text style={[s.colLabel, { color: M.sub }]}>Inicio</Text>
-                    <Text style={[s.colValue, { color: M.text }]}>{totales.stock_inicial}</Text>
-                  </View>
-                  <View style={[s.colDivider, { backgroundColor: M.border }]} />
-                  <View style={s.col}>
-                    <Text style={[s.colLabel, { color: M.sub }]}>Entradas</Text>
-                    <Text style={[s.colValue, s.colGreen]}>+{totales.entradas}</Text>
-                  </View>
-                  <View style={[s.colDivider, { backgroundColor: M.border }]} />
-                  <View style={s.col}>
-                    <Text style={[s.colLabel, { color: M.sub }]}>Ventas</Text>
-                    <Text style={[s.colValue, totales.salidas > 0 ? s.colRed : { color: M.text }]}>
-                      {totales.salidas > 0 ? `-${totales.salidas}` : "0"}
-                    </Text>
-                  </View>
-                  <View style={[s.colDivider, { backgroundColor: M.border }]} />
-                  <View style={s.col}>
-                    <Text style={[s.colLabel, { color: M.sub }]}>Final</Text>
-                    <Text style={[s.colValue, s.colBold, { color: M.text }]}>{totales.stock_final}</Text>
-                  </View>
-                </View>
+              <View style={[s.totalesRow, { borderTopColor: colors.border, backgroundColor: M.card }]}>
+                <Text style={[s.rowName, { color: M.text, fontWeight: "900" }]}>TOTALES</Text>
+                {vis.showInicio   ? <Text style={[s.rowNum, { color: M.text, fontWeight: "900" }]}>{totales.stock_inicial}</Text> : null}
+                {vis.showEntradas ? <Text style={[s.rowNum, s.colGreen, { fontWeight: "900" }]}>+{totales.entradas}</Text> : null}
+                {vis.showVentas   ? <Text style={[s.rowNum, totales.salidas > 0 ? s.colRed : { color: M.text }, { fontWeight: "900" }]}>{totales.salidas > 0 ? `-${totales.salidas}` : "0"}</Text> : null}
+                {vis.showFinal    ? <Text style={[s.rowNum, { color: M.text, fontWeight: "900" }]}>{totales.stock_final}</Text> : null}
               </View>
             ) : null
           }
@@ -433,59 +445,74 @@ const styles = (colors: any) =>
     },
     monthTxt: { fontWeight: "800", fontSize: Platform.OS === "web" ? 16 : 14 },
     monthCaret: { fontSize: 14, fontWeight: "900" },
+    chipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
+    chip: {
+      borderWidth: 1,
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+    },
+    chipTxt: { fontSize: 12, fontWeight: "700" },
 
     center: { flex: 1, alignItems: "center", justifyContent: "center", paddingTop: 48 },
     empty: { color: colors.text, textAlign: "center", paddingHorizontal: 24 },
 
-    card: {
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.card,
-      padding: 12,
-      borderRadius: 14,
-      marginBottom: 10,
+    // Encabezado de columnas
+    colHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderBottomWidth: StyleSheet.hairlineWidth,
     },
-    cardName: {
-      color: colors.text,
-      fontWeight: "700",
-      fontSize: Platform.OS === "web" ? 14 : 13,
-      marginBottom: 10,
-    },
-    cardCols: { flexDirection: "row", alignItems: "center" },
-    col: { flex: 1, alignItems: "center" },
-    colDivider: {
-      width: StyleSheet.hairlineWidth,
-      height: 36,
-      backgroundColor: colors.border,
-    },
-    colLabel: {
-      color: colors.text + "AA",
+    colHeaderName: {
+      flex: 3,
       fontSize: 10,
-      fontWeight: "700",
-      marginBottom: 4,
+      fontWeight: "800",
       textTransform: "uppercase",
     },
-    colValue: {
-      color: colors.text,
-      fontSize: Platform.OS === "web" ? 16 : 15,
+    colHeaderNum: {
+      width: 64,
+      textAlign: "right",
+      fontSize: 10,
       fontWeight: "800",
+      textTransform: "uppercase",
+    },
+
+    // Fila compacta por producto
+    row: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 0,
+      paddingVertical: 9,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    rowName: {
+      flex: 3,
+      color: colors.text,
+      fontSize: Platform.OS === "web" ? 13 : 12,
+      fontWeight: "600",
+    },
+    rowNum: {
+      width: 64,
+      textAlign: "right",
+      color: colors.text,
+      fontSize: Platform.OS === "web" ? 14 : 13,
+      fontWeight: "700",
     },
     colGreen: { color: "#16a34a" },
     colRed: { color: "#dc2626" },
     colBold: { fontWeight: "900" },
 
-    totalesCard: {
-      borderWidth: 2,
-      borderRadius: 14,
-      padding: 12,
-      marginTop: 4,
-      marginBottom: 10,
-    },
-    totalesTitle: {
-      fontWeight: "900",
-      fontSize: Platform.OS === "web" ? 15 : 13,
-      marginBottom: 10,
-      textTransform: "uppercase",
+    // Fila de totales
+    totalesRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingVertical: 10,
+      borderTopWidth: 2,
+      marginTop: 2,
+      borderRadius: 0,
     },
 
     modalBackdrop: { ...StyleSheet.absoluteFillObject },
