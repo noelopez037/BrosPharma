@@ -161,6 +161,7 @@ export default function DrawerLayout() {
   const isSolicitudesRoute = pathname === "/ventas-solicitudes" || pathname.startsWith("/ventas-solicitudes");
   const isAnuladasRoute = pathname === "/ventas-anuladas" || pathname.startsWith("/ventas-anuladas");
   const isRecetasRoute = pathname === "/recetas-pendientes" || pathname.startsWith("/recetas-pendientes");
+  const isVentasRecetasRoute = pathname === "/ventas-recetas" || pathname.startsWith("/ventas-recetas/");
   const isComisionesRoute = pathname === "/comisiones" || pathname.startsWith("/comisiones");
   const isKardexRoute = pathname === "/kardex" || pathname.startsWith("/kardex");
   const isReportesRoute = pathname === "/reportes" || pathname.startsWith("/reportes");
@@ -252,6 +253,7 @@ export default function DrawerLayout() {
   const showComisiones = role === "ADMIN" || role === "VENTAS" || role === "MENSAJERO";
   const showReportes = role === "ADMIN";
   const canSeeRecetas = role === "ADMIN" || role === "VENTAS" || role === "MENSAJERO";
+  const showVentasRecetas = role === "ADMIN";
 
   const webNavItems = useMemo(() => {
     const items = [
@@ -270,6 +272,14 @@ export default function DrawerLayout() {
         href: "/(drawer)/compras",
         active: isComprasRoute,
         visible: isAdmin || role === "BODEGA",
+      },
+      {
+        key: "ventasRecetas",
+        label: "Recetas del mes",
+        icon: "document-text-outline",
+        href: "/(drawer)/ventas-recetas",
+        active: isVentasRecetasRoute,
+        visible: showVentasRecetas,
       },
       {
         key: "clientes",
@@ -352,12 +362,14 @@ export default function DrawerLayout() {
     isReportesRoute,
     isSolicitudesRoute,
     isTabsRoute,
+    isVentasRecetasRoute,
     canSeeRecetas,
     showAnuladas,
     showComisiones,
     showCuentasPorCobrar,
     showReportes,
     showSolicitudes,
+    showVentasRecetas,
     solicitudesCount,
   ]);
 
@@ -860,6 +872,24 @@ export default function DrawerLayout() {
                      <Text style={[styles.menuLabel, { color: isComprasRoute ? drawerActiveTint : drawerMuted }]}>Compras</Text>
                   </Pressable>
                 )}
+
+              {!showVentasRecetas ? null : (
+                <Pressable
+                  onPress={() => {
+                    closeDrawer();
+                    router.push("/(drawer)/ventas-recetas" as any);
+                  }}
+                  style={({ pressed }) => [
+                    styles.menuItem,
+                    { backgroundColor: isVentasRecetasRoute ? drawerActiveBg : "transparent" },
+                    pressed && { opacity: 0.85 },
+                  ]}
+                  accessibilityRole="button"
+                >
+                  <Ionicons name="document-text-outline" size={22} color={isVentasRecetasRoute ? drawerActiveTint : drawerMuted} />
+                  <Text style={[styles.menuLabel, { color: isVentasRecetasRoute ? drawerActiveTint : drawerMuted }]}>Recetas del mes</Text>
+                </Pressable>
+              )}
 
               <Pressable
                 onPress={() => {
