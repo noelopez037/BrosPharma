@@ -64,10 +64,12 @@ const ResumenCard = React.memo(function ResumenCard({
   item,
   s,
   vis,
+  onHide,
 }: {
   item: ResumenRow;
   s: ReturnType<typeof styles>;
   vis: ColVis;
+  onHide: (id: number) => void;
 }) {
   return (
     <View style={s.row}>
@@ -76,6 +78,9 @@ const ResumenCard = React.memo(function ResumenCard({
       {vis.showEntradas ? <Text style={[s.rowNum, s.colGreen]}>+{item.entradas}</Text> : null}
       {vis.showVentas   ? <Text style={[s.rowNum, item.salidas > 0 ? s.colRed : null]}>{item.salidas > 0 ? `-${item.salidas}` : "0"}</Text> : null}
       {vis.showFinal    ? <Text style={[s.rowNum, s.colBold]}>{item.stock_final}</Text> : null}
+      <Pressable onPress={() => onHide(item.producto_id)} style={s.hideBtn} hitSlop={8}>
+        <Text style={s.hideBtnTxt}>×</Text>
+      </Pressable>
     </View>
   );
 });
@@ -171,6 +176,12 @@ export default function ResumenRecetasScreen() {
     setMonthOpenIOS(true);
   }, [selYear, selMonthIndex0]);
 
+  // ─── Productos ocultos ────────────────────────────────────────────────────
+  const [hiddenIds, setHiddenIds] = useState<Set<number>>(new Set());
+  const hideProduct = useCallback((id: number) =>
+    setHiddenIds((prev) => new Set([...prev, id])), []);
+  const showAll = useCallback(() => setHiddenIds(new Set()), []);
+
   // ─── Columnas visibles ────────────────────────────────────────────────────
   const [showInicio, setShowInicio] = useState(true);
   const [showEntradas, setShowEntradas] = useState(true);
@@ -206,9 +217,14 @@ export default function ResumenRecetasScreen() {
   useEffect(() => { void fetchResumen(); }, [fetchResumen]);
   useResumeLoad(empresaActivaId, () => { void fetchResumen(); });
 
-  // ─── Totales ──────────────────────────────────────────────────────────────
+  // ─── Filas visibles y totales ────────────────────────────────────────────
+  const visibleRows = useMemo(
+    () => rows.filter((r) => !hiddenIds.has(r.producto_id)),
+    [rows, hiddenIds]
+  );
+
   const totales = useMemo(() => {
-    return rows.reduce(
+    return visibleRows.reduce(
       (acc, r) => ({
         stock_inicial: acc.stock_inicial + r.stock_inicial,
         entradas: acc.entradas + r.entradas,
@@ -223,8 +239,8 @@ export default function ResumenRecetasScreen() {
   const vis: ColVis = { showInicio, showEntradas, showVentas, showFinal };
 
   const renderItem = useCallback(
-    ({ item }: { item: ResumenRow }) => <ResumenCard item={item} s={s} vis={vis} />,
-    [s, showInicio, showEntradas, showVentas, showFinal] // eslint-disable-line react-hooks/exhaustive-deps
+    ({ item }: { item: ResumenRow }) => <ResumenCard item={item} s={s} vis={vis} onHide={hideProduct} />,
+    [s, showInicio, showEntradas, showVentas, showFinal, hideProduct] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const isWeb = Platform.OS === "web";
@@ -312,6 +328,14 @@ export default function ResumenRecetasScreen() {
             <Text style={[s.chipTxt, { color: active ? M.primary : M.sub }]}>{label}</Text>
           </Pressable>
         ))}
+
+        {hiddenIds.size > 0 ? (
+          <Pressable onPress={showAll} style={[s.chip, { borderColor: M.border }]}>
+            <Text style={[s.chipTxt, { color: M.sub }]}>
+              Mostrar todos ({hiddenIds.size})
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
@@ -334,7 +358,7 @@ export default function ResumenRecetasScreen() {
 
         <FlatList<ResumenRow>
           style={{ flex: 1, backgroundColor: colors.background }}
-          data={rows}
+          data={visibleRows}
           keyExtractor={(it) => String(it.producto_id)}
           renderItem={renderItem}
           keyboardShouldPersistTaps="handled"
@@ -504,6 +528,8 @@ const styles = (colors: any) =>
     colGreen: { color: "#16a34a" },
     colRed: { color: "#dc2626" },
     colBold: { fontWeight: "900" },
+    hideBtn: { paddingHorizontal: 6, paddingVertical: 4 },
+    hideBtnTxt: { color: colors.text + "44", fontSize: 18, fontWeight: "900", lineHeight: 20 },
 
     // Fila de totales
     totalesRow: {
