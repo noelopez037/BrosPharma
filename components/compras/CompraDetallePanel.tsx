@@ -4,6 +4,7 @@
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import * as FileSystem from "expo-file-system/legacy";
 import { Image as ExpoImage } from "expo-image";
+import * as DocumentPicker from "expo-document-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import * as MediaLibrary from "expo-media-library";
@@ -13,6 +14,7 @@ import {
   Alert,
   Keyboard,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -108,6 +110,7 @@ function safeNumber(n: any) {
 
 function extFromMime(mime: string) {
   const m = (mime || "").toLowerCase();
+  if (m.includes("pdf")) return "pdf";
   if (m.includes("jpeg") || m.includes("jpg")) return "jpg";
   if (m.includes("png")) return "png";
   if (m.includes("webp")) return "webp";
@@ -576,45 +579,45 @@ function CompraDetallePanelContent({ embedded, compraIdProp, onRefresh, onDelete
   };
 
   const pickComprobante = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert("Permiso requerido", "Permite acceso a tus fotos para seleccionar el comprobante.");
-      return;
-    }
-
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.9,
-      allowsEditing: false,
+    const res = await DocumentPicker.getDocumentAsync({
+      type: ["image/*", "application/pdf"],
+      copyToCacheDirectory: true,
     });
 
     if (res.canceled) return;
 
-    const a = res.assets?.[0];
-    if (!a?.uri) return;
+    const asset = res.assets?.[0];
+    if (!asset?.uri) return;
 
-    const fileName = (a as any).fileName ?? null;
-    // Siempre convertir a JPEG — garantiza compatibilidad con Supabase (HEIC, HEIF, etc.)
-    const converted = await ImageManipulator.manipulateAsync(
-      a.uri,
-      [],
-      { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
-    );
-    setPagoImg({ uri: converted.uri, mimeType: "image/jpeg", fileName });
+    const mimeType = asset.mimeType ?? "application/octet-stream";
+    const fileName = asset.name ?? null;
+
+    if (mimeType.startsWith("image/")) {
+      // Normalizar imágenes a JPEG para compatibilidad
+      const converted = await ImageManipulator.manipulateAsync(
+        asset.uri,
+        [],
+        { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      setPagoImg({ uri: converted.uri, mimeType: "image/jpeg", fileName });
+    } else {
+      setPagoImg({ uri: asset.uri, mimeType, fileName });
+    }
   };
 
   const subirComprobanteSiExiste = async (
     compraIdLocal: number
   ): Promise<string | null> => {
     if (!pagoImg?.uri) return null;
-    const path = makeComprobantePath(empresaActivaId!, compraIdLocal, "image/jpeg");
+    const mime = pagoImg.mimeType;
+    const path = makeComprobantePath(empresaActivaId!, compraIdLocal, mime);
     const bytes = await uriToBytes(pagoImg.uri);
 
     const { error } = await supabase.storage
       .from(BUCKET_COMPROBANTES)
       .upload(path, bytes, {
         upsert: false,
-        contentType: "image/jpeg",
+        contentType: mime,
         cacheControl: "3600",
       });
 
@@ -690,6 +693,33 @@ function CompraDetallePanelContent({ embedded, compraIdProp, onRefresh, onDelete
     const norm = normalizeComprobanteRef(raw);
     if (!norm) {
       Alert.alert("Error", "No hay comprobante");
+      return;
+    }
+
+    const isPdf =
+      norm.path?.toLowerCase().endsWith(".pdf") ||
+      norm.url?.toLowerCase().includes(".pdf");
+
+    if (isPdf) {
+      viewerBusyRef.current = true;
+      try {
+        let url: string | null = null;
+        if (norm.path) {
+          const { data, error } = await supabase.storage
+            .from(BUCKET_COMPROBANTES)
+            .createSignedUrl(norm.path, 60 * 10);
+          if (error) throw error;
+          url = data?.signedUrl ?? null;
+        } else {
+          url = norm.url;
+        }
+        if (!url) throw new Error("No se pudo generar URL del PDF.");
+        await Linking.openURL(url);
+      } catch (e: any) {
+        Alert.alert("No se pudo abrir", e?.message ?? "Error al obtener el PDF");
+      } finally {
+        viewerBusyRef.current = false;
+      }
       return;
     }
 
@@ -1063,8 +1093,9 @@ function CompraDetallePanelContent({ embedded, compraIdProp, onRefresh, onDelete
 
                           {hasComprobante ? (() => {
                             const norm = normalizeComprobanteRef(p.comprobante_path!);
+                            const isPdf = norm?.path?.toLowerCase().endsWith(".pdf");
                             const thumbUrl =
-                              norm?.path ? thumbByPath[norm.path] ?? null : norm?.url ?? null;
+                              !isPdf && norm?.path ? thumbByPath[norm.path] ?? null : norm?.url ?? null;
 
                             return (
                               <Pressable
@@ -1075,7 +1106,16 @@ function CompraDetallePanelContent({ embedded, compraIdProp, onRefresh, onDelete
                                   pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
                                 ]}
                               >
-                                {thumbUrl ? (
+                                {isPdf ? (
+                                  <View
+                                    style={[
+                                      styles.receiptThumbPlaceholder,
+                                      { borderColor: C.border, backgroundColor: "#fee2e2" },
+                                    ]}
+                                  >
+                                    <Text style={styles.receiptThumbText}>📄</Text>
+                                  </View>
+                                ) : thumbUrl ? (
                                   <ExpoImage
                                     source={{ uri: thumbUrl }}
                                     style={styles.receiptThumb}
@@ -1309,17 +1349,26 @@ function CompraDetallePanelContent({ embedded, compraIdProp, onRefresh, onDelete
                             ]}
                           >
                             {pagoImg?.uri ? (
-                              <>
-                                <ExpoImage
-                                  source={{ uri: pagoImg.uri }}
-                                  style={styles.previewImg}
-                                  contentFit="cover"
-                                  cachePolicy="disk"
-                                />
-                                <View style={styles.uploadZoneOverlay}>
-                                  <Text style={styles.uploadZoneOverlayText}>Cambiar imagen</Text>
+                              pagoImg.mimeType === "application/pdf" ? (
+                                <View style={[styles.previewImg, { justifyContent: "center", alignItems: "center", backgroundColor: "#fee2e2" }]}>
+                                  <Text style={{ fontSize: 36 }}>📄</Text>
+                                  <Text style={{ fontSize: 11, color: "#555", marginTop: 4 }} numberOfLines={1}>
+                                    {pagoImg.fileName ?? "documento.pdf"}
+                                  </Text>
                                 </View>
-                              </>
+                              ) : (
+                                <>
+                                  <ExpoImage
+                                    source={{ uri: pagoImg.uri }}
+                                    style={styles.previewImg}
+                                    contentFit="cover"
+                                    cachePolicy="disk"
+                                  />
+                                  <View style={styles.uploadZoneOverlay}>
+                                    <Text style={styles.uploadZoneOverlayText}>Cambiar imagen</Text>
+                                  </View>
+                                </>
+                              )
                             ) : (
                               <>
                                 <Text style={{ fontSize: 28, marginBottom: 6 }}>📎</Text>

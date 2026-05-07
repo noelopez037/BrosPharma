@@ -450,7 +450,7 @@ export default function ComprasScreen() {
   const rows = useMemo(() => {
     if (fPago === "ALL") return rowsRaw;
 
-    return rowsRaw.filter((r) => {
+    const filtered = rowsRaw.filter((r) => {
       const tipo = normalizeUpper(r.tipo_pago);
       const saldo = Number(r.saldo_pendiente ?? 0);
 
@@ -467,23 +467,43 @@ export default function ComprasScreen() {
       if (fPago === "PENDING") return d >= 0;
       return true;
     });
+
+    if (fPago === "PENDING" || fPago === "OVERDUE") {
+      return [...filtered].sort((a, b) => {
+        const da = a.fecha_vencimiento ?? "9999-12-31";
+        const db = b.fecha_vencimiento ?? "9999-12-31";
+        return da < db ? -1 : da > db ? 1 : 0;
+      });
+    }
+    return filtered;
   }, [rowsRaw, fPago]);
 
   const sections = useMemo<CompraSection[]>(() => {
     const out: CompraSection[] = [];
     let lastKey: string | null = null;
+    const byVenc = fPago === "PENDING" || fPago === "OVERDUE";
 
     rows.forEach((item) => {
-      const ymd = item.fecha ? toGTDateKey(item.fecha) || "SIN_FECHA" : "SIN_FECHA";
+      let ymd: string;
+      let title: string;
+      if (byVenc) {
+        ymd = item.fecha_vencimiento
+          ? toGTDateKey(item.fecha_vencimiento) || "SIN VENCIMIENTO"
+          : "SIN VENCIMIENTO";
+        title = ymd === "SIN VENCIMIENTO" ? "Sin vencimiento" : `Vence: ${ymd}`;
+      } else {
+        ymd = item.fecha ? toGTDateKey(item.fecha) || "SIN_FECHA" : "SIN_FECHA";
+        title = ymd === "SIN_FECHA" ? "Sin fecha" : ymd;
+      }
       if (ymd !== lastKey) {
-        out.push({ title: ymd === "SIN_FECHA" ? "Sin fecha" : ymd, data: [] });
+        out.push({ title, data: [] });
         lastKey = ymd;
       }
       out[out.length - 1].data.push(item);
     });
 
     return out;
-  }, [rows]);
+  }, [rows, fPago]);
 
   const openCompra = useCallback(
     (id: number) => {
