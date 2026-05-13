@@ -364,11 +364,6 @@ export default function Layout() {
         markAppResumed();
         cancelDeferred();
 
-        // Reactivar auto-refresh INMEDIATAMENTE al volver a foreground.
-        // Esto permite que el SDK renueve el token en paralelo mientras esperamos la red.
-        if (__DEV__) console.log("[resume] startAutoRefresh (foreground)");
-        void supabase.auth.startAutoRefresh();
-
         void (async () => {
           // Resetear el pool de conexiones HTTP del OS antes del primer fetch.
           // En iOS esto llama URLSession.shared.reset() — cierra todas las conexiones
@@ -378,45 +373,41 @@ export default function Layout() {
           const t0 = Date.now();
           await resetHttpSession();
           console.log(`[resume] resetHttpSession — listo en ${Date.now() - t0}ms`);
-          // Pequeño delay adicional para que el OS procese el cierre de sockets.
-          await new Promise((r) => setTimeout(r, 300));
+          // Pequeño delay para que el OS procese el cierre de sockets.
+          await new Promise((r) => setTimeout(r, 150));
 
-          // Armar deferredSub ANTES del loop de getUser() para que TOKEN_REFRESHED
-          // nunca se pierda aunque llegue mientras validamos la sesión.
-          // Si getUser() tiene éxito (hasSession=true), lo cancelamos abajo con cancelDeferred().
+          // Armar deferredSub ANTES de startAutoRefresh para que TOKEN_REFRESHED
+          // nunca se pierda: si el token está expirado el SDK lo renueva en paralelo
+          // y el listener lo captura aunque llegue antes de que terminemos de verificar.
           scheduleDeferredResume();
-          if (__DEV__) console.log("[resume] scheduleDeferredResume — armed before optimistic emit");
+          if (__DEV__) console.log("[resume] scheduleDeferredResume — armed");
 
-          // Verificar sesión con getUser() (llamada real de red).
-          // Timeout global de 10s sobre el loop entero para que emitAppResumed()
-          // nunca tarde más de ~10.5s, incluso si los sockets TCP están zombie y
-          // el fetch individual no respeta el AbortSignal a tiempo.
+          // startAutoRefresh DESPUÉS del listener — sin race con TOKEN_REFRESHED.
+          if (__DEV__) console.log("[resume] startAutoRefresh (foreground)");
+          void supabase.auth.startAutoRefresh();
+
+          // Verificar sesión con getSession() — lee de SecureStore/AsyncStorage local,
+          // sin red, <50ms. Si el token es válido: fast path (emit inmediato ~250ms total).
+          // Si expiró: el deferred listener espera TOKEN_REFRESHED del startAutoRefresh.
           let hasSession = false;
           try {
-            await Promise.race([
-              (async () => {
-                for (let attempt = 0; attempt < 2; attempt++) {
-                  try {
-                    if (__DEV__) console.log("[resume] getUser attempt", attempt + 1);
-                    const { data, error } = await supabase.auth.getUser();
-                    if (data?.user && !error) {
-                      hasSession = true;
-                      if (__DEV__) console.log("[resume] getUser OK");
-                      break;
-                    }
-                    if (__DEV__ && error) console.warn("[resume] getUser error:", error.message);
-                  } catch (e: any) {
-                    if (__DEV__) console.warn("[resume] getUser exception:", e?.message ?? e);
-                  }
-                  if (attempt < 1) await new Promise((r) => setTimeout(r, 1000));
-                }
-              })(),
-              new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error("resume getUser timeout")), 10_000)
-              ),
-            ]);
+            const { data } = await supabase.auth.getSession();
+            const session = data?.session;
+            // Token expirado si quedan <30s de vida (margen de seguridad).
+            // expires_at puede ser undefined en sesiones antiguas → asumir vigente.
+            const tokenExpired = session?.expires_at != null
+              ? session.expires_at * 1000 < Date.now() + 30_000
+              : false;
+            if (session && !tokenExpired) {
+              hasSession = true;
+              if (__DEV__) console.log("[resume] getSession OK — token vigente");
+            } else if (session && tokenExpired) {
+              if (__DEV__) console.log("[resume] getSession — token expirado, esperando TOKEN_REFRESHED");
+            } else {
+              if (__DEV__) console.log("[resume] getSession — sin sesión local");
+            }
           } catch (e: any) {
-            if (__DEV__) console.warn("[resume] getUser loop timeout/error:", e?.message ?? e);
+            if (__DEV__) console.warn("[resume] getSession exception:", e?.message ?? e);
           }
 
           invalidateAll();
@@ -427,11 +418,9 @@ export default function Layout() {
             console.log("[resume] sesión OK — emitiendo resume (trigger: foreground)");
             await doEmitResume("foreground");
           } else {
-            // deferredSub ya armado arriba — no llamar scheduleDeferredResume() de nuevo.
-            // Si TOKEN_REFRESHED ya llegó, deferredSub lo habrá capturado.
-            // Si llega después, deferredSub lo capturará cuando ocurra.
-            // Si nunca llega: deferredTimer dispara a los 15s como fallback.
-            console.warn("[resume] red no lista tras reintentos — emitiendo resume optimista (deferred ya armado)");
+            // deferredSub ya armado — startAutoRefresh renovará el token y TOKEN_REFRESHED
+            // disparará el emit definitivo. Fallback a los 15s si nunca llega.
+            console.warn("[resume] token expirado o sin sesión — emitiendo resume optimista (deferred ya armado)");
             await doEmitResume("foreground:optimistic");
           }
         })();

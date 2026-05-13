@@ -1,8 +1,9 @@
+import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import { Stack, router } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { FlatList, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../../lib/supabase";
 import { useRole } from "../../lib/useRole";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
@@ -13,7 +14,32 @@ import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useResumeLoad } from "../../lib/useResumeLoad";
 import { onVentaEstadoChanged } from "../../lib/ventaEstadoEvents";
 import { normalizeUpper } from "../../lib/utils/text";
-import { toGTDateKey } from "../../lib/utils/format";
+import { pad2, toGTDateKey } from "../../lib/utils/format";
+
+// ─── Helpers de mes ───────────────────────────────────────────────────────────
+
+function daysInMonthUtc(year: number, monthIndex0: number) {
+  return new Date(Date.UTC(year, monthIndex0 + 1, 0)).getUTCDate();
+}
+
+function monthRangeGtIso(year: number, monthIndex0: number) {
+  const mm = pad2(monthIndex0 + 1);
+  const last = pad2(daysInMonthUtc(year, monthIndex0));
+  return {
+    desde: `${year}-${mm}-01T00:00:00-06:00`,
+    hasta: `${year}-${mm}-${last}T23:59:59-06:00`,
+  };
+}
+
+const MONTHS_ES = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+];
+
+function nowGtMonthYear() {
+  const gt = new Date(Date.now() - 6 * 60 * 60 * 1000);
+  return { year: gt.getUTCFullYear(), monthIndex0: gt.getUTCMonth() };
+}
 
 type Colors = {
   bg: string; card: string; text: string; sub: string;
@@ -104,6 +130,7 @@ export default function RecetasPendientesScreen() {
   const canSplit = Platform.OS === "web" && width >= 1100;
 
   useGoHomeOnBack(true, "/(drawer)/(tabs)");
+  const insets = useSafeAreaInsets();
 
   const { role, uid, isReady, refreshRole } = useRole();
   const { empresaActivaId } = useEmpresaActiva();
@@ -133,6 +160,52 @@ export default function RecetasPendientesScreen() {
     }),
     [colors, isDark]
   );
+
+  // ─── Selector de mes ────────────────────────────────────────────────────────
+  const initMonth = useMemo(() => nowGtMonthYear(), []);
+  const [selYear, setSelYear] = useState(initMonth.year);
+  const [selMonthIndex0, setSelMonthIndex0] = useState(initMonth.monthIndex0);
+  const [monthOpenIOS, setMonthOpenIOS] = useState(false);
+
+  const monthLabel = useMemo(
+    () => `${MONTHS_ES[selMonthIndex0] ?? "Mes"} ${selYear}`,
+    [selMonthIndex0, selYear]
+  );
+
+  const { desde, hasta } = useMemo(
+    () => monthRangeGtIso(selYear, selMonthIndex0),
+    [selYear, selMonthIndex0]
+  );
+
+  const prevMonth = useCallback(() => {
+    setSelMonthIndex0((m) => {
+      if (m === 0) { setSelYear((y) => y - 1); return 11; }
+      return m - 1;
+    });
+  }, []);
+
+  const nextMonth = useCallback(() => {
+    setSelMonthIndex0((m) => {
+      if (m === 11) { setSelYear((y) => y + 1); return 0; }
+      return m + 1;
+    });
+  }, []);
+
+  const openMonthPicker = useCallback(() => {
+    if (Platform.OS === "android") {
+      DateTimePickerAndroid.open({
+        value: new Date(selYear, selMonthIndex0, 1),
+        mode: "date",
+        onChange: (_ev, date) => {
+          if (!date) return;
+          setSelYear(date.getFullYear());
+          setSelMonthIndex0(date.getMonth());
+        },
+      });
+      return;
+    }
+    setMonthOpenIOS(true);
+  }, [selYear, selMonthIndex0]);
 
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [tmpVendedorId, setTmpVendedorId] = useState<string | null>(null);
@@ -207,6 +280,8 @@ export default function RecetasPendientesScreen() {
         .eq("requiere_receta", true)
         .eq("receta_cargada", false)
         .neq("estado", "ANULADO")
+        .gte("fecha", desde)
+        .lte("fecha", hasta)
         .order("fecha", { ascending: false })
         .order("id", { ascending: false });
 
@@ -220,7 +295,7 @@ export default function RecetasPendientesScreen() {
       if (error) throw error;
       return (data ?? []) as VentaRow[];
     },
-    [empresaActivaId, isAdmin, isSelf, uid]
+    [empresaActivaId, isAdmin, isSelf, uid, desde, hasta]
   );
 
   const load = useCallback(
@@ -326,7 +401,63 @@ export default function RecetasPendientesScreen() {
 
       {/* Barra superior */}
       <View style={[s.header, { backgroundColor: C.bg, borderBottomColor: C.border }]}>
-        <View style={s.topRow}>
+        {/* Selector de mes */}
+        <View style={s.monthRow}>
+          <Pressable onPress={prevMonth} style={[s.arrowBtn, { borderColor: C.border, backgroundColor: C.card }]} hitSlop={10}>
+            <Text style={[s.arrowTxt, { color: C.text }]}>‹</Text>
+          </Pressable>
+
+          {Platform.OS === "web" ? (
+            <input
+              type="month"
+              value={`${selYear}-${pad2(selMonthIndex0 + 1)}`}
+              onChange={(e) => {
+                const val = (e.target as HTMLInputElement).value;
+                if (val) {
+                  const [yr, mo] = val.split("-").map(Number);
+                  setSelYear(yr);
+                  setSelMonthIndex0(mo - 1);
+                }
+              }}
+              style={{
+                flex: 1,
+                borderWidth: 1,
+                borderStyle: "solid",
+                borderColor: C.border,
+                borderRadius: 12,
+                padding: "10px 14px",
+                fontSize: 15,
+                fontWeight: "800",
+                boxSizing: "border-box",
+                backgroundColor: C.card,
+                color: C.text,
+                fontFamily: "inherit",
+                cursor: "pointer",
+                outline: "none",
+                colorScheme: isDark ? "dark" : "light",
+                textAlign: "center",
+              } as any}
+            />
+          ) : (
+            <Pressable
+              onPress={openMonthPicker}
+              style={({ pressed }) => [
+                s.monthBtn,
+                { borderColor: C.border, backgroundColor: C.card },
+                pressed && Platform.OS === "ios" ? { opacity: 0.85 } : null,
+              ]}
+            >
+              <Text style={[s.monthTxt, { color: C.text }]}>{monthLabel}</Text>
+              <Text style={[s.monthCaret, { color: C.sub }]}>▼</Text>
+            </Pressable>
+          )}
+
+          <Pressable onPress={nextMonth} style={[s.arrowBtn, { borderColor: C.border, backgroundColor: C.card }]} hitSlop={10}>
+            <Text style={[s.arrowTxt, { color: C.text }]}>›</Text>
+          </Pressable>
+        </View>
+
+        <View style={[s.topRow, { marginTop: 8 }]}>
           <View style={{ flex: 1 }}>
             {isSelf && selfLabel ? (
               <Text style={[s.selfLabel, { color: C.sub }]}>Mostrando solo: {selfLabel}</Text>
@@ -407,6 +538,43 @@ export default function RecetasPendientesScreen() {
         </View>
       </Modal>
 
+      {/* Modal: seleccionar mes (iOS) */}
+      {monthOpenIOS && Platform.OS !== "web" ? (
+        <Modal
+          visible={monthOpenIOS}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setMonthOpenIOS(false)}
+        >
+          <Pressable
+            style={[s.backdrop, { backgroundColor: isDark ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.35)" }]}
+            onPress={() => setMonthOpenIOS(false)}
+          />
+          <View style={[s.modalCard, { top: 14 + insets.top, backgroundColor: C.card, borderColor: C.border }]}>
+            <View style={s.modalHeader}>
+              <Text style={[s.modalTitle, { color: C.text }]}>Mes</Text>
+              <Pressable onPress={() => setMonthOpenIOS(false)} hitSlop={10}>
+                <Text style={[s.modalClose, { color: C.sub }]}>Cerrar</Text>
+              </Pressable>
+            </View>
+            <View style={[s.iosPickerWrap, { borderColor: C.border, backgroundColor: C.bg, marginTop: 12 }]}>
+              <DateTimePicker
+                value={new Date(selYear, selMonthIndex0, 1)}
+                mode="date"
+                display="inline"
+                themeVariant={isDark ? "dark" : "light"}
+                onChange={(_ev, date) => {
+                  if (!date) return;
+                  setSelYear(date.getFullYear());
+                  setSelMonthIndex0(date.getMonth());
+                  setMonthOpenIOS(false);
+                }}
+              />
+            </View>
+          </View>
+        </Modal>
+      ) : null}
+
       {canSplit ? (
         <View style={[s.splitWrap, { borderTopColor: C.border }]}>
           <View style={[s.splitListPane, { borderRightColor: C.border }]}>
@@ -474,6 +642,14 @@ const s = StyleSheet.create({
   errorText: { marginTop: 4, fontSize: 12, fontWeight: "700" },
   filterBtn: { borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12 },
   filterTxt: { fontWeight: "800", fontSize: 13 },
+
+  monthRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  arrowBtn: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 10, borderWidth: 1 },
+  arrowTxt: { fontSize: 22, fontWeight: "900", lineHeight: 26 },
+  monthBtn: { flex: 1, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  monthTxt: { fontWeight: "800", fontSize: Platform.OS === "web" ? 15 : 14 },
+  monthCaret: { fontSize: 14, fontWeight: "900" },
+  iosPickerWrap: { borderRadius: 14, borderWidth: 1, overflow: "hidden" },
 
   backdrop: { ...StyleSheet.absoluteFillObject },
   modalCard: { position: "absolute", left: 14, right: 14, top: 90, borderRadius: 18, padding: 16, borderWidth: 1 },
