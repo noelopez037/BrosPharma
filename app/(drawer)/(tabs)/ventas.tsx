@@ -68,12 +68,17 @@ function sameRowsQuick(a: VentaRow[] | null | undefined, b: VentaRow[]) {
   if (a.length !== b.length) return false;
   const al = a.length;
   if (!al) return true;
-  const a0 = Number(a[0]?.id ?? 0);
-  const b0 = Number(b[0]?.id ?? 0);
-  if (a0 !== b0) return false;
-  const aL = Number(a[al - 1]?.id ?? 0);
-  const bL = Number(b[al - 1]?.id ?? 0);
-  return aL === bL;
+  const a0 = a[0];
+  const b0 = b[0];
+  if (Number(a0?.id ?? 0) !== Number(b0?.id ?? 0)) return false;
+  const aL = a[al - 1];
+  const bL = b[al - 1];
+  if (Number(aL?.id ?? 0) !== Number(bL?.id ?? 0)) return false;
+  // Check mutable fields that can change without reordering the list
+  return a.every((r, i) =>
+    r.estado === b[i].estado &&
+    r.receta_cargada === b[i].receta_cargada
+  );
 }
 
 function formatYmdEsLong(ymd: string) {

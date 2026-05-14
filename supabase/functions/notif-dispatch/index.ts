@@ -860,6 +860,40 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
+      if (type === "VENTA_RECETA_ADJUNTA") {
+        const ventaId = coerceVentaId(row);
+        const tokens = await getTokensForFacturacion();
+        console.log("[notif-dispatch] dispatch", type, "outbox", id, "tokens", tokens.length);
+
+        if (tokens.length > 0) {
+          const p = (payload && typeof payload === "object") ? (payload as JsonRecord) : {};
+          const clienteNombre = typeof p.cliente_nombre === "string" ? p.cliente_nombre.trim() : "";
+          const body = clienteNombre
+            ? `Se agregó una receta a la venta para ${clienteNombre}`
+            : "Se agregó una receta a una venta";
+
+          const messages: ExpoPushMessage[] = tokens.map((to) => ({
+            to,
+            title: "Receta adjunta",
+            body,
+            sound: "default",
+            badge: 1,
+            data: {
+              type: "VENTA_RECETA_ADJUNTA",
+              venta_id: ventaId,
+              route: "/(drawer)/(tabs)/ventas",
+            },
+          }));
+
+          const sendRes = await expoSend(messages);
+          if (!sendRes.ok) throw new Error(sendRes.error);
+        }
+
+        await sbRpc(ctx, "rpc_notif_outbox_mark_processed", { p_id: id });
+        result.processed++;
+        continue;
+      }
+
       // Unknown/unsupported type: mark processed to avoid stuck items.
       await sbRpc(ctx, "rpc_notif_outbox_mark_processed", { p_id: id });
       result.processed++;

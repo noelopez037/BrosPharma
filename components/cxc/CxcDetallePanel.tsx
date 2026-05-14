@@ -81,22 +81,6 @@ function extFromMime(mime: string) {
   return "jpg";
 }
 
-async function uriToBytes(uri: string): Promise<Uint8Array> {
-  if (Platform.OS === "web") {
-    const res = await fetch(uri);
-    const ab = await res.arrayBuffer();
-    return new Uint8Array(ab);
-  }
-  const anyFS: any = FileSystem as any;
-  const encoding = anyFS?.EncodingType?.Base64 ?? "base64";
-  const b64 = await anyFS.readAsStringAsync(uri, { encoding });
-  const atobFn: any = (globalThis as any).atob;
-  if (typeof atobFn !== "function") throw new Error("No se pudo decodificar el archivo (atob no disponible)");
-  const bin = atobFn(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
 
 function makeComprobantePath(empresaId: number, ventaId: number, mimeType: string) {
   const stamp = Date.now();
@@ -408,23 +392,17 @@ function CxcDetallePanelContent({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.85,
       allowsEditing: false,
-      base64: true,
     });
     if (res.canceled) return;
     const a = res.assets?.[0];
-    if (!a) return;
-    // base64: true hace que iOS decodifique HEIC a JPEG antes de encodear.
-    // En web FileSystem no está disponible, usar la URI directamente (blob URL).
-    if (Platform.OS !== "web" && a.base64) {
-      const localUri = (FileSystem as any).cacheDirectory + `comprobante_${Date.now()}.jpg`;
-      await (FileSystem as any).writeAsStringAsync(localUri, a.base64, {
-        encoding: (FileSystem as any).EncodingType?.Base64 ?? "base64",
-      });
-      setPagoImg({ uri: localUri, mimeType: "image/jpeg" });
-      return;
-    }
-    if (!a.uri) return;
-    setPagoImg({ uri: a.uri, mimeType: "image/jpeg" });
+    if (!a?.uri) return;
+    // Convertir a JPEG para normalizar HEIC/HEIF y garantizar compatibilidad con Supabase
+    const converted = await ImageManipulator.manipulateAsync(
+      a.uri,
+      [{ resize: { width: 1200 } }],
+      { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG }
+    );
+    setPagoImg({ uri: converted.uri, mimeType: "image/jpeg" });
   };
 
   const subirComprobanteSiExiste = async (ventaIdLocal: number): Promise<string | null> => {
@@ -437,13 +415,19 @@ function CxcDetallePanelContent({
         .from(BUCKET_COMPROBANTES)
         .upload(path, blob, { upsert: false, contentType: "image/jpeg" });
       if (error) throw error;
-      return path;
+    } else {
+      const anyFS: any = FileSystem as any;
+      const b64 = await anyFS.readAsStringAsync(pagoImg.uri, {
+        encoding: anyFS?.EncodingType?.Base64 ?? "base64",
+      });
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const { error } = await supabase.storage
+        .from(BUCKET_COMPROBANTES)
+        .upload(path, bytes, { upsert: false, contentType: "image/jpeg" });
+      if (error) throw error;
     }
-    const bytes = await uriToBytes(pagoImg.uri);
-    const { error } = await supabase.storage
-      .from(BUCKET_COMPROBANTES)
-      .upload(path, bytes, { upsert: false, contentType: "image/jpeg" });
-    if (error) throw error;
     return path;
   };
 
@@ -656,20 +640,7 @@ function CxcDetallePanelContent({
         signedUrl = data?.signedUrl ?? null;
       }
       if (!signedUrl) throw new Error("No se pudo generar URL del comprobante.");
-      let probe = null as any;
-      try { probe = await probeImageUrl(signedUrl, 512); } catch { probe = null; }
-      const finalUrl = probe && probe.url ? probe.url : signedUrl;
-      setViewerRemoteUrl(finalUrl);
-      if (probe?.contentType) setViewerMimeType(String(probe.contentType));
-      try {
-        const localUri = await downloadToCache(
-          finalUrl,
-          probe?.contentType ? String(probe.contentType) : undefined
-        );
-        setViewerUrl(localUri);
-      } catch {
-        // fallback al signed url remoto
-      }
+      setViewerRemoteUrl(signedUrl);
     } catch (e: any) {
       setViewerOpen(false);
       Alert.alert("Error", e?.message ?? "No se pudo abrir comprobante");

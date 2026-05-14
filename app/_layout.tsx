@@ -106,13 +106,39 @@ function AppShell() {
           return;
         }
 
-        // Generic route support for existing notifications.
-        const route =
-          (data && typeof data === "object" && (data as any).route != null)
-            ? String((data as any).route)
-            : "";
-        if (route && route.startsWith("/")) {
-          router.replace(route as any);
+        // Notificaciones que navegan a ventas + abren detalle de venta
+        if (
+          kindUp === "VENTA_RECETA_ADJUNTA" ||
+          kindUp === "VENTA_FACTURADA" ||
+          kindUp === "VENTA_ANULACION_REQUERIDA" ||
+          kindUp === "VENTA_SOLICITUD_RESUELTA"
+        ) {
+          const ventaId = (data as any)?.venta_id;
+          router.replace("/(drawer)/(tabs)/ventas" as any);
+          if (ventaId) {
+            router.push({ pathname: "/venta-detalle", params: { ventaId: String(ventaId) } } as any);
+          }
+          return;
+        }
+
+        // Notificaciones que navegan solo al listado de ventas
+        if (kindUp === "VENTA_VISIBLE_NUEVOS") {
+          router.replace("/(drawer)/(tabs)/ventas" as any);
+          return;
+        }
+
+        // Notificaciones que navegan al listado de compras
+        if (kindUp === "COMPRA_LINEA_INGRESADA" || kindUp === "COMPRA_PAGO_APLICADO") {
+          router.replace("/(drawer)/compras" as any);
+          return;
+        }
+
+        // Generic: soporta campos `route` o `to` en el data de la notificación
+        const routeRaw = data && typeof data === "object"
+          ? (String((data as any).route ?? "").trim() || String((data as any).to ?? "").trim())
+          : "";
+        if (routeRaw && routeRaw.startsWith("/")) {
+          router.replace(routeRaw as any);
           return;
         }
 

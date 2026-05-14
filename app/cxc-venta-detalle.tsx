@@ -78,22 +78,6 @@ function extFromMime(mime: string) {
   return "jpg";
 }
 
-async function uriToBytes(uri: string): Promise<Uint8Array> {
-  if (Platform.OS === "web") {
-    const res = await fetch(uri);
-    const ab = await res.arrayBuffer();
-    return new Uint8Array(ab);
-  }
-  const anyFS: any = FileSystem as any;
-  const encoding = anyFS?.EncodingType?.Base64 ?? "base64";
-  const b64 = await anyFS.readAsStringAsync(uri, { encoding });
-  const atobFn: any = (globalThis as any).atob;
-  if (typeof atobFn !== "function") throw new Error("No se pudo decodificar el archivo (atob no disponible)");
-  const bin = atobFn(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
 
 function makeComprobantePath(empresaId: number, ventaId: number, mimeType: string) {
   const stamp = Date.now();
@@ -361,8 +345,8 @@ export default function CxcVentaDetalle() {
     // Siempre convertir a JPEG — garantiza compatibilidad con Supabase (HEIC, HEIF, etc.)
     const converted = await ImageManipulator.manipulateAsync(
       a.uri,
-      [],
-      { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+      [{ resize: { width: 1200 } }],
+      { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG }
     );
     setPagoImg({ uri: converted.uri, mimeType: "image/jpeg" });
   };
@@ -370,7 +354,6 @@ export default function CxcVentaDetalle() {
   const subirComprobanteSiExiste = async (ventaIdLocal: number): Promise<string | null> => {
     if (!pagoImg?.uri) return null;
     const path = makeComprobantePath(empresaActivaId!, ventaIdLocal, "image/jpeg");
-
     if (Platform.OS === "web") {
       const res = await fetch(pagoImg.uri);
       const blob = await res.blob();
@@ -378,14 +361,19 @@ export default function CxcVentaDetalle() {
         .from(BUCKET_COMPROBANTES)
         .upload(path, blob, { upsert: false, contentType: "image/jpeg" });
       if (error) throw error;
-      return path;
+    } else {
+      const anyFS: any = FileSystem as any;
+      const b64 = await anyFS.readAsStringAsync(pagoImg.uri, {
+        encoding: anyFS?.EncodingType?.Base64 ?? "base64",
+      });
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const { error } = await supabase.storage
+        .from(BUCKET_COMPROBANTES)
+        .upload(path, bytes, { upsert: false, contentType: "image/jpeg" });
+      if (error) throw error;
     }
-
-    const bytes = await uriToBytes(pagoImg.uri);
-    const { error } = await supabase.storage
-      .from(BUCKET_COMPROBANTES)
-      .upload(path, bytes, { upsert: false, contentType: "image/jpeg" });
-    if (error) throw error;
     return path;
   };
 
@@ -621,25 +609,7 @@ export default function CxcVentaDetalle() {
           signedUrl = data?.signedUrl ?? null;
         }
         if (!signedUrl) throw new Error("No se pudo generar URL del comprobante.");
-
-        // probe la URL para obtener info, pero no fallamos totalmente si probe falla
-        let probe = null as any;
-        try {
-          probe = await probeImageUrl(signedUrl, 512);
-        } catch {
-          probe = null;
-        }
-
-        // si probe indica que no es imagen o está pequeño, lo aceptamos como fallback
-        const finalUrl = (probe && probe.url) ? probe.url : signedUrl;
-        setViewerRemoteUrl(finalUrl);
-        if (probe?.contentType) setViewerMimeType(String(probe.contentType));
-        try {
-          const localUri = await downloadToCache(finalUrl, probe?.contentType ? String(probe.contentType) : undefined);
-          setViewerUrl(localUri);
-        } catch {
-          // fallback al signed url remoto
-        }
+        setViewerRemoteUrl(signedUrl);
       } catch (e: any) {
         setViewerOpen(false);
         Alert.alert("Error", e?.message ?? "No se pudo abrir comprobante");

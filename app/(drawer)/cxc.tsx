@@ -42,6 +42,7 @@ type CxCRow = {
   saldo: number | null;
   facturas: string[] | null;
   estado: string | null;
+  productos: string[] | null;
 };
 
 type CxcSection = { title: string; data: CxCRow[] };
@@ -396,8 +397,10 @@ export default function CuentasPorCobrarScreen() {
       const qlow = dq.toLowerCase();
       result = result.filter((r) => {
         if ((r.cliente_nombre ?? "").toLowerCase().includes(qlow)) return true;
-        const arr = Array.isArray(r.facturas) ? r.facturas.map(String) : [];
-        return arr.some((f) => f.toLowerCase().includes(qlow));
+        const facturas = Array.isArray(r.facturas) ? r.facturas.map(String) : [];
+        if (facturas.some((f) => f.toLowerCase().includes(qlow))) return true;
+        const prods = Array.isArray(r.productos) ? r.productos.map(String) : [];
+        return prods.some((p) => p.toLowerCase().includes(qlow));
       });
     }
 
@@ -566,7 +569,7 @@ export default function CuentasPorCobrarScreen() {
           <TextInput
             value={q}
             onChangeText={setQ}
-            placeholder="Buscar por cliente o factura..."
+            placeholder="Buscar por cliente, factura o producto..."
             placeholderTextColor={colors.text + "66"}
             style={s.searchInput}
             autoCapitalize="none"
