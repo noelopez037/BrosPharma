@@ -23,7 +23,7 @@ import { useThemePref } from "../../lib/themePreference";
 import { alphaColor } from "../../lib/ui";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useRole } from "../../lib/useRole";
-import { fmtQ, fmtDate } from "../../lib/utils/format";
+import { fmtQ, fmtDate, fmtDateEs, fmtDateEsGT } from "../../lib/utils/format";
 import { normalizeUpper } from "../../lib/utils/text";
 
 const BUCKET_COMPROBANTES = "comprobantes";
@@ -450,7 +450,7 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
 
   const handleRechazarPagoReportado = useCallback(
     (p: any) => {
-      const msg = `¿Deseas rechazar el pago reportado del ${fmtDate(p?.fecha_reportado ?? p?.created_at)} por ${fmtQ(p?.monto)}?`;
+      const msg = `¿Deseas rechazar el pago reportado del ${fmtDateEsGT(p?.fecha_reportado ?? p?.created_at)} por ${fmtQ(p?.monto)}?`;
       const doReject = () => void runPagoReportadoAction(p, "rechazar");
       // Alert.alert is a no-op on web (react-native-web ships `static alert() {}`).
       if (Platform.OS === "web") {
@@ -468,7 +468,7 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
   const confirmDeletePago = useCallback(
     (p: any) => {
       const refInfo = p.referencia ? `\nRef: ${p.referencia}` : "";
-      const msg = `Se eliminará el pago del ${fmtDate(p.fecha)} por ${fmtQ(p.monto)}.${refInfo}`;
+      const msg = `Se eliminará el pago del ${fmtDateEsGT(p.fecha)} por ${fmtQ(p.monto)}.${refInfo}`;
       const doDelete = async () => {
         if (!empresaActivaId) return;
         try {
@@ -528,13 +528,13 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
           <View style={styles.kv}>
             <Text style={[styles.k, { color: C.sub }]}>Fecha de emisión</Text>
             <Text style={[styles.v, { color: C.text }]} numberOfLines={1}>
-              {fmtDate(row?.fecha)}
+              {fmtDateEsGT(row?.fecha)}
             </Text>
           </View>
           <View style={styles.kv}>
             <Text style={[styles.k, { color: C.sub }]}>Vencimiento</Text>
             <Text style={[styles.v, { color: C.text }]} numberOfLines={1}>
-              {fmtDate(row?.fecha_vencimiento)}
+              {fmtDateEs(row?.fecha_vencimiento)}
             </Text>
           </View>
           <View style={styles.kv}>
@@ -596,7 +596,7 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
               d.productos?.marcas?.nombre ?? d.productos?.marcas?.[0]?.nombre ?? null;
             const title = `${String(nombre ?? "—")}${marca ? ` • ${marca}` : ""}`;
             const lote = d.producto_lotes?.lote ?? "—";
-            const venc = fmtDate(d.producto_lotes?.fecha_exp);
+            const venc = fmtDateEs(d.producto_lotes?.fecha_exp);
             const cant = safeNumber(d.cantidad);
             const unit = safeNumber(d.precio_venta_unit);
 
@@ -726,7 +726,7 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
                   <View key={String(p.id)} style={{ paddingVertical: 10 }}>
                     <View style={styles.rowBetween}>
                       <Text style={[styles.payTitle, { color: C.text }]}>
-                        {fmtDate(p.fecha_reportado ?? p.created_at)} · {p.metodo ?? "—"}
+                        {fmtDateEsGT(p.fecha_reportado ?? p.created_at)} · {p.metodo ?? "—"}
                       </Text>
                       <Text style={[styles.payAmount, { color: C.text }]}>
                         {fmtQ(p.monto)}
@@ -809,7 +809,7 @@ function VentasSolicitudesDetallePanelContent({ ventaIdProp, embedded }: Content
               <View key={String(p.id)} style={{ paddingVertical: 10 }}>
                 <View style={styles.rowBetween}>
                   <Text style={[styles.payTitle, { color: C.text }]}>
-                    {fmtDate(p.fecha)} · {p.metodo ?? "—"}
+                    {fmtDateEsGT(p.fecha)} · {p.metodo ?? "—"}
                   </Text>
                   <Text style={[styles.payAmount, { color: C.text }]}>{fmtQ(p.monto)}</Text>
                 </View>

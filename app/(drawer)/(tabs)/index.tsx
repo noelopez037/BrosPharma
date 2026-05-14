@@ -19,7 +19,7 @@ import { alphaColor } from "../../../lib/ui";
 import { useRole } from "../../../lib/useRole";
 import { useEmpresaActiva } from "../../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../../lib/useResumeLoad";
-import { fmtQ, fmtDate, pad2, toGTDateKey } from "../../../lib/utils/format";
+import { fmtQ, fmtDate, pad2, toGTDateKey, fmtDateEsGT } from "../../../lib/utils/format";
 import { normalizeUpper } from "../../../lib/utils/text";
 import { FB_DARK_DANGER } from "../../../src/theme/headerColors";
 
@@ -1383,7 +1383,7 @@ export default function Inicio() {
               renderRowLink({
                 k: `pend-${v.id}`,
                 title: v.cliente_nombre ?? "—",
-                sub: `${toGTDateKey(v.fecha) || "—"} • ${v.vendedor_codigo ?? "—"}`,
+                sub: `${fmtDateEsGT(v.fecha) || "—"} • ${v.vendedor_codigo ?? "—"}`,
                 onPress: () =>
                   router.push({
                     pathname: "/venta-detalle",

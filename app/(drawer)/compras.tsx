@@ -40,7 +40,7 @@ import { useRole } from "../../lib/useRole";
 import { useResumeLoad } from "../../lib/useResumeLoad";
 import { CompraDetallePanel } from "../../components/compras/CompraDetallePanel";
 import { CompraNuevaModal } from "../../components/compras/CompraNuevaModal";
-import { fmtQ, fmtDate, fmtDateLongEs, toGTDateKey } from "../../lib/utils/format";
+import { fmtQ, fmtDate, fmtDateLongEs, toGTDateKey, fmtDateEs, fmtDateEsGT } from "../../lib/utils/format";
 import { normalizeUpper, safeIlike } from "../../lib/utils/text";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
@@ -150,7 +150,7 @@ const CompraCard = React.memo(function CompraCard({
         <View style={{ flex: 1 }}>
           <Text style={s.title}>{item.proveedor ?? "Proveedor"}</Text>
           <Text style={s.sub}>Factura: {item.numero_factura ?? "—"}</Text>
-          <Text style={s.sub}>Fecha: {toGTDateKey(item.fecha) || "—"}</Text>
+          <Text style={s.sub}>Fecha: {fmtDateEsGT(item.fecha) || "—"}</Text>
         </View>
 
         <View style={{ alignItems: "flex-end" }}>
@@ -963,7 +963,7 @@ export default function ComprasScreen() {
                       style={[s.dateBox, { borderColor: M.border, backgroundColor: M.fieldBg }]}
                     >
                       <Text style={[s.dateTxt, { color: M.text }]}>
-                        {fDesde ? fmtDate(fDesde.toISOString()) : "—"}
+                        {fDesde ? fmtDateEs(fDesde.toISOString()) : "—"}
                       </Text>
                     </Pressable>
                   )}
@@ -1006,7 +1006,7 @@ export default function ComprasScreen() {
                       style={[s.dateBox, { borderColor: M.border, backgroundColor: M.fieldBg }]}
                     >
                       <Text style={[s.dateTxt, { color: M.text }]}>
-                        {fHasta ? fmtDate(fHasta.toISOString()) : "—"}
+                        {fHasta ? fmtDateEs(fHasta.toISOString()) : "—"}
                       </Text>
                     </Pressable>
                   )}

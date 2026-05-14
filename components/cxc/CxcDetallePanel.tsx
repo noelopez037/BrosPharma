@@ -35,7 +35,7 @@ import { emitSolicitudesChanged } from "../../lib/solicitudesEvents";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../lib/useResumeLoad";
 import { useRole } from "../../lib/useRole";
-import { fmtQ, fmtDate } from "../../lib/utils/format";
+import { fmtQ, fmtDate, fmtDateEs, fmtDateEsGT } from "../../lib/utils/format";
 import { normalizeUpper } from "../../lib/utils/text";
 
 const BUCKET_COMPROBANTES = "comprobantes";
@@ -748,7 +748,7 @@ function CxcDetallePanelContent({
     (p: any) => {
       Alert.alert(
         "Rechazar pago",
-        `¿Deseas rechazar el pago reportado del ${fmtDate(
+        `¿Deseas rechazar el pago reportado del ${fmtDateEsGT(
           p?.fecha_reportado ?? p?.created_at
         )} por ${fmtQ(p?.monto)}?`,
         [
@@ -829,13 +829,13 @@ function CxcDetallePanelContent({
                 <View style={styles.kv}>
                   <Text style={[styles.k, { color: C.sub }]}>Fecha de emisión</Text>
                   <Text style={[styles.v, { color: C.text }]} numberOfLines={1}>
-                    {fmtDate(row.fecha)}
+                    {fmtDateEsGT(row.fecha)}
                   </Text>
                 </View>
                 <View style={styles.kv}>
                   <Text style={[styles.k, { color: C.sub }]}>Vencimiento</Text>
                   <Text style={[styles.v, { color: C.text }]} numberOfLines={1}>
-                    {fmtDate(row.fecha_vencimiento)}
+                    {fmtDateEs(row.fecha_vencimiento)}
                   </Text>
                 </View>
                 <View style={styles.kv}>
@@ -900,7 +900,7 @@ function CxcDetallePanelContent({
                   const marca =
                     d.productos?.marcas?.nombre ?? d.productos?.marcas?.[0]?.nombre ?? null;
                   const lote = d.producto_lotes?.lote ?? "—";
-                  const venc = fmtDate(d.producto_lotes?.fecha_exp);
+                  const venc = fmtDateEs(d.producto_lotes?.fecha_exp);
                   const cant = safeNumber(d.cantidad);
                   const unit = safeNumber(d.precio_venta_unit);
                   return (
@@ -1039,7 +1039,7 @@ function CxcDetallePanelContent({
                         <View key={String(p.id)} style={{ paddingVertical: 10 }}>
                           <View style={styles.rowBetween}>
                             <Text style={[styles.payTitle, { color: C.text }]}>
-                              {fmtDate(p.fecha_reportado ?? p.created_at)} · {p.metodo ?? "—"}
+                              {fmtDateEsGT(p.fecha_reportado ?? p.created_at)} · {p.metodo ?? "—"}
                             </Text>
                             <Text style={[styles.payAmount, { color: C.text }]}>
                               {fmtQ(p.monto)}
@@ -1122,7 +1122,7 @@ function CxcDetallePanelContent({
                     <View key={String(p.id)} style={{ paddingVertical: 10 }}>
                       <View style={styles.rowBetween}>
                         <Text style={[styles.payTitle, { color: C.text }]}>
-                          {fmtDate(p.fecha)} · {p.metodo ?? "—"}
+                          {fmtDateEsGT(p.fecha)} · {p.metodo ?? "—"}
                         </Text>
                         <Text style={[styles.payAmount, { color: C.text }]}>
                           {fmtQ(p.monto)}
@@ -1749,7 +1749,7 @@ function CxcDetallePanelContent({
                 Eliminar pago
               </Text>
               <Text style={{ color: C.sub, fontSize: Platform.OS === "web" ? 14 : 13, marginBottom: 4 }}>
-                {fmtDate(confirmDeletePagoData?.fecha)} · {fmtQ(confirmDeletePagoData?.monto)}
+                {fmtDateEsGT(confirmDeletePagoData?.fecha)} · {fmtQ(confirmDeletePagoData?.monto)}
               </Text>
               {confirmDeletePagoData?.referencia ? (
                 <Text style={{ color: C.sub, fontSize: Platform.OS === "web" ? 13 : 11, marginBottom: 4 }}>Ref: {confirmDeletePagoData.referencia}</Text>

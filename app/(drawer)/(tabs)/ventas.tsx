@@ -28,7 +28,7 @@ import { useEmpresaActiva } from "../../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../../lib/useResumeLoad";
 import { onVentaEstadoChanged, emitVentaEstadoChanged } from "../../../lib/ventaEstadoEvents";
 import { normalizeUpper, safeIlike } from "../../../lib/utils/text";
-import { fmtDate, toGTDateKey } from "../../../lib/utils/format";
+import { fmtDate, toGTDateKey, fmtDateEs } from "../../../lib/utils/format";
 import { FB_DARK_DANGER } from "../../../src/theme/headerColors";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "MENSAJERO" | "";
@@ -1487,7 +1487,7 @@ export default function Ventas() {
                 />
               ) : (
                 <Pressable onPress={openDesdePicker} style={[s.dateBox, { borderColor: C.border, backgroundColor: C.card }]}>
-                  <Text style={[s.dateTxt, { color: C.text }]}>{fDesde ? fmtDate(fDesde.toISOString()) : "—"}</Text>
+                  <Text style={[s.dateTxt, { color: C.text }]}>{fDesde ? fmtDateEs(fDesde.toISOString()) : "—"}</Text>
                 </Pressable>
               )}
             </View>
@@ -1525,7 +1525,7 @@ export default function Ventas() {
                 />
               ) : (
                 <Pressable onPress={openHastaPicker} style={[s.dateBox, { borderColor: C.border, backgroundColor: C.card }]}>
-                  <Text style={[s.dateTxt, { color: C.text }]}>{fHasta ? fmtDate(fHasta.toISOString()) : "—"}</Text>
+                  <Text style={[s.dateTxt, { color: C.text }]}>{fHasta ? fmtDateEs(fHasta.toISOString()) : "—"}</Text>
                 </Pressable>
               )}
             </View>

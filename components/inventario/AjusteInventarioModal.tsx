@@ -17,7 +17,7 @@ import { supabase } from "../../lib/supabase";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { invalidate as invalidateProductoCache } from "../../lib/productoCache";
 import { safeIlike } from "../../lib/utils/text";
-import { fmtDate } from "../../lib/utils/format";
+import { fmtDate, fmtDateEs } from "../../lib/utils/format";
 
 type Tipo = "MERMA" | "AJUSTE_SALIDA" | "AJUSTE_ENTRADA";
 
@@ -427,7 +427,7 @@ export function AjusteInventarioModal({
                 >
                   <View style={{ flex: 1 }}>
                     <Text style={s.rowTitle}>{item.lote ?? "—"}</Text>
-                    <Text style={s.rowSub}>Exp: {fmtDate(item.fecha_exp)}</Text>
+                    <Text style={s.rowSub}>Exp: {fmtDateEs(item.fecha_exp)}</Text>
                   </View>
                   <View style={{ alignItems: "flex-end" }}>
                     <Text style={s.rowStock}>{item.stock_total}</Text>
@@ -456,7 +456,7 @@ export function AjusteInventarioModal({
               <>
                 <Text style={s.infoSub}>
                   Lote: {selectedLote.lote ?? "—"}
-                  {selectedLote.fecha_exp ? `  ·  Exp: ${fmtDate(selectedLote.fecha_exp)}` : ""}
+                  {selectedLote.fecha_exp ? `  ·  Exp: ${fmtDateEs(selectedLote.fecha_exp)}` : ""}
                 </Text>
                 <Text style={s.infoSub}>
                   Stock actual: <Text style={{ fontWeight: "700" }}>{selectedLote.stock_total}</Text>

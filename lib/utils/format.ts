@@ -68,6 +68,30 @@ export function fmtDateLongEs(isoOrYmd: string | null | undefined): string {
     .replace(/\./g, "");
 }
 
+/** Formatea un ISO/YMD como fecha corta en español: "14 may 2025". Para fechas sin timezone (fecha_exp, fecha_vencimiento). */
+export function fmtDateEs(isoOrYmd: string | null | undefined): string {
+  if (!isoOrYmd) return "—";
+  const ymd = String(isoOrYmd).slice(0, 10);
+  const d = new Date(`${ymd}T12:00:00`);
+  if (!Number.isFinite(d.getTime())) return "—";
+  return new Intl.DateTimeFormat("es-GT", { day: "numeric", month: "short", year: "numeric" })
+    .format(d)
+    .replace(/\./g, "");
+}
+
+/** Formatea un timestamp UTC de Supabase como fecha corta en español en zona Guatemala: "14 may 2025". */
+export function fmtDateEsGT(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const normalized = String(iso)
+    .replace(" ", "T")
+    .replace(/\+00$/, "+00:00")
+    .replace(/\+00:00:00$/, "+00:00");
+  const d = new Date(normalized);
+  if (!Number.isFinite(d.getTime())) return fmtDateEs(String(iso).slice(0, 10));
+  const gt = new Date(d.getTime() - 6 * 60 * 60 * 1000);
+  return fmtDateEs(gt.toISOString().slice(0, 10));
+}
+
 /** Rellena con cero a la izquierda hasta 2 dígitos. */
 export function pad2(n: number): string {
   return String(n).padStart(2, "0");

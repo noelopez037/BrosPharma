@@ -35,7 +35,7 @@ import { alphaColor } from "../../lib/ui";
 import { AppButton } from "../ui/app-button";
 import { DoneAccessory } from "../ui/done-accessory";
 import { goBackSafe } from "../../lib/goBackSafe";
-import { fmtQ, fmtDate } from "../../lib/utils/format";
+import { fmtQ, fmtDate, fmtDateEs, fmtDateEsGT } from "../../lib/utils/format";
 import { normalizeUpper } from "../../lib/utils/text";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 import { CompraNuevaModal } from "./CompraNuevaModal";
@@ -911,7 +911,7 @@ function CompraDetallePanelContent({ embedded, compraIdProp, onRefresh, onDelete
                 <View style={styles.kv}>
                   <Text style={[styles.k, { color: C.sub }]}>Fecha</Text>
                   <Text style={[styles.v, { color: C.text }]} numberOfLines={1}>
-                    {fmtDate(compra.fecha)}
+                    {fmtDateEsGT(compra.fecha)}
                   </Text>
                 </View>
 
@@ -926,7 +926,7 @@ function CompraDetallePanelContent({ embedded, compraIdProp, onRefresh, onDelete
                   <View style={styles.kv}>
                     <Text style={[styles.k, { color: C.sub }]}>Vencimiento</Text>
                     <Text style={[styles.v, { color: C.text }]} numberOfLines={1}>
-                      {fmtDate(compra.fecha_vencimiento)}
+                      {fmtDateEs(compra.fecha_vencimiento)}
                     </Text>
                   </View>
                 ) : null}
@@ -989,7 +989,7 @@ function CompraDetallePanelContent({ embedded, compraIdProp, onRefresh, onDelete
                 {lineas.map((d: any, idx: number) => {
                   const nombre = d.producto_nombre ?? `Producto #${d.producto_id}`;
                   const lote = String(d.lote ?? "—");
-                  const venc = fmtDate(d.fecha_exp);
+                  const venc = fmtDateEs(d.fecha_exp);
                   const cant = safeNumber(d.cantidad);
                   const unit = safeNumber(d.precio_compra_unit);
 
@@ -1052,7 +1052,7 @@ function CompraDetallePanelContent({ embedded, compraIdProp, onRefresh, onDelete
                         <View key={String(p.id)} style={{ paddingVertical: 10 }}>
                           <View style={styles.rowBetween}>
                             <Text style={[styles.payTitle, { color: C.text }]} numberOfLines={1}>
-                              {fmtDate(p.fecha)} · {p.metodo ?? "—"}
+                              {fmtDateEsGT(p.fecha)} · {p.metodo ?? "—"}
                             </Text>
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                               <Text style={[styles.payAmount, { color: C.text }]}>

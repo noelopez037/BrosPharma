@@ -175,10 +175,9 @@ function lastDaysRange(days: number) {
 
 function fmtDateLabel(date: Date | null) {
   if (!date) return "—";
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${d}/${m}/${y}`;
+  return new Intl.DateTimeFormat("es-GT", { day: "numeric", month: "short", year: "numeric" })
+    .format(date)
+    .replace(/\./g, "");
 }
 
 function fmtCalendarDate(date: Date) {

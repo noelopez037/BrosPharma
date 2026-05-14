@@ -14,7 +14,7 @@ import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useResumeLoad } from "../../lib/useResumeLoad";
 import { onVentaEstadoChanged } from "../../lib/ventaEstadoEvents";
 import { normalizeUpper } from "../../lib/utils/text";
-import { pad2, toGTDateKey } from "../../lib/utils/format";
+import { pad2, toGTDateKey, fmtDateEsGT } from "../../lib/utils/format";
 
 // ─── Helpers de mes ───────────────────────────────────────────────────────────
 
@@ -110,7 +110,7 @@ const RecetaCard = React.memo(function RecetaCard({
         </View>
       </View>
       <Text style={[s.cardSub, { color: C.sub }]}>
-        #{item.id} · {toGTDateKey(item.fecha) || "—"}
+        #{item.id} · {fmtDateEsGT(item.fecha) || "—"}
       </Text>
       <Text style={[s.cardSub, { color: C.sub }]}>Vendedor: {vendedorLabel}</Text>
       <View style={s.chipsRow}>

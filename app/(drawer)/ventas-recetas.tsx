@@ -22,7 +22,7 @@ import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useResumeLoad } from "../../lib/useResumeLoad";
 import { useRole } from "../../lib/useRole";
-import { pad2, toGTDateKey } from "../../lib/utils/format";
+import { pad2, toGTDateKey, fmtDateEsGT } from "../../lib/utils/format";
 import { normalizeUpper } from "../../lib/utils/text";
 
 type VentaRow = {
@@ -92,7 +92,7 @@ const VentaCard = React.memo(function VentaCard({
           <Text style={s.cardTitle} numberOfLines={2}>
             {item.cliente_nombre ?? "Cliente"}
           </Text>
-          <Text style={s.cardSub}>{toGTDateKey(item.fecha) || "—"}</Text>
+          <Text style={s.cardSub}>{fmtDateEsGT(item.fecha) || "—"}</Text>
           <Text style={[s.cardSub, { marginTop: 2 }]}>venta-{item.id}</Text>
         </View>
         <View style={{ alignItems: "flex-end", justifyContent: "flex-start" }}>

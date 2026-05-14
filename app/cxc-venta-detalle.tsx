@@ -33,7 +33,7 @@ import { alphaColor } from "../lib/ui";
 import { useEmpresaActiva } from "../lib/useEmpresaActiva";
 import { useResumeLoad } from "../lib/useResumeLoad";
 import { useRole } from "../lib/useRole";
-import { fmtQ, fmtDate, toGTDateKey } from "../lib/utils/format";
+import { fmtQ, fmtDate, toGTDateKey, fmtDateEs, fmtDateEsGT } from "../lib/utils/format";
 import { normalizeUpper } from "../lib/utils/text";
 
 const BUCKET_COMPROBANTES = "comprobantes";
@@ -666,7 +666,7 @@ export default function CxcVentaDetalle() {
       const refInfo = p.referencia ? `\nRef: ${p.referencia}` : "";
       Alert.alert(
         "Eliminar pago",
-        `Se eliminará el pago del ${toGTDateKey(p.fecha) || "—"} por ${fmtQ(p.monto)}.${refInfo}`,
+        `Se eliminará el pago del ${fmtDateEsGT(p.fecha) || "—"} por ${fmtQ(p.monto)}.${refInfo}`,
         [
           { text: "Cancelar", style: "cancel" },
           {
@@ -735,7 +735,7 @@ export default function CxcVentaDetalle() {
     (p: any) => {
       Alert.alert(
         "Rechazar pago",
-        `¿Deseas rechazar el pago reportado del ${toGTDateKey(p?.fecha_reportado ?? p?.created_at) || "—"} por ${fmtQ(p?.monto)}?`,
+        `¿Deseas rechazar el pago reportado del ${fmtDateEsGT(p?.fecha_reportado ?? p?.created_at) || "—"} por ${fmtQ(p?.monto)}?`,
         [
           { text: "Cancelar", style: "cancel" },
           {
@@ -781,8 +781,8 @@ export default function CxcVentaDetalle() {
               </View>
 
               <View style={[styles.kvGrid, { marginTop: 12 }]}>
-                <View style={styles.kv}><Text style={[styles.k, { color: C.sub }]}>Fecha de emisión</Text><Text style={[styles.v, { color: C.text }]} numberOfLines={1}>{toGTDateKey(row.fecha) || "—"}</Text></View>
-                <View style={styles.kv}><Text style={[styles.k, { color: C.sub }]}>Vencimiento</Text><Text style={[styles.v, { color: C.text }]} numberOfLines={1}>{fmtDate(row.fecha_vencimiento)}</Text></View>
+                <View style={styles.kv}><Text style={[styles.k, { color: C.sub }]}>Fecha de emisión</Text><Text style={[styles.v, { color: C.text }]} numberOfLines={1}>{fmtDateEsGT(row.fecha) || "—"}</Text></View>
+                <View style={styles.kv}><Text style={[styles.k, { color: C.sub }]}>Vencimiento</Text><Text style={[styles.v, { color: C.text }]} numberOfLines={1}>{fmtDateEs(row.fecha_vencimiento)}</Text></View>
                 <View style={styles.kv}><Text style={[styles.k, { color: C.sub }]}>Vendedor</Text><Text style={[styles.v, { color: C.text }]} numberOfLines={1}>{vendedorDisplay || shortUid(row.vendedor_id)}</Text></View>
               </View>
 
@@ -817,7 +817,7 @@ export default function CxcVentaDetalle() {
                   const nombre = d.productos?.nombre ?? `Producto #${d.producto_id}`;
                   const marca = d.productos?.marcas?.nombre ?? d.productos?.marcas?.[0]?.nombre ?? null;
                   const lote = d.producto_lotes?.lote ?? "—";
-                  const venc = fmtDate(d.producto_lotes?.fecha_exp);
+                  const venc = fmtDateEs(d.producto_lotes?.fecha_exp);
                   const cant = safeNumber(d.cantidad);
                   const unit = safeNumber(d.precio_venta_unit);
 
@@ -918,7 +918,7 @@ export default function CxcVentaDetalle() {
                         <View key={String(p.id)} style={{ paddingVertical: 10 }}>
                           <View style={styles.rowBetween}>
                             <Text style={[styles.payTitle, { color: C.text }]}>
-                              {toGTDateKey(p.fecha_reportado ?? p.created_at) || "—"} · {p.metodo ?? "—"}
+                              {fmtDateEsGT(p.fecha_reportado ?? p.created_at) || "—"} · {p.metodo ?? "—"}
                             </Text>
                             <Text style={[styles.payAmount, { color: C.text }]}>{fmtQ(p.monto)}</Text>
                           </View>
@@ -990,7 +990,7 @@ export default function CxcVentaDetalle() {
                   return (
                     <View key={String(p.id)} style={{ paddingVertical: 10 }}>
                       <View style={styles.rowBetween}>
-                        <Text style={[styles.payTitle, { color: C.text }]}>{toGTDateKey(p.fecha) || "—"} · {p.metodo ?? "—"}</Text>
+                        <Text style={[styles.payTitle, { color: C.text }]}>{fmtDateEsGT(p.fecha) || "—"} · {p.metodo ?? "—"}</Text>
                         <Text style={[styles.payAmount, { color: C.text }]}>{fmtQ(p.monto)}</Text>
                       </View>
                       {pfid ? (

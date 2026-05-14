@@ -27,7 +27,7 @@ import { useRole } from "../../lib/useRole";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../lib/useResumeLoad";
 import { AppButton } from "../ui/app-button";
-import { fmtDate } from "../../lib/utils/format";
+import { fmtDate, fmtDateEs } from "../../lib/utils/format";
 import { HEADER_BG } from "../../src/theme/headerColors";
 
 const BUCKET = "productos";
@@ -128,7 +128,7 @@ const LoteItem = memo(function LoteItem({
     <View style={s.loteCard}>
       <View style={{ flex: 1 }}>
         <Text style={s.loteTitle}>{item.lote ?? "—"}</Text>
-        <Text style={s.loteSub}>Exp: {fmtDate(item.fecha_exp)}</Text>
+        <Text style={s.loteSub}>Exp: {fmtDateEs(item.fecha_exp)}</Text>
         {isAdmin && item.lote_id != null ? (
           <Pressable
             style={({ pressed }) => [s.ajustarLoteBtn, pressed && { opacity: 0.7 }]}

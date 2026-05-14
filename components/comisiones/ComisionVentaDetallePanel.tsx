@@ -22,7 +22,7 @@ import { supabase } from "../../lib/supabase";
 import { useThemePref } from "../../lib/themePreference";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useRole } from "../../lib/useRole";
-import { fmtQ, fmtDate } from "../../lib/utils/format";
+import { fmtQ, fmtDate, fmtDateEs, fmtDateEsGT } from "../../lib/utils/format";
 
 const BUCKET_VENTAS_DOCS = "Ventas-Docs";
 const BUCKET_COMPROBANTES = "comprobantes";
@@ -280,8 +280,8 @@ export function ComisionVentaDetallePanel({ ventaId, embedded = false }: Comisio
           <KV k="Pagado" v={fmtQ(row.pagado)} s={s} />
           <KV k="Saldo" v={fmtQ(row.saldo)} s={s} />
           <KV k="Facturas" v={factStr} s={s} />
-          <KV k="Fecha" v={fmtDate(row.fecha)} s={s} />
-          <KV k="Fecha último pago" v={fmtDate(row.fecha_ultimo_pago)} s={s} />
+          <KV k="Fecha" v={fmtDateEsGT(row.fecha)} s={s} />
+          <KV k="Fecha último pago" v={fmtDateEs(row.fecha_ultimo_pago)} s={s} />
           {row.vendedor_codigo ? <KV k="Vendedor" v={String(row.vendedor_codigo)} s={s} /> : null}
         </View>
 
@@ -347,7 +347,7 @@ export function ComisionVentaDetallePanel({ ventaId, embedded = false }: Comisio
                 <View key={String(p.id ?? idx)} style={[s.pagoItem, idx < pagos.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.divider }]}>
                   <View style={s.lineaRow}>
                     <View style={{ flex: 1 }}>
-                      <Text style={s.lineaNombre}>{fmtDate(p.fecha)}</Text>
+                      <Text style={s.lineaNombre}>{fmtDateEsGT(p.fecha)}</Text>
                       <Text style={s.sub}>{String(p.metodo ?? "—")}{p.referencia ? ` · ${p.referencia}` : ""}</Text>
                       {p.comentario ? <Text style={s.sub}>{p.comentario}</Text> : null}
                     </View>

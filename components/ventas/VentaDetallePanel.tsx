@@ -39,7 +39,7 @@ import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../lib/useResumeLoad";
 import { useRole } from "../../lib/useRole";
 import { uriToArrayBuffer } from "../../lib/utils/file";
-import { fmtQ, fmtDate, fmtDateTimeGT } from "../../lib/utils/format";
+import { fmtQ, fmtDate, fmtDateTimeGT, fmtDateEs, fmtDateEsGT } from "../../lib/utils/format";
 import { normalizeUpper } from "../../lib/utils/text";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
@@ -2017,7 +2017,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                      <View style={styles.kv}>
                        <Text style={[styles.k, { color: C.sub }]}>Fecha</Text>
                        <Text style={[styles.v, { color: C.text }]} numberOfLines={1}>
-                         {fmtDate(venta.fecha)}
+                         {fmtDateEsGT(venta.fecha)}
                        </Text>
                      </View>
                      <View style={styles.kv}>
@@ -2072,7 +2072,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                 >
                   <Text style={[styles.warnText, { color: C.danger }]}>Razón de solicitud de anulación</Text>
                   <Text style={[styles.note, { color: C.text, marginTop: 6 }]}>{solicitudAnulacion.solicitud_nota}</Text>
-                  <Text style={[styles.sub, { color: C.sub, marginTop: 6 }]}>Solicitado: {fmtDate(solicitudAnulacion.solicitud_fecha)} • Por: {solicitudAnulacionByName ?? shortUid(solicitudAnulacion.solicitud_user_id)}</Text>
+                  <Text style={[styles.sub, { color: C.sub, marginTop: 6 }]}>Solicitado: {fmtDateEsGT(solicitudAnulacion.solicitud_fecha)} • Por: {solicitudAnulacionByName ?? shortUid(solicitudAnulacion.solicitud_user_id)}</Text>
                 </View>
               ) : null}
             </View>
@@ -2170,7 +2170,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                                 Lote: {l.lote ?? "—"}
                               </Text>
                               <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
-                                Ven: {fmtDate(l.fecha_exp)}
+                                Ven: {fmtDateEs(l.fecha_exp)}
                               </Text>
                             </View>
 
@@ -2237,7 +2237,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                                 Lote: {l.lote ?? "—"}
                               </Text>
                               <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
-                                Vence: {fmtDate(l.fecha_exp)}
+                                Vence: {fmtDateEs(l.fecha_exp)}
                               </Text>
                             </View>
 
@@ -2305,7 +2305,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                                 Lote: {l.lote ?? "—"}
                               </Text>
                               <Text style={[styles.tdSub, { color: C.sub }]} numberOfLines={1}>
-                                Ven: {fmtDate(l.fecha_exp)}
+                                Ven: {fmtDateEs(l.fecha_exp)}
                               </Text>
                             </View>
 
@@ -2720,7 +2720,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                           </Pressable>
                           <View style={{ flex: 1 }}>
                             <Text style={[styles.lineTitle, { color: C.text }]} numberOfLines={1}>
-                              {fmtDate(r.row.created_at)}
+                              {fmtDateEsGT(r.row.created_at)}
                             </Text>
                             <Text style={[styles.lineSub, { color: C.sub }]} numberOfLines={1}>
                               Receta

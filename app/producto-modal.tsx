@@ -24,7 +24,7 @@ import { useResumeLoad } from "../lib/useResumeLoad";
 import { supabase } from "../lib/supabase";
 import { useThemePref } from "../lib/themePreference";
 import { AppButton } from "../components/ui/app-button";
-import { fmtDate } from "../lib/utils/format";
+import { fmtDate, fmtDateEs } from "../lib/utils/format";
 import { HEADER_BG } from "../src/theme/headerColors";
 
 const BUCKET = "productos";
@@ -458,7 +458,7 @@ export default function ProductoModal() {
                 <View style={s.loteCard}>
                   <View style={{ flex: 1 }}>
                     <Text style={s.loteTitle}>{item.lote ?? "—"}</Text>
-                    <Text style={s.loteSub}>Exp: {fmtDate(item.fecha_exp)}</Text>
+                    <Text style={s.loteSub}>Exp: {fmtDateEs(item.fecha_exp)}</Text>
                   </View>
 
                   <View style={{ alignItems: "flex-end" }}>
