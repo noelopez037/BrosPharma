@@ -877,7 +877,13 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
         const curMonto = String(cur?.monto ?? "").trim();
         if (isValidMonto(curMonto)) continue;
 
-        const totalTipo = tipo === "IVA" ? totalIVA : totalEXENTO;
+        // Cuando adminSingleFactura está activo, la factura IVA cubre el total completo.
+        const totalTipo =
+          adminSingleFactura && tipo === "IVA" && requiredTipos.length === 1
+            ? total
+            : tipo === "IVA"
+            ? totalIVA
+            : totalEXENTO;
         if (!Number.isFinite(totalTipo) || totalTipo <= 0) continue;
 
         const autoMonto = sanitizeMontoDraftInput(Number(totalTipo).toFixed(2));
@@ -889,7 +895,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
 
       return next ?? prev;
     });
-  }, [facturaCurrentByTipo, montoTouched, requiredTipos, totalEXENTO, totalIVA, venta]);
+  }, [adminSingleFactura, facturaCurrentByTipo, montoTouched, requiredTipos, total, totalEXENTO, totalIVA, venta]);
 
   const facturaDraftComplete = useMemo(() => {
     if (!requiredTipos.length) return false;
@@ -1115,7 +1121,12 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
 
           let nextMonto = cur.monto;
           if (shouldAutoMonto) {
-            const totalTipo = tipo === "IVA" ? totalIVA : totalEXENTO;
+            const totalTipo =
+              adminSingleFactura && tipo === "IVA" && requiredTipos.length === 1
+                ? total
+                : tipo === "IVA"
+                ? totalIVA
+                : totalEXENTO;
             if (Number.isFinite(totalTipo) && totalTipo > 0) {
               nextMonto = sanitizeMontoDraftInput(Number(totalTipo).toFixed(2));
             }
@@ -1209,7 +1220,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
         setUploadingPdfTipo(null);
       }
     },
-    [canFacturar, facturaCurrentByTipo, montoTouched, totalEXENTO, totalIVA, uploadingPdfTipo, venta]
+    [adminSingleFactura, canFacturar, facturaCurrentByTipo, montoTouched, requiredTipos, total, totalEXENTO, totalIVA, uploadingPdfTipo, venta]
   );
 
   const openFacturaPdf = useCallback(
@@ -1311,6 +1322,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       const { error } = await supabase.rpc("rpc_venta_facturar", {
         p_venta_id: Number(venta.id),
         p_facturas: payload,
+        p_admin_single_iva: adminSingleFactura,
       });
       if (error) throw error;
 
@@ -1548,6 +1560,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
         const { error: fe } = await supabase.rpc("rpc_venta_facturar", {
           p_venta_id: Number(venta.id),
           p_facturas: payload,
+          p_admin_single_iva: adminSingleFactura,
         });
         if (fe) throw fe;
         await fetchFacturas();
