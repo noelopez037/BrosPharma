@@ -894,6 +894,38 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
+      if (type === "NOTA_VENTA_AGREGADA") {
+        const ventaId = coerceVentaId(row);
+        const adminTokens = await getTokensForAdmins();
+        const facturacionTokens = await getTokensForFacturacion();
+        const tokens = [...new Set([...adminTokens, ...facturacionTokens])];
+        console.log("[notif-dispatch] dispatch", type, "outbox", id, "tokens", tokens.length);
+
+        if (tokens.length > 0) {
+          const p = (payload && typeof payload === "object") ? (payload as JsonRecord) : {};
+          const autor   = typeof p.autor_nombre   === "string" ? p.autor_nombre.trim()   : "";
+          const nota    = typeof p.nota_contenido === "string" ? p.nota_contenido.trim() : "";
+          const cliente = typeof p.cliente_nombre === "string" ? p.cliente_nombre.trim() : "";
+          const body = `${autor} dice: ${nota}` + (cliente ? ` — venta de ${cliente}` : "");
+
+          const messages: ExpoPushMessage[] = tokens.map((to) => ({
+            to,
+            title: "Nueva nota en venta",
+            body,
+            sound: "default",
+            badge: 1,
+            data: { type: "NOTA_VENTA_AGREGADA", venta_id: ventaId, route: "/(drawer)/(tabs)/ventas" },
+          }));
+
+          const sendRes = await expoSend(messages);
+          if (!sendRes.ok) throw new Error(sendRes.error);
+        }
+
+        await sbRpc(ctx, "rpc_notif_outbox_mark_processed", { p_id: id });
+        result.processed++;
+        continue;
+      }
+
       // Unknown/unsupported type: mark processed to avoid stuck items.
       await sbRpc(ctx, "rpc_notif_outbox_mark_processed", { p_id: id });
       result.processed++;

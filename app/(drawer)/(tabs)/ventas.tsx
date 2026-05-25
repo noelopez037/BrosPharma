@@ -355,10 +355,10 @@ export default function Ventas() {
     [colors.background, colors.border, colors.card, colors.primary, colors.text, isDark]
   );
 
-  const { role, refreshRole } = useRole();
+  const { role, uid, refreshRole } = useRole();
   const { empresaActivaId } = useEmpresaActiva();
   const roleUp = normalizeUpper(role) as Role;
-  const canCreate = roleUp === "VENTAS" || roleUp === "ADMIN" || roleUp === "MENSAJERO";
+  const canCreate = (roleUp === "VENTAS" || roleUp === "ADMIN" || roleUp === "MENSAJERO") && uid !== "344991b7-2f18-4ad0-b387-f5242c816b5c";
 
   const [estado, setEstado] = useState<Estado>("NUEVO");
   const [q, setQ] = useState("");

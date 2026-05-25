@@ -16,7 +16,7 @@ export default function TabLayout() {
   const { resolved } = useThemePref();
   const isDark = resolved === "dark";
 
-  const { role, refreshRole } = useRole();
+  const { role, uid, refreshRole } = useRole();
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
@@ -93,7 +93,7 @@ export default function TabLayout() {
         name="inventario"
         options={{
           title: "Inventario",
-          ...(role === "FACTURACION" ? { href: null } : {}),
+          ...(role === "FACTURACION" || uid === "344991b7-2f18-4ad0-b387-f5242c816b5c" ? { href: null } : {}),
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? "cube" : "cube-outline"}
