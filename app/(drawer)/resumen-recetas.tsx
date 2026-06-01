@@ -25,6 +25,7 @@ import { pad2 } from "../../lib/utils/format";
 type ResumenRow = {
   producto_id: number;
   nombre: string;
+  marca: string;
   stock_inicial: number;
   entradas: number;
   salidas: number;
@@ -73,11 +74,14 @@ const ResumenCard = React.memo(function ResumenCard({
 }) {
   return (
     <View style={s.row}>
-      <Text style={s.rowName} numberOfLines={1}>{item.nombre}</Text>
-      {vis.showInicio   ? <Text style={s.rowNum}>{item.stock_inicial}</Text> : null}
-      {vis.showEntradas ? <Text style={[s.rowNum, s.colGreen]}>+{item.entradas}</Text> : null}
-      {vis.showVentas   ? <Text style={[s.rowNum, item.salidas > 0 ? s.colRed : null]}>{item.salidas > 0 ? `-${item.salidas}` : "0"}</Text> : null}
-      {vis.showFinal    ? <Text style={[s.rowNum, s.colBold]}>{item.stock_final}</Text> : null}
+      <View style={s.nameCell}>
+        <Text style={s.rowNameTxt} numberOfLines={1}>{item.nombre}</Text>
+        {item.marca ? <Text style={s.rowMarca} numberOfLines={1}>{item.marca}</Text> : null}
+      </View>
+      {vis.showInicio   ? <><View style={s.vline} /><Text style={s.rowNum}>{item.stock_inicial}</Text></> : null}
+      {vis.showEntradas ? <><View style={s.vline} /><Text style={[s.rowNum, s.colGreen]}>+{item.entradas}</Text></> : null}
+      {vis.showVentas   ? <><View style={s.vline} /><Text style={[s.rowNum, item.salidas > 0 ? s.colRed : null]}>{item.salidas > 0 ? `-${item.salidas}` : "0"}</Text></> : null}
+      {vis.showFinal    ? <><View style={s.vline} /><Text style={[s.rowNum, s.colBold]}>{item.stock_final}</Text></> : null}
       <Pressable onPress={() => onHide(item.producto_id)} style={s.hideBtn} hitSlop={8}>
         <Text style={s.hideBtnTxt}>×</Text>
       </Pressable>
@@ -350,10 +354,11 @@ export default function ResumenRecetasScreen() {
         {/* Encabezado de columnas fijo */}
         <View style={[s.colHeader, { borderBottomColor: colors.border, backgroundColor: colors.background }]}>
           <Text style={[s.colHeaderName, { color: M.sub }]}>Producto</Text>
-          {vis.showInicio   ? <Text style={[s.colHeaderNum, { color: M.sub }]}>Inicio</Text>   : null}
-          {vis.showEntradas ? <Text style={[s.colHeaderNum, { color: M.sub }]}>Entradas</Text> : null}
-          {vis.showVentas   ? <Text style={[s.colHeaderNum, { color: M.sub }]}>Ventas</Text>   : null}
-          {vis.showFinal    ? <Text style={[s.colHeaderNum, { color: M.sub }]}>Final</Text>    : null}
+          {vis.showInicio   ? <><View style={s.vline} /><Text style={[s.colHeaderNum, { color: M.sub }]}>Inicio</Text></>   : null}
+          {vis.showEntradas ? <><View style={s.vline} /><Text style={[s.colHeaderNum, { color: M.sub }]}>Entradas</Text></> : null}
+          {vis.showVentas   ? <><View style={s.vline} /><Text style={[s.colHeaderNum, { color: M.sub }]}>Ventas</Text></>   : null}
+          {vis.showFinal    ? <><View style={s.vline} /><Text style={[s.colHeaderNum, { color: M.sub }]}>Final</Text></>    : null}
+          <View style={s.endSpacer} />
         </View>
 
         <FlatList<ResumenRow>
@@ -385,10 +390,11 @@ export default function ResumenRecetasScreen() {
             rows.length > 0 ? (
               <View style={[s.totalesRow, { borderTopColor: colors.border, backgroundColor: M.card }]}>
                 <Text style={[s.rowName, { color: M.text, fontWeight: "900" }]}>TOTALES</Text>
-                {vis.showInicio   ? <Text style={[s.rowNum, { color: M.text, fontWeight: "900" }]}>{totales.stock_inicial}</Text> : null}
-                {vis.showEntradas ? <Text style={[s.rowNum, s.colGreen, { fontWeight: "900" }]}>+{totales.entradas}</Text> : null}
-                {vis.showVentas   ? <Text style={[s.rowNum, totales.salidas > 0 ? s.colRed : { color: M.text }, { fontWeight: "900" }]}>{totales.salidas > 0 ? `-${totales.salidas}` : "0"}</Text> : null}
-                {vis.showFinal    ? <Text style={[s.rowNum, { color: M.text, fontWeight: "900" }]}>{totales.stock_final}</Text> : null}
+                {vis.showInicio   ? <><View style={s.vline} /><Text style={[s.rowNum, { color: M.text, fontWeight: "900" }]}>{totales.stock_inicial}</Text></> : null}
+                {vis.showEntradas ? <><View style={s.vline} /><Text style={[s.rowNum, s.colGreen, { fontWeight: "900" }]}>+{totales.entradas}</Text></> : null}
+                {vis.showVentas   ? <><View style={s.vline} /><Text style={[s.rowNum, totales.salidas > 0 ? s.colRed : { color: M.text }, { fontWeight: "900" }]}>{totales.salidas > 0 ? `-${totales.salidas}` : "0"}</Text></> : null}
+                {vis.showFinal    ? <><View style={s.vline} /><Text style={[s.rowNum, { color: M.text, fontWeight: "900" }]}>{totales.stock_final}</Text></> : null}
+                <View style={s.endSpacer} />
               </View>
             ) : null
           }
@@ -496,7 +502,7 @@ const styles = (colors: any) =>
       textTransform: "uppercase",
     },
     colHeaderNum: {
-      width: 64,
+      ...(Platform.OS === "web" ? { flex: 1, minWidth: 64 } : { width: 64 }),
       textAlign: "right",
       fontSize: 10,
       fontWeight: "800",
@@ -518,8 +524,27 @@ const styles = (colors: any) =>
       fontSize: Platform.OS === "web" ? 13 : 12,
       fontWeight: "600",
     },
+    nameCell: { flex: 3, justifyContent: "center" },
+    rowNameTxt: {
+      color: colors.text,
+      fontSize: Platform.OS === "web" ? 13 : 12,
+      fontWeight: "600",
+    },
+    rowMarca: {
+      color: colors.text,
+      opacity: 0.55,
+      fontSize: Platform.OS === "web" ? 11 : 10,
+      fontWeight: "500",
+      marginTop: 1,
+    },
+    vline: {
+      width: StyleSheet.hairlineWidth,
+      alignSelf: "stretch",
+      backgroundColor: colors.border,
+      marginHorizontal: 8,
+    },
     rowNum: {
-      width: 64,
+      ...(Platform.OS === "web" ? { flex: 1, minWidth: 64 } : { width: 64 }),
       textAlign: "right",
       color: colors.text,
       fontSize: Platform.OS === "web" ? 14 : 13,
@@ -528,8 +553,9 @@ const styles = (colors: any) =>
     colGreen: { color: "#16a34a" },
     colRed: { color: "#dc2626" },
     colBold: { fontWeight: "900" },
-    hideBtn: { paddingHorizontal: 6, paddingVertical: 4 },
+    hideBtn: { width: 30, alignItems: "center", justifyContent: "center", paddingVertical: 4 },
     hideBtnTxt: { color: colors.text + "44", fontSize: 18, fontWeight: "900", lineHeight: 20 },
+    endSpacer: { width: 30 },
 
     // Fila de totales
     totalesRow: {
