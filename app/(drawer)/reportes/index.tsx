@@ -614,7 +614,7 @@ export default function ReportesScreen() {
 
       const { data, error } = await supabase.rpc("rpc_report_cxc_por_factura", {
         p_empresa_id: empresaActivaId,
-      });
+      }).range(0, 9999);
 
       if (error) throw error;
 
