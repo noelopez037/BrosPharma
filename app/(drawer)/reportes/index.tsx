@@ -612,11 +612,20 @@ export default function ReportesScreen() {
     try {
       if (!empresaActivaId) return;
 
-      const { data, error } = await supabase.rpc("rpc_report_cxc_por_factura", {
-        p_empresa_id: empresaActivaId,
-      }).range(0, 9999);
-
-      if (error) throw error;
+      const PAGE = 1000;
+      let allRows: CxcPorFacturaRow[] = [];
+      let page = 0;
+      while (true) {
+        const { data: pageData, error } = await supabase
+          .rpc("rpc_report_cxc_por_factura", { p_empresa_id: empresaActivaId })
+          .range(page * PAGE, (page + 1) * PAGE - 1);
+        if (error) throw error;
+        const rows = (pageData ?? []) as CxcPorFacturaRow[];
+        allRows = allRows.concat(rows);
+        if (rows.length < PAGE) break;
+        page++;
+      }
+      const data = allRows;
 
       const today = new Date();
       today.setHours(0, 0, 0, 0);
