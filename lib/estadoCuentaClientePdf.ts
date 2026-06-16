@@ -159,7 +159,14 @@ function buildEstadoCuentaHtml({ logoSrc, header, totals, rows }: { logoSrc: str
     return `<div style="page-break-before: always; break-before: page;">${tableHtml}</div>`;
   }
 
-  const chunks = chunkArray(filtered, 20);
+  const FIRST_PAGE_ROWS = 12;
+  const NEXT_PAGE_ROWS = 18;
+  const firstChunk = filtered.slice(0, FIRST_PAGE_ROWS);
+  const rest = filtered.slice(FIRST_PAGE_ROWS);
+  const chunks: RpcRow[][] = firstChunk.length > 0 ? [firstChunk] : [];
+  for (let i = 0; i < rest.length; i += NEXT_PAGE_ROWS) {
+    chunks.push(rest.slice(i, i + NEXT_PAGE_ROWS));
+  }
   const detalleHtml = chunks.map((chunk, i) => renderDetalleTable(chunk, i === 0)).join("");
 
   const emptyRows = filtered.length === 0;
