@@ -205,7 +205,7 @@ export default function CuentasPorCobrarScreen() {
     let alive = true;
     (async () => {
       try {
-        const { data, error } = await supabase.rpc("rpc_cxc_vendedores", { p_empresa_id: empresaActivaId });
+        const { data, error } = await supabase.rpc("rpc_cxc_vendedores", { p_empresa_id: empresaActivaId }).range(0, 99999);
         if (error) {
           if (alive) setVendedores([]);
           return;
@@ -240,7 +240,7 @@ export default function CuentasPorCobrarScreen() {
         if (error || !data || (data as any[]).length === 0) {
           // fallback: derive distinct clientes from CxC RPC
           try {
-            const { data: vdata, error: verr } = await supabase.rpc("rpc_cxc_ventas", { p_empresa_id: empresaActivaId });
+            const { data: vdata, error: verr } = await supabase.rpc("rpc_cxc_ventas", { p_empresa_id: empresaActivaId }).range(0, 99999);
             if (verr) {
               if (alive) setClientes([]);
               return;
@@ -281,7 +281,7 @@ export default function CuentasPorCobrarScreen() {
   const fetchRows = useCallback(async (): Promise<CxCRow[]> => {
     if (!uid) return [];
 
-    const { data, error } = await supabase.rpc("rpc_cxc_ventas", { p_empresa_id: empresaActivaId });
+    const { data, error } = await supabase.rpc("rpc_cxc_ventas", { p_empresa_id: empresaActivaId }).range(0, 99999);
 
     if (error) throw error;
     return (data ?? []) as CxCRow[];
