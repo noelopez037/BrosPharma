@@ -23,7 +23,7 @@ import { supabase } from "../lib/supabase";
 import { useRole } from "../lib/useRole";
 import { useEmpresaActiva } from "../lib/useEmpresaActiva";
 import { goBackSafe } from "../lib/goBackSafe";
-import { normalizeUpper, safeIlike } from "../lib/utils/text";
+import { normalizeUpper, normalizeSearch, safeIlike } from "../lib/utils/text";
 import { getHeaderColors } from "../src/theme/headerColors";
 import { onAppResumed } from "../lib/resumeEvents";
 
@@ -115,8 +115,8 @@ export default function SelectCliente() {
 
       const search = q.trim();
       if (search) {
-        const safe = safeIlike(search);
-        req = req.or(`nombre.ilike.%${safe}%,nit.ilike.%${safe}%,telefono.ilike.%${safe}%`);
+        const safe = safeIlike(normalizeSearch(search));
+        req = req.or(`nombre_normalizado.ilike.%${safe}%,nit.ilike.%${safe}%,telefono.ilike.%${safe}%`);
       }
 
       // VENTAS: solo clientes asignados al vendedor

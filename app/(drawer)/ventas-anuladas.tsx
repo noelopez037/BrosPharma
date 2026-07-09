@@ -16,7 +16,7 @@ import { useRole } from "../../lib/useRole";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../lib/useResumeLoad";
 import { fmtDateLongEs, toGTDateKey } from "../../lib/utils/format";
-import { normalizeUpper, safeIlike } from "../../lib/utils/text";
+import { normalizeUpper, normalizeSearch, safeIlike } from "../../lib/utils/text";
 
 type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "MENSAJERO" | "";
 
@@ -218,7 +218,7 @@ export default function VentasAnuladasScreen() {
         .select("id,nombre")
         .eq("empresa_id", empresaActivaId)
         .eq("activo", true)
-        .ilike("nombre", `%${safeIlike(term)}%`)
+        .ilike("nombre_normalizado", `%${safeIlike(normalizeSearch(term))}%`)
         .limit(20);
       if ((normalizeUpper(role) === "VENTAS" || normalizeUpper(role) === "MENSAJERO") && uid) {
         req = req.eq("vendedor_id", uid);
@@ -301,13 +301,13 @@ export default function VentasAnuladasScreen() {
   };
 
   const rows = useMemo(() => {
-    const search = q.trim().toLowerCase();
+    const search = normalizeSearch(q);
     const hasSearch = Boolean(search);
 
     return rowsRaw.filter((r) => {
       const id = String(r.id);
-      const cliente = String(r.cliente_nombre ?? "").toLowerCase();
-      const vcode = String(r.vendedor_codigo ?? "").toLowerCase();
+      const cliente = normalizeSearch(r.cliente_nombre);
+      const vcode = normalizeSearch(r.vendedor_codigo);
 
       // basic text search (id, cliente, vendedor) - optional
       const textMatch = hasSearch ? id.includes(search) || cliente.includes(search) || vcode.includes(search) : true;
@@ -315,7 +315,7 @@ export default function VentasAnuladasScreen() {
 
       // cliente filter
       if (fClienteId && fClienteNombre) {
-        if (!String(r.cliente_nombre ?? "").toLowerCase().includes(fClienteNombre.toLowerCase())) return false;
+        if (!normalizeSearch(r.cliente_nombre).includes(normalizeSearch(fClienteNombre))) return false;
       }
 
       // fecha range filter using Date objects

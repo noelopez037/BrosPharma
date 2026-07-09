@@ -27,7 +27,7 @@ import { useRole } from "../../../lib/useRole";
 import { useEmpresaActiva } from "../../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../../lib/useResumeLoad";
 import { onVentaEstadoChanged, emitVentaEstadoChanged } from "../../../lib/ventaEstadoEvents";
-import { normalizeUpper, safeIlike } from "../../../lib/utils/text";
+import { normalizeUpper, normalizeSearch, safeIlike } from "../../../lib/utils/text";
 import { fmtDate, toGTDateKey, fmtDateEs } from "../../../lib/utils/format";
 import { FB_DARK_DANGER } from "../../../src/theme/headerColors";
 
@@ -453,7 +453,7 @@ export default function Ventas() {
             .from("ventas_detalle")
             .select("venta_id, productos!inner(nombre)")
             .eq("empresa_id", empresaActivaId)
-            .ilike("productos.nombre", `%${safeIlike(trimmed)}%`),
+            .ilike("productos.nombre_normalizado", `%${safeIlike(normalizeSearch(trimmed))}%`),
         ]);
         const facturaVentaIds = (facturaMatches ?? []).map((f: any) => f.venta_id as number);
         const productoVentaIds = (productoMatches ?? []).map((d: any) => d.venta_id as number);
@@ -461,7 +461,7 @@ export default function Ventas() {
         // Construir el filtro OR: nombre de cliente + facturas + productos + id exacto si es numérico
         const isNumeric = /^\d+$/.test(trimmed);
         const extraIds = [...new Set([...facturaVentaIds, ...productoVentaIds])];
-        const orParts = [`cliente_nombre.ilike.%${safeIlike(trimmed)}%`];
+        const orParts = [`cliente_nombre_normalizado.ilike.%${safeIlike(normalizeSearch(trimmed))}%`];
         if (isNumeric) orParts.push(`id.eq.${trimmed}`);
         if (extraIds.length > 0) orParts.push(`id.in.(${extraIds.join(",")})`);
 
@@ -925,13 +925,13 @@ export default function Ventas() {
       // El filtro de texto ya lo hizo el servidor; solo aplicar filtro local cuando no hay búsqueda
       if (searchRows !== null) return true;
 
-      const search = debouncedQ.trim().toLowerCase();
+      const search = normalizeSearch(debouncedQ);
       if (!search) return true;
 
       const id = String(r.id);
-      const cliente = String(r.cliente_nombre ?? "").toLowerCase();
-      const vcode = String(r.vendedor_codigo ?? "").toLowerCase();
-      const facturas = (activeFacturasByVenta[String(r.id)] ?? []).map((x) => String(x ?? "").toLowerCase());
+      const cliente = normalizeSearch(r.cliente_nombre);
+      const vcode = normalizeSearch(r.vendedor_codigo);
+      const facturas = (activeFacturasByVenta[String(r.id)] ?? []).map((x) => normalizeSearch(x));
       const searchDigits = search.replace(/\D+/g, "");
       const facturaMatch =
         facturas.some((n) => n.includes(search)) ||
@@ -943,10 +943,10 @@ export default function Ventas() {
   }, [debouncedQ, rowsRaw, searchRows, activeTagsByVenta, activeFacturasByVenta, fClienteId, fDesde, fHasta]);
 
   const filteredClientes = useMemo(() => {
-    const qq = (fClienteQ ?? "").trim().toLowerCase();
+    const qq = normalizeSearch(fClienteQ);
     if (!qq) return clientes;
     return (clientes ?? []).filter(
-      (c) => String(c.nombre ?? "").toLowerCase().includes(qq) || String(c.id ?? "").includes(qq)
+      (c) => normalizeSearch(c.nombre).includes(qq) || String(c.id ?? "").includes(qq)
     );
   }, [clientes, fClienteQ]);
 

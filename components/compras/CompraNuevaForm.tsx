@@ -18,7 +18,7 @@ import { useCompraDraft } from "../../lib/compraDraft";
 import { supabase } from "../../lib/supabase";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useRole } from "../../lib/useRole";
-import { safeIlike } from "../../lib/utils/text";
+import { normalizeSearch, safeIlike } from "../../lib/utils/text";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -294,7 +294,7 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
         .from("proveedores")
         .select("id,nombre,telefono")
         .eq("empresa_id", empresaActivaId)
-        .ilike("nombre", `%${safeIlike(term)}%`)
+        .ilike("nombre_normalizado", `%${safeIlike(normalizeSearch(term))}%`)
         .eq("activo", true)
         .limit(20);
       setProvResults(data ?? []);
@@ -325,7 +325,7 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
         .select("id,nombre,marca_id,marcas(nombre)")
         .eq("empresa_id", empresaActivaId)
         .eq("activo", true)
-        .ilike("nombre", `%${safeIlike(term)}%`)
+        .ilike("nombre_normalizado", `%${safeIlike(normalizeSearch(term))}%`)
         .limit(20);
       setProdResultsByKey((prev) => ({ ...prev, [lineKey]: data ?? [] }));
     } catch {
@@ -985,11 +985,11 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
                             <ScrollView style={{ maxHeight: 150 }} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
                               {brandQ.trim().length < 2 ? (
                                 <Text style={[styles.dropdownMsg, { color: C.sub }]}>Escribe para buscar...</Text>
-                              ) : marcas.filter((m) => m.nombre.toLowerCase().includes(brandQ.trim().toLowerCase())).length === 0 ? (
+                              ) : marcas.filter((m) => normalizeSearch(m.nombre).includes(normalizeSearch(brandQ))).length === 0 ? (
                                 <Text style={[styles.dropdownMsg, { color: C.sub }]}>Sin resultados</Text>
                               ) : (
                                 marcas
-                                  .filter((m) => m.nombre.toLowerCase().includes(brandQ.trim().toLowerCase()))
+                                  .filter((m) => normalizeSearch(m.nombre).includes(normalizeSearch(brandQ)))
                                   .map((m) => (
                                     <Pressable
                                       key={String(m.id)}
@@ -1033,7 +1033,7 @@ export function CompraNuevaForm({ onDone, editId, isDark, colors: C, canCreate }
                                       .from("marcas")
                                       .select("id, nombre")
                                       .eq("empresa_id", empresaActivaId)
-                                      .ilike("nombre", nm)
+                                      .ilike("nombre_normalizado", normalizeSearch(nm))
                                       .maybeSingle();
                                     if (existing) {
                                       setNewProdMarcaId(Number(existing.id));

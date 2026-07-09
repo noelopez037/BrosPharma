@@ -26,7 +26,7 @@ import { useRole } from "../../lib/useRole";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../lib/useResumeLoad";
 import { fmtQ, fmtDateLongEs, toGTDateKey } from "../../lib/utils/format";
-import { normalizeUpper } from "../../lib/utils/text";
+import { normalizeUpper, normalizeSearch } from "../../lib/utils/text";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
 type CxCRow = {
@@ -273,9 +273,9 @@ export default function CuentasPorCobrarScreen() {
   }, [empresaActivaId]);
 
   const filteredClientes = useMemo(() => {
-    const q = (fClienteQ ?? "").trim().toLowerCase();
+    const q = normalizeSearch(fClienteQ);
     if (!q) return [];
-    return (clientes ?? []).filter((c) => String(c.nombre ?? "").toLowerCase().includes(q) || String(c.id ?? "").includes(q));
+    return (clientes ?? []).filter((c) => normalizeSearch(c.nombre).includes(q) || String(c.id ?? "").includes(q));
   }, [clientes, fClienteQ]);
 
   const fetchRows = useCallback(async (): Promise<CxCRow[]> => {
@@ -394,13 +394,13 @@ export default function CuentasPorCobrarScreen() {
     });
 
     if (dq) {
-      const qlow = dq.toLowerCase();
+      const qlow = normalizeSearch(dq);
       result = result.filter((r) => {
-        if ((r.cliente_nombre ?? "").toLowerCase().includes(qlow)) return true;
+        if (normalizeSearch(r.cliente_nombre).includes(qlow)) return true;
         const facturas = Array.isArray(r.facturas) ? r.facturas.map(String) : [];
-        if (facturas.some((f) => f.toLowerCase().includes(qlow))) return true;
+        if (facturas.some((f) => normalizeSearch(f).includes(qlow))) return true;
         const prods = Array.isArray(r.productos) ? r.productos.map(String) : [];
-        return prods.some((p) => p.toLowerCase().includes(qlow));
+        return prods.some((p) => normalizeSearch(p).includes(qlow));
       });
     }
 

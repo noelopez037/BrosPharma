@@ -19,7 +19,7 @@ import { alphaColor } from "../../../lib/ui";
 import { useRole } from "../../../lib/useRole";
 import { useEmpresaActiva } from "../../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../../lib/useResumeLoad";
-import { fmtQ, fmtDate, pad2, toGTDateKey, fmtDateEsGT } from "../../../lib/utils/format";
+import { fmtQ, fmtDate, pad2, fmtDateEsGT } from "../../../lib/utils/format";
 import { normalizeUpper } from "../../../lib/utils/text";
 import { FB_DARK_DANGER } from "../../../src/theme/headerColors";
 
@@ -658,136 +658,21 @@ export default function Inicio() {
   }, []);
 
   const loadVentas = useCallback(async (userId: string, empresaId: number): Promise<VentasData> => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const inicioAno = new Date(year, 0, 1).toISOString();
-    const finAno = new Date(year + 1, 0, 1).toISOString();
-    const hoyStr = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Guatemala" }).format(now);
+    // 1. Totales del vendedor (ventas de hoy, clientes activos, ventas por mes) calculados en el servidor
+    const [dashResp, cxcResp] = await Promise.all([
+      supabase.rpc("rpc_dashboard_ventas", { p_empresa_id: empresaId, p_vendedor_id: userId }),
+      supabase.rpc("rpc_cxc_ventas", { p_empresa_id: empresaId }),
+    ]);
+    if (dashResp.error) throw dashResp.error;
+    const d = dashResp.data as any;
 
-    // 1. Ventas del año para calcular misVentasHoy y el gráfico de 12 meses
-    const { data: ventasAnoRaw, error: v1Err } = await supabase
-      .from("ventas")
-      .select("id, fecha")
-      .eq("empresa_id", empresaId)
-      .eq("vendedor_id", userId)
-      .gte("fecha", inicioAno)
-      .lt("fecha", finAno);
-    if (v1Err) throw v1Err;
+    const misVentasHoy = Number(d?.ventas_hoy ?? 0);
+    const misClientesCount = Number(d?.clientes_activos ?? 0);
+    const ventasMes = Array.from({ length: 12 }, (_, i) => Number(d?.ventas_por_mes?.[i] ?? 0));
 
-    // Excluir ventas con tag ANULADO activo (el sistema usa tags, no el campo estado)
-    const rawIds = (ventasAnoRaw ?? []).map((v: any) => Number(v.id));
-    let anuladasIds = new Set<number>();
-    if (rawIds.length > 0) {
-      const { data: tagsAnuladas } = await supabase
-        .from("ventas_tags")
-        .select("venta_id")
-        .eq("empresa_id", empresaId)
-        .in("venta_id", rawIds)
-        .eq("tag", "ANULADO")
-        .is("removed_at", null);
-      (tagsAnuladas ?? []).forEach((t: any) => anuladasIds.add(Number(t.venta_id)));
-    }
-    const ventasAno = (ventasAnoRaw ?? []).filter((v: any) => !anuladasIds.has(Number(v.id)));
-
-    const misVentasHoy = ventasAno.filter(
-      (v: any) => toGTDateKey(v.fecha ?? "") === hoyStr
-    ).length;
-
-    const ventasIds = ventasAno.map((v: any) => Number(v.id));
-
-    // 2. Detalle de ventas para sumar por mes (gráfico)
-    const ventasMes = new Array<number>(12).fill(0);
-    if (ventasIds.length > 0) {
-      const { data: detalles } = await supabase
-        .from("ventas_detalle")
-        .select("venta_id, subtotal")
-        .eq("empresa_id", empresaId)
-        .in("venta_id", ventasIds);
-
-      const fechaMap: Record<number, string> = {};
-      (ventasAno ?? []).forEach((v: any) => {
-        fechaMap[Number(v.id)] = String(v.fecha ?? "");
-      });
-
-      (detalles ?? []).forEach((d: any) => {
-        const fecha = fechaMap[Number(d.venta_id)];
-        if (!fecha) return;
-        const m = new Date(`${toGTDateKey(fecha) || fecha.slice(0, 10)}T12:00:00`).getMonth(); // 0-indexed, GT
-        if (m >= 0 && m < 12) ventasMes[m] += Number(d.subtotal ?? 0);
-      });
-    }
-
-    // 3. Clientes activos de este vendedor
-    const { count: clientesCount } = await supabase
-      .from("clientes")
-      .select("id", { count: "exact", head: true })
-      .eq("empresa_id", empresaId)
-      .eq("vendedor_id", userId)
-      .eq("activo", true);
-
-    // 4. CxC saldo pendiente de mis clientes
-    const { data: misClientes } = await supabase
-      .from("clientes")
-      .select("id")
-      .eq("empresa_id", empresaId)
-      .eq("vendedor_id", userId)
-      .eq("activo", true);
-
-    const misClientesIds = (misClientes ?? []).map((c: any) => Number(c.id));
-    let cxcSaldo = 0;
-
-    if (misClientesIds.length > 0) {
-      const { data: ventasCxCRaw } = await supabase
-        .from("ventas")
-        .select("id")
-        .eq("empresa_id", empresaId)
-        .in("cliente_id", misClientesIds);
-
-      const cxcRawIds = (ventasCxCRaw ?? []).map((v: any) => Number(v.id));
-      let cxcAnuladasIds = new Set<number>();
-      if (cxcRawIds.length > 0) {
-        const { data: cxcTags } = await supabase
-          .from("ventas_tags")
-          .select("venta_id")
-          .eq("empresa_id", empresaId)
-          .in("venta_id", cxcRawIds)
-          .eq("tag", "ANULADO")
-          .is("removed_at", null);
-        (cxcTags ?? []).forEach((t: any) => cxcAnuladasIds.add(Number(t.venta_id)));
-      }
-      const ventasCxCIds = cxcRawIds.filter((id) => !cxcAnuladasIds.has(id));
-
-      if (ventasCxCIds.length > 0) {
-        const { data: facturas } = await supabase
-          .from("ventas_facturas")
-          .select("id, monto_total")
-          .eq("empresa_id", empresaId)
-          .in("venta_id", ventasCxCIds);
-
-        const facturasIds = (facturas ?? []).map((f: any) => Number(f.id));
-        let pagados = 0;
-
-        if (facturasIds.length > 0) {
-          const { data: pagos } = await supabase
-            .from("ventas_pagos")
-            .select("factura_id, monto")
-            .eq("empresa_id", empresaId)
-            .in("factura_id", facturasIds);
-          pagados = (pagos ?? []).reduce(
-            (acc: number, p: any) => acc + Number(p.monto ?? 0), 0
-          );
-        }
-
-        const totalFacturado = (facturas ?? []).reduce(
-          (acc: number, f: any) => acc + Number(f.monto_total ?? 0), 0
-        );
-        cxcSaldo = Math.max(0, totalFacturado - pagados);
-      }
-    }
-
-    // 5. CxC vencidas y por vencer de mis clientes
-    const cxcResp = await supabase.rpc("rpc_cxc_ventas", { p_empresa_id: empresaId });
+    // 2. CxC de mis clientes (saldo, vencidas, por vencer) — ya viene filtrado por vendedor en el servidor
     const cxcRows = (cxcResp.data ?? []) as any[];
+    const cxcSaldo = cxcRows.reduce((acc: number, r: any) => acc + Number(r.saldo ?? 0), 0);
 
     const cxcVencidas: CxcVencidaRow[] = cxcRows
       .filter((r) => {
@@ -824,7 +709,7 @@ export default function Inicio() {
 
     return {
       misVentasHoy,
-      misClientesCount: clientesCount ?? 0,
+      misClientesCount,
       recetasPendMes: 0,
       recetasPendList: [],
       ventasMes,

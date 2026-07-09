@@ -23,7 +23,7 @@ import { KeyboardAwareModal } from "../components/ui/keyboard-aware-modal";
 import { DoneAccessory } from "../components/ui/done-accessory";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
 import { goBackSafe } from "../lib/goBackSafe";
-import { normalizeUpper } from "../lib/utils/text";
+import { normalizeUpper, normalizeSearch } from "../lib/utils/text";
 import { FB_DARK_DANGER } from "../src/theme/headerColors";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "MENSAJERO" | "";
@@ -95,10 +95,10 @@ export default function ClienteForm() {
   const [vendQuery, setVendQuery] = useState("");
 
   const vendedoresFiltrados = useMemo(() => {
-    const q = vendQuery.trim().toLowerCase();
+    const q = normalizeSearch(vendQuery);
     if (!q) return vendedores;
     return vendedores.filter((v) => {
-      const name = String(v.full_name ?? "").toLowerCase();
+      const name = normalizeSearch(v.full_name);
       return name.includes(q) || v.id.toLowerCase().includes(q);
     });
   }, [vendQuery, vendedores]);

@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import { AppButton } from "../ui/app-button";
 import { supabase } from "../../lib/supabase";
+import { normalizeSearch } from "../../lib/utils/text";
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
@@ -139,10 +140,10 @@ export function ClienteFormInline({
   }, [vendedorId, vendedores]);
 
   const vendedoresFiltrados = useMemo(() => {
-    const q = vendQuery.trim().toLowerCase();
+    const q = normalizeSearch(vendQuery);
     if (!q) return vendedores;
     return vendedores.filter((v) => {
-      const name = String(v.full_name ?? "").toLowerCase();
+      const name = normalizeSearch(v.full_name);
       return name.includes(q) || v.id.toLowerCase().includes(q);
     });
   }, [vendQuery, vendedores]);

@@ -40,7 +40,7 @@ import { useResumeLoad } from "../../lib/useResumeLoad";
 import { CompraDetallePanel } from "../../components/compras/CompraDetallePanel";
 import { CompraNuevaModal } from "../../components/compras/CompraNuevaModal";
 import { fmtQ, fmtDateLongEs, toGTDateKey, fmtDateEs, fmtDateEsGT } from "../../lib/utils/format";
-import { normalizeUpper, safeIlike } from "../../lib/utils/text";
+import { normalizeUpper, normalizeSearch, safeIlike } from "../../lib/utils/text";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
 
@@ -325,17 +325,17 @@ export default function ComprasScreen() {
       .order("fecha", { ascending: false });
 
     if (dq) {
-      const safe = safeIlike(dq);
+      const safe = safeIlike(normalizeSearch(dq));
       let productIds: number[] = [];
       const { data: pdRows } = await supabase
         .from("compras_detalle")
         .select("compra_id, productos!inner(nombre)")
         .eq("empresa_id", empresaActivaId)
-        .ilike("productos.nombre", `%${safe}%`);
+        .ilike("productos.nombre_normalizado", `%${safe}%`);
       if (pdRows?.length) {
         productIds = [...new Set(pdRows.map((r: any) => r.compra_id as number))];
       }
-      const orParts = [`proveedor.ilike.%${safe}%`, `numero_factura.ilike.%${safe}%`];
+      const orParts = [`proveedor_normalizado.ilike.%${safe}%`, `numero_factura.ilike.%${safe}%`];
       if (productIds.length) orParts.push(`id.in.(${productIds.join(",")})`);
       req = req.or(orParts.join(","));
     }
@@ -485,9 +485,9 @@ export default function ComprasScreen() {
   }, [fProveedorId, proveedores]);
 
   const filteredProveedores = useMemo(() => {
-    const q = fProveedorQ.trim().toLowerCase();
+    const q = normalizeSearch(fProveedorQ);
     if (!q) return [];
-    return proveedores.filter((p) => p.nombre.toLowerCase().includes(q));
+    return proveedores.filter((p) => normalizeSearch(p.nombre).includes(q));
   }, [proveedores, fProveedorQ]);
 
   const openDesdePicker = () => {

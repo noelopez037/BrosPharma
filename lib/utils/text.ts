@@ -11,3 +11,12 @@ export function safeIlike(input: string): string {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+/** Quita tildes/diacríticos y pasa a minúsculas, para comparar texto de forma insensible a acentos. */
+export function normalizeSearch(v: string | number | null | undefined): string {
+  return String(v ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .trim();
+}

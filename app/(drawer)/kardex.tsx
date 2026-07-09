@@ -26,7 +26,7 @@ import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useRole } from "../../lib/useRole";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../lib/useResumeLoad";
-import { normalizeUpper, safeIlike } from "../../lib/utils/text";
+import { normalizeUpper, normalizeSearch, safeIlike } from "../../lib/utils/text";
 
 type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "MENSAJERO" | "";
 
@@ -228,7 +228,7 @@ export default function KardexScreen() {
       if (dProdQ) {
         // intenta por nombre o marca
         const q = dProdQ.replace(/,/g, " ").trim();
-        if (q) { const safe = safeIlike(q); req = req.or(`nombre.ilike.%${safe}%,marca.ilike.%${safe}%`); }
+        if (q) { const safe = safeIlike(normalizeSearch(q)); req = req.or(`nombre_normalizado.ilike.%${safe}%,marca_normalizado.ilike.%${safe}%`); }
       }
 
       const { data, error } = await req;

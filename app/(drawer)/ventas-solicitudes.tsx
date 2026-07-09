@@ -28,7 +28,7 @@ import { useGoHomeOnBack } from "../../lib/useGoHomeOnBack";
 import { useRole } from "../../lib/useRole";
 import { useResumeLoad } from "../../lib/useResumeLoad";
 import { fmtQ, fmtDateTime } from "../../lib/utils/format";
-import { normalizeUpper } from "../../lib/utils/text";
+import { normalizeUpper, normalizeSearch } from "../../lib/utils/text";
 import { FB_DARK_DANGER } from "../../src/theme/headerColors";
 
 type Role = "ADMIN" | "VENTAS" | "BODEGA" | "FACTURACION" | "MENSAJERO" | "";
@@ -459,22 +459,22 @@ export default function VentasSolicitudesScreen() {
   }, [rowsRaw, pagosPendientesRaw]);
 
   const filteredItems = useMemo<UnifiedItem[]>(() => {
-    const search = q.trim().toLowerCase();
+    const search = normalizeSearch(q);
     if (!search) return unifiedItems;
     return unifiedItems.filter((item) => {
       if (item.kind === "solicitud") {
         const r = item.data;
         return (
           String(r.venta_id ?? "").includes(search) ||
-          String(r.cliente_nombre ?? "").toLowerCase().includes(search) ||
-          String(r.solicitud_nota ?? "").toLowerCase().includes(search)
+          normalizeSearch(r.cliente_nombre).includes(search) ||
+          normalizeSearch(r.solicitud_nota).includes(search)
         );
       } else {
         const p = item.data;
         return (
           String(p.venta_id ?? "").includes(search) ||
-          String(p.referencia ?? "").toLowerCase().includes(search) ||
-          String(p.comentario ?? "").toLowerCase().includes(search)
+          normalizeSearch(p.referencia).includes(search) ||
+          normalizeSearch(p.comentario).includes(search)
         );
       }
     });

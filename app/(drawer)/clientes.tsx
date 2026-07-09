@@ -22,7 +22,7 @@ import { useRole } from "../../lib/useRole";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../lib/useResumeLoad";
 import { ClienteDetallePanel } from "../../components/clientes/ClienteDetallePanel";
-import { normalizeUpper, safeIlike } from "../../lib/utils/text";
+import { normalizeUpper, normalizeSearch, safeIlike } from "../../lib/utils/text";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "MENSAJERO" | "";
 
@@ -200,7 +200,7 @@ export default function ClientesScreen() {
     const isAdminNow = effectiveRoleUp === "ADMIN";
     const isVentasNow = effectiveRoleUp === "VENTAS" || effectiveRoleUp === "MENSAJERO";
 
-    const safeSearch = dq ? safeIlike(dq) : "";
+    const safeSearch = dq ? safeIlike(normalizeSearch(dq)) : "";
 
     rawOffsetRef.current = 0;
 
@@ -226,7 +226,7 @@ export default function ClientesScreen() {
 
       if (includeSearch && safeSearch) {
         req = req.or(
-          `nombre.ilike.%${safeSearch}%,nit.ilike.%${safeSearch}%,telefono.ilike.%${safeSearch}%`
+          `nombre_normalizado.ilike.%${safeSearch}%,nit.ilike.%${safeSearch}%,telefono.ilike.%${safeSearch}%`
         );
       }
 

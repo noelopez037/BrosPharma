@@ -32,7 +32,7 @@ import { useRole } from "../lib/useRole";
 import { useEmpresaActiva } from "../lib/useEmpresaActiva";
 import { extFromUri, mimeFromExt, uriToArrayBuffer } from "../lib/utils/file";
 import { fmtQ, parseIntSafe, parseDecimalSafe } from "../lib/utils/format";
-import { normalizeUpper, safeIlike } from "../lib/utils/text";
+import { normalizeUpper, normalizeSearch, safeIlike } from "../lib/utils/text";
 import { FB_DARK_DANGER } from "../src/theme/headerColors";
 
 const BUCKET_VENTAS_DOCS = "Ventas-Docs";
@@ -197,7 +197,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
         .from("clientes")
         .select("id,nombre,nit,telefono,direccion")
         .eq("empresa_id", empresaActivaId)
-        .ilike("nombre", `%${safeIlike(term)}%`)
+        .ilike("nombre_normalizado", `%${safeIlike(normalizeSearch(term))}%`)
         .limit(20);
       setClienteDropResults(data ?? []);
     } catch {
@@ -221,7 +221,7 @@ export default function VentaNuevaScreen({ onDone }: { onDone?: () => void } = {
         .select("id,nombre,marca,stock_disponible,precio_min_venta,tiene_iva,requiere_receta")
         .eq("empresa_id", empresaActivaId)
         .eq("activo", true)
-        .ilike("nombre", `%${safeIlike(term)}%`)
+        .ilike("nombre_normalizado", `%${safeIlike(normalizeSearch(term))}%`)
         .limit(20);
       const rows = data ?? [];
       // Sort: in-stock first, out-of-stock at the bottom (stable within each group)

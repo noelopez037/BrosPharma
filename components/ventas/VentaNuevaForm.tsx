@@ -25,7 +25,7 @@ import { useRole } from "../../lib/useRole";
 import { generarCotizacionPdf } from "../../lib/cotizacionPdf";
 import { extFromUri, mimeFromExt, uriToArrayBuffer } from "../../lib/utils/file";
 import { fmtQ, parseIntSafe, parseDecimalSafe } from "../../lib/utils/format";
-import { safeIlike } from "../../lib/utils/text";
+import { normalizeSearch, safeIlike } from "../../lib/utils/text";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -315,7 +315,7 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
         .from("clientes")
         .select("id,nombre,nit,telefono,direccion")
         .eq("empresa_id", empresaActivaId)
-        .ilike("nombre", `%${safeIlike(term)}%`)
+        .ilike("nombre_normalizado", `%${safeIlike(normalizeSearch(term))}%`)
         .limit(20);
 
       if (isVentas) {
@@ -345,7 +345,7 @@ export function VentaNuevaForm({ onDone, onCancel, isDark, colors: C, canCreate,
         .select("id,nombre,marca,stock_disponible,precio_min_venta,tiene_iva,requiere_receta")
         .eq("empresa_id", empresaActivaId)
         .eq("activo", true)
-        .ilike("nombre", `%${safeIlike(term)}%`)
+        .ilike("nombre_normalizado", `%${safeIlike(normalizeSearch(term))}%`)
         .limit(20);
       const rows = data ?? [];
       const inStock = rows.filter((p: any) => Number(p.stock_disponible ?? 0) > 0);

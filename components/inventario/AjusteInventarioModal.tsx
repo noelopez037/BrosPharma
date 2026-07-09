@@ -16,7 +16,7 @@ import { AppButton } from "../ui/app-button";
 import { supabase } from "../../lib/supabase";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { invalidate as invalidateProductoCache } from "../../lib/productoCache";
-import { safeIlike } from "../../lib/utils/text";
+import { normalizeSearch, safeIlike } from "../../lib/utils/text";
 import { fmtDate, fmtDateEs } from "../../lib/utils/format";
 
 type Tipo = "MERMA" | "AJUSTE_SALIDA" | "AJUSTE_ENTRADA";
@@ -217,8 +217,8 @@ export function AjusteInventarioModal({
         .limit(40);
 
       if (debouncedQ) {
-        const safe = safeIlike(debouncedQ);
-        req = req.or(`nombre.ilike.%${safe}%,marca.ilike.%${safe}%`);
+        const safe = safeIlike(normalizeSearch(debouncedQ));
+        req = req.or(`nombre_normalizado.ilike.%${safe}%,marca_normalizado.ilike.%${safe}%`);
       }
 
       const { data, error } = await req;

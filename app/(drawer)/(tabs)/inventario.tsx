@@ -20,7 +20,7 @@ import { AjusteInventarioModal } from "../../../components/inventario/AjusteInve
 import { useRole } from "../../../lib/useRole";
 import { useEmpresaActiva } from "../../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../../lib/useResumeLoad";
-import { safeIlike } from "../../../lib/utils/text";
+import { normalizeSearch, safeIlike } from "../../../lib/utils/text";
 
 type Row = {
   id: number;
@@ -155,8 +155,8 @@ export default function InventarioScreen() {
       }
 
       if (isSearching) {
-        const safe = safeIlike(debouncedQ);
-        req = req.or(`nombre.ilike.%${safe}%,marca.ilike.%${safe}%`);
+        const safe = safeIlike(normalizeSearch(debouncedQ));
+        req = req.or(`nombre_normalizado.ilike.%${safe}%,marca_normalizado.ilike.%${safe}%`);
       }
 
       const { data, error } = await req;

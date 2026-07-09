@@ -24,7 +24,7 @@ import { AppButton } from "../components/ui/app-button";
 import { KeyboardAwareModal } from "../components/ui/keyboard-aware-modal";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
 import { goBackSafe } from "../lib/goBackSafe";
-import { safeIlike } from "../lib/utils/text";
+import { normalizeSearch, safeIlike } from "../lib/utils/text";
 import { onAppResumed } from "../lib/resumeEvents";
 
 type Marca = { id: number; nombre: string };
@@ -97,7 +97,7 @@ function SelectProductoCompra({ lineKey }: { lineKey: string }) {
     setLoadError(null);
     try {
       let query = supabase.from("productos").select("id,nombre,marca_id,activo").eq("empresa_id", empresaActivaId).eq("activo", true).order("nombre", { ascending: true }).limit(300);
-      if (q.trim()) query = query.or(`nombre.ilike.%${safeIlike(q)}%`);
+      if (q.trim()) query = query.or(`nombre_normalizado.ilike.%${safeIlike(normalizeSearch(q))}%`);
       const { data, error } = await Promise.race([
         query,
         new Promise<never>((_, reject) =>
@@ -386,7 +386,7 @@ function SelectProductoCompra({ lineKey }: { lineKey: string }) {
           ]}
         />
         <FlatList
-          data={marcas.filter((m) => m.nombre.toLowerCase().includes(brandQuery.toLowerCase()))}
+          data={marcas.filter((m) => normalizeSearch(m.nombre).includes(normalizeSearch(brandQuery)))}
           keyExtractor={(m) => String(m.id)}
           style={{ maxHeight: 180 }}
           keyboardShouldPersistTaps="handled"
@@ -437,7 +437,7 @@ function SelectProductoCompra({ lineKey }: { lineKey: string }) {
                 .from("marcas")
                 .select("id, nombre")
                 .eq("empresa_id", empresaActivaId)
-                .ilike("nombre", nm)
+                .ilike("nombre_normalizado", normalizeSearch(nm))
                 .maybeSingle();
               if (existing) {
                 setSelectedMarcaId(Number(existing.id));
@@ -492,8 +492,8 @@ function SelectProductoVenta({ lineKey }: { lineKey: string }) {
         .limit(300);
 
       const search = q.trim();
-      const safe = safeIlike(search);
-      if (safe) query = query.or(`nombre.ilike.%${safe}%,marca.ilike.%${safe}%`);
+      const safe = safeIlike(normalizeSearch(search));
+      if (safe) query = query.or(`nombre_normalizado.ilike.%${safe}%,marca_normalizado.ilike.%${safe}%`);
 
       const { data, error } = await query;
       if (error) throw error;

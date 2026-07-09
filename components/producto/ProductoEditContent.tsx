@@ -27,6 +27,7 @@ import { DoneAccessory } from "../ui/done-accessory";
 import { useKeyboardAutoScroll } from "../ui/use-keyboard-autoscroll";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useRole } from "../../lib/useRole";
+import { normalizeSearch } from "../../lib/utils/text";
 
 type Marca = { id: number; nombre: string };
 
@@ -102,9 +103,9 @@ export function ProductoEditContent({ productoId, onClose, showBackButton = true
   }, [marcaId, marcas]);
 
   const marcasFiltradas = useMemo(() => {
-    const q = marcaQuery.trim().toLowerCase();
+    const q = normalizeSearch(marcaQuery);
     if (!q) return marcas;
-    return marcas.filter((m) => m.nombre.toLowerCase().includes(q));
+    return marcas.filter((m) => normalizeSearch(m.nombre).includes(q));
   }, [marcaQuery, marcas]);
 
   const loadMarcas = useCallback(async () => {

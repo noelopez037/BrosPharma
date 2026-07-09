@@ -24,7 +24,7 @@ import { DoneAccessory } from "../components/ui/done-accessory";
 import { useKeyboardAutoScroll } from "../components/ui/use-keyboard-autoscroll";
 import { goBackSafe } from "../lib/goBackSafe";
 import { getHeaderColors } from "../src/theme/headerColors";
-import { safeIlike } from "../lib/utils/text";
+import { normalizeSearch, safeIlike } from "../lib/utils/text";
 import { onAppResumed } from "../lib/resumeEvents";
 
 function alpha(hexOrRgb: string, a: number) {
@@ -77,7 +77,7 @@ export default function SelectProveedor() {
         .order("nombre", { ascending: true })
         .limit(200);
 
-      if (q.trim()) query = query.ilike("nombre", `%${safeIlike(q)}%`);
+      if (q.trim()) query = query.ilike("nombre_normalizado", `%${safeIlike(normalizeSearch(q))}%`);
 
       const { data, error } = await Promise.race([
         query,
