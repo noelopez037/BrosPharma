@@ -1987,20 +1987,16 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                        <View style={{ flex: 1, paddingRight: 12 }}>
                          <Text style={[styles.clientName, { color: C.text }]} numberOfLines={2}>
                            {venta.cliente_nombre ?? clienteMini?.nombre ?? "—"}
+                           {clienteVerificado ? (
+                             <>
+                               {" "}
+                               <Ionicons name="checkmark-circle" size={14} color={C.ok} />
+                             </>
+                           ) : null}
                          </Text>
                        </View>
-                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                         {clienteVerificado ? (
-                           <Ionicons
-                             name="checkmark-circle"
-                             size={18}
-                             color={C.ok}
-                             accessibilityLabel="Cliente verificado: licencia sanitaria en archivo"
-                           />
-                         ) : null}
-                         <View style={[styles.badgePill, { backgroundColor: badgeStyle.bg, borderColor: alphaColor(badgeStyle.color, isDark ? 0.32 : 0.22) || C.border }]}>
-                           <Text style={[styles.badgeText, { color: badgeStyle.color }]}>{badge.text}</Text>
-                         </View>
+                       <View style={[styles.badgePill, { backgroundColor: badgeStyle.bg, borderColor: alphaColor(badgeStyle.color, isDark ? 0.32 : 0.22) || C.border }]}>
+                         <Text style={[styles.badgeText, { color: badgeStyle.color }]}>{badge.text}</Text>
                        </View>
                      </View>
                      <View style={[styles.kvGrid, { marginTop: 12 }]}>
@@ -2030,6 +2026,12 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                      <View style={{ flex: 1, paddingRight: 12 }}>
                        <Text style={[styles.clientName, { color: C.text }]} numberOfLines={2}>
                          {venta.cliente_nombre ?? clienteMini?.nombre ?? "—"}
+                         {clienteVerificado ? (
+                           <>
+                             {" "}
+                             <Ionicons name="checkmark-circle" size={14} color={C.ok} />
+                           </>
+                         ) : null}
                        </Text>
                        {(Number(venta.cliente_id ?? 0) > 0 || clienteMini) ? (
                          <Text style={[styles.clientNit, { color: C.sub }]} numberOfLines={1}>
@@ -2037,26 +2039,16 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                          </Text>
                        ) : null}
                      </View>
-                     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                       {clienteVerificado ? (
-                         <Ionicons
-                           name="checkmark-circle"
-                           size={18}
-                           color={C.ok}
-                           accessibilityLabel="Cliente verificado: licencia sanitaria en archivo"
-                         />
-                       ) : null}
-                       <View
-                         style={[
-                           styles.badgePill,
-                           {
-                             backgroundColor: badgeStyle.bg,
-                             borderColor: alphaColor(badgeStyle.color, isDark ? 0.32 : 0.22) || C.border,
-                           },
-                         ]}
-                       >
-                         <Text style={[styles.badgeText, { color: badgeStyle.color }]}>{badge.text}</Text>
-                       </View>
+                     <View
+                       style={[
+                         styles.badgePill,
+                         {
+                           backgroundColor: badgeStyle.bg,
+                           borderColor: alphaColor(badgeStyle.color, isDark ? 0.32 : 0.22) || C.border,
+                         },
+                       ]}
+                     >
+                       <Text style={[styles.badgeText, { color: badgeStyle.color }]}>{badge.text}</Text>
                      </View>
                    </View>
 
