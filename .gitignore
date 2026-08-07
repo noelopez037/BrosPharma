@@ -44,3 +44,9 @@ app-example
 /ios
 /android
 Gemfile.lock
+
+# IDE
+.idea/
+
+# Supabase CLI local state
+supabase/.temp/
