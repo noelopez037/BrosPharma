@@ -401,7 +401,7 @@ export default function DrawerLayout() {
       }
 
       try {
-        const [solRes, pagosRes] = await Promise.all([
+        const [solRes, pagosRes, licenciasRes] = await Promise.all([
           supabase
             .from("vw_ventas_solicitudes_pendientes_admin")
             .select("venta_id", { head: true, count: "exact" })
@@ -411,9 +411,14 @@ export default function DrawerLayout() {
             .select("id", { head: true, count: "exact" })
             .eq("empresa_id", empresaActivaId)
             .eq("estado", "PENDIENTE"),
+          supabase
+            .from("clientes")
+            .select("id", { head: true, count: "exact" })
+            .eq("empresa_id", empresaActivaId)
+            .eq("licencia_sanitaria_estado", "PENDIENTE"),
         ]);
         if (solRes.error) throw solRes.error;
-        const total = Number(solRes.count ?? 0) + Number(pagosRes.count ?? 0);
+        const total = Number(solRes.count ?? 0) + Number(pagosRes.count ?? 0) + Number(licenciasRes.count ?? 0);
         if (solicitudesAliveRef.current) setSolicitudesCount(total);
       } catch {
         if (solicitudesAliveRef.current) setSolicitudesCount(0);

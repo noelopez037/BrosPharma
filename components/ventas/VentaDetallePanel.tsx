@@ -1,4 +1,5 @@
 import { useFocusEffect, useTheme } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import * as ImageManipulator from "expo-image-manipulator";
@@ -64,6 +65,8 @@ type ClienteMini = {
   nit: string | null;
   telefono: string | null;
   direccion: string | null;
+  licencia_sanitaria_pdf_path: string | null;
+  licencia_sanitaria_estado: string | null;
 };
 
 function displayNit(nit: string | null | undefined) {
@@ -425,6 +428,9 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
   const canSplitIva = roleUp === "ADMIN" || roleUp === "FACTURACION";
   const canEditRecetas = roleUp === "ADMIN" || roleUp === "VENTAS" || roleUp === "MENSAJERO";
   const canFacturar = roleUp === "ADMIN" || roleUp === "FACTURACION";
+  const licenciaSanitariaEstado = clienteMini?.licencia_sanitaria_estado ?? null;
+  const licenciaSanitariaFaltante = !!venta?.requiere_receta && licenciaSanitariaEstado !== "APROBADA";
+  const clienteVerificado = licenciaSanitariaEstado === "APROBADA";
   const canVerFacturas = roleUp === "ADMIN" || roleUp === "FACTURACION" || roleUp === "VENTAS" || roleUp === "MENSAJERO";
   const canBodega = roleUp === "ADMIN" || roleUp === "BODEGA" || roleUp === "MENSAJERO";
   const canEntregar = roleUp === "ADMIN" || roleUp === "BODEGA" || roleUp === "VENTAS" || roleUp === "MENSAJERO";
@@ -487,7 +493,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       try {
         const { data, error } = await supabase
           .from("clientes")
-          .select("id,nombre,nit,telefono,direccion")
+          .select("id,nombre,nit,telefono,direccion,licencia_sanitaria_pdf_path,licencia_sanitaria_estado")
           .eq("empresa_id", empresaActivaId)
           .eq("id", cid)
           .maybeSingle();
@@ -1298,6 +1304,14 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     if (!canFacturar) return;
     if (facturando) return;
 
+    if (licenciaSanitariaFaltante) {
+      Alert.alert(
+        "Falta licencia sanitaria",
+        "Esta venta incluye medicamento(s) que requieren receta. Agrega la licencia sanitaria del cliente antes de facturar."
+      );
+      return;
+    }
+
     let payload: any[] = [];
     try {
       payload = buildFacturaPayload();
@@ -1344,7 +1358,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     } finally {
       setFacturando(false);
     }
-  }, [buildFacturaPayload, canFacturar, empresaActivaId, facturando, fetchFacturas, fetchVenta, total, venta]);
+  }, [buildFacturaPayload, canFacturar, empresaActivaId, facturando, fetchFacturas, fetchVenta, licenciaSanitariaFaltante, total, venta]);
 
   const pasarEnRuta = useCallback(
     async (nota?: string) => {
@@ -1970,10 +1984,18 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                    /* Móvil: igual que otros estados pero sin NIT */
                    <>
                      <View style={styles.rowBetween}>
-                       <View style={{ flex: 1, paddingRight: 12 }}>
-                         <Text style={[styles.clientName, { color: C.text }]} numberOfLines={2}>
+                       <View style={{ flex: 1, paddingRight: 12, flexDirection: "row", alignItems: "center", gap: 6 }}>
+                         <Text style={[styles.clientName, { color: C.text, flexShrink: 1 }]} numberOfLines={2}>
                            {venta.cliente_nombre ?? clienteMini?.nombre ?? "—"}
                          </Text>
+                         {clienteVerificado ? (
+                           <Ionicons
+                             name="checkmark-circle"
+                             size={16}
+                             color={C.ok}
+                             accessibilityLabel="Cliente verificado: licencia sanitaria en archivo"
+                           />
+                         ) : null}
                        </View>
                        <View style={[styles.badgePill, { backgroundColor: badgeStyle.bg, borderColor: alphaColor(badgeStyle.color, isDark ? 0.32 : 0.22) || C.border }]}>
                          <Text style={[styles.badgeText, { color: badgeStyle.color }]}>{badge.text}</Text>
@@ -2004,9 +2026,19 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                  <>
                    <View style={styles.rowBetween}>
                      <View style={{ flex: 1, paddingRight: 12 }}>
-                       <Text style={[styles.clientName, { color: C.text }]} numberOfLines={2}>
-                         {venta.cliente_nombre ?? clienteMini?.nombre ?? "—"}
-                       </Text>
+                       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                         <Text style={[styles.clientName, { color: C.text, flexShrink: 1 }]} numberOfLines={2}>
+                           {venta.cliente_nombre ?? clienteMini?.nombre ?? "—"}
+                         </Text>
+                         {clienteVerificado ? (
+                           <Ionicons
+                             name="checkmark-circle"
+                             size={16}
+                             color={C.ok}
+                             accessibilityLabel="Cliente verificado: licencia sanitaria en archivo"
+                           />
+                         ) : null}
+                       </View>
                        {(Number(venta.cliente_id ?? 0) > 0 || clienteMini) ? (
                          <Text style={[styles.clientNit, { color: C.sub }]} numberOfLines={1}>
                            NIT: {clienteMini ? displayNit(clienteMini.nit) : "—"}
@@ -2053,6 +2085,34 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                    </Text>
                  </>
                )}
+
+               {licenciaSanitariaFaltante && venta.estado !== "FACTURADO" ? (
+                 <View style={[styles.notifBanner, { borderColor: C.border, backgroundColor: C.warnBg }]}>
+                   <Text style={[styles.notifTitle, { color: C.warnText }]}>
+                     {licenciaSanitariaEstado === "PENDIENTE"
+                       ? "No se puede facturar: licencia sanitaria pendiente de aprobación"
+                       : "No se puede facturar: falta la licencia sanitaria del cliente"}
+                   </Text>
+                   <Text style={[styles.note, { color: C.text, marginTop: 6 }]}>
+                     {licenciaSanitariaEstado === "PENDIENTE"
+                       ? "El cliente ya subió su licencia sanitaria, pero un administrador todavía no la aprueba."
+                       : "Esta venta incluye medicamento(s) que requieren receta. Agrega la licencia sanitaria en la ficha del cliente para poder facturar."}
+                   </Text>
+                   <View style={{ marginTop: 10 }}>
+                     <AppButton
+                       title="Ir a la ficha del cliente"
+                       variant="outline"
+                       size="sm"
+                       onPress={() =>
+                         router.push({
+                           pathname: "/cliente-detalle" as any,
+                           params: { id: String(clienteMini?.id ?? venta.cliente_id) },
+                         })
+                       }
+                     />
+                   </View>
+                 </View>
+               ) : null}
 
                {venta.requiere_receta && !venta.receta_cargada && venta.estado !== "FACTURADO" ? (
                  <View style={styles.chipsRow}>
@@ -2616,7 +2676,8 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                     facturando ||
                     !!uploadingPdfTipo ||
                     (!facturaTipo1 && !facturaTipo2) ||
-                    !facturaDraftComplete
+                    !facturaDraftComplete ||
+                    licenciaSanitariaFaltante
                   }
                 />
               )}
@@ -2624,7 +2685,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                 <AppButton
                   title={facturando ? "Guardando..." : "Guardar facturas"}
                   onPress={onFacturar}
-                  disabled={facturando || !!uploadingPdfTipo || !facturaDraftComplete}
+                  disabled={facturando || !!uploadingPdfTipo || !facturaDraftComplete || licenciaSanitariaFaltante}
                 />
               ) : null}
               </>

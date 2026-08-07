@@ -663,6 +663,43 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
+      if (type === "LICENCIA_SANITARIA_PENDIENTE") {
+        const clienteId = coerceVentaId(row);
+        const tokens = await getTokensForAdmins();
+        console.log("[notif-dispatch] dispatch", type, "outbox", id, "tokens", tokens.length);
+
+        const p = (payload && typeof payload === "object") ? (payload as JsonRecord) : {};
+        const clienteNombre = typeof p.cliente_nombre === "string" ? p.cliente_nombre.trim() : "";
+        const body = clienteNombre
+          ? `Licencia sanitaria pendiente: ${clienteNombre}`
+          : "Licencia sanitaria pendiente de aprobar";
+
+        if (tokens.length > 0) {
+          const data: Record<string, unknown> = {
+            kind: "LICENCIA_SANITARIA_PENDIENTE",
+            to: "/(drawer)/ventas-solicitudes",
+            cliente_id: clienteId,
+          };
+          if (clienteNombre) data.cliente_nombre = clienteNombre;
+
+          const messages: ExpoPushMessage[] = tokens.map((to) => ({
+            to,
+            title: "Licencia sanitaria pendiente",
+            body,
+            sound: "default",
+            badge: 1,
+            data,
+          }));
+
+          const sendRes = await expoSend(messages);
+          if (!sendRes.ok) throw new Error(sendRes.error);
+        }
+
+        await sbRpc(ctx, "rpc_notif_outbox_mark_processed", { p_id: id });
+        result.processed++;
+        continue;
+      }
+
       if (type === "VENTA_ANULACION_REQUERIDA") {
         const ventaId = coerceVentaId(row);
         const tokens = await getTokensForFacturacion();

@@ -2,11 +2,15 @@
 // Embeddable panel version of app/cliente-detalle.tsx for the split master-detail layout.
 
 import { useFocusEffect, useTheme } from "@react-navigation/native";
+import * as DocumentPicker from "expo-document-picker";
 import { Stack, router, useLocalSearchParams } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   View,
@@ -18,9 +22,21 @@ import { supabase } from "../../lib/supabase";
 import { useRole } from "../../lib/useRole";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../lib/useResumeLoad";
+import { uriToArrayBuffer } from "../../lib/utils/file";
+import { fmtDate } from "../../lib/utils/format";
 import { normalizeUpper } from "../../lib/utils/text";
 
 type Role = "ADMIN" | "BODEGA" | "VENTAS" | "FACTURACION" | "MENSAJERO" | "";
+
+const BUCKET_CLIENTES_DOCS = "Clientes-Docs";
+
+type DocTipo = "licencia_sanitaria" | "patente_comercio" | "credito_apertura";
+
+const DOC_LABELS: Record<DocTipo, string> = {
+  licencia_sanitaria: "Licencia sanitaria",
+  patente_comercio: "Patente de comercio",
+  credito_apertura: "Crédito de apertura",
+};
 
 type ClienteRow = {
   id: number;
@@ -30,12 +46,34 @@ type ClienteRow = {
   direccion: string | null;
   activo: boolean;
   vendedor_id: string | null;
+  licencia_sanitaria_pdf_path: string | null;
+  licencia_sanitaria_updated_at: string | null;
+  licencia_sanitaria_estado: string | null;
+  licencia_sanitaria_rechazo_motivo: string | null;
+  patente_comercio_pdf_path: string | null;
+  patente_comercio_updated_at: string | null;
+  credito_apertura_pdf_path: string | null;
+  credito_apertura_updated_at: string | null;
   vendedor?: {
     id: string;
     full_name: string | null;
     role: string;
   } | null;
 };
+
+async function uriToBytes(uri: string): Promise<Uint8Array> {
+  const ab = await uriToArrayBuffer(uri);
+  return new Uint8Array(ab);
+}
+
+async function openInBrowser(url: string) {
+  if (!url) throw new Error("URL inválida");
+  try {
+    await WebBrowser.openBrowserAsync(url);
+  } catch {
+    await WebBrowser.openBrowserAsync(encodeURI(url));
+  }
+}
 
 type ClienteDetallePanelProps = {
   clienteId: number;
@@ -111,15 +149,17 @@ function ClienteDetallePanelContent({
   const roleUp = String(role ?? "").trim().toUpperCase() as Role;
   const canEdit = isReady && roleUp === "ADMIN" && !readOnly;
   const canDelete = isReady && roleUp === "ADMIN" && !readOnly;
+
+  const [loading, setLoading] = useState(true);
+  const [row, setRow] = useState<ClienteRow | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [docBusyTipo, setDocBusyTipo] = useState<DocTipo | null>(null);
+
   const canGenerarEstadoCuentaPdf =
     isReady &&
     (roleUp === "ADMIN" ||
       roleUp === "VENTAS" ||
       (roleUp === "MENSAJERO" && !!row && row.vendedor_id === uid));
-
-  const [loading, setLoading] = useState(true);
-  const [row, setRow] = useState<ClienteRow | null>(null);
-  const [pdfLoading, setPdfLoading] = useState(false);
 
   const loadCliente = useCallback(async () => {
     if (!Number.isFinite(clienteId) || clienteId <= 0) {
@@ -131,7 +171,7 @@ function ClienteDetallePanelContent({
     const { data, error } = await supabase
       .from("clientes")
       .select(
-        "id,nombre,nit,telefono,direccion,activo,vendedor_id,vendedor:profiles!clientes_vendedor_id_fkey(id,full_name,role)"
+        "id,nombre,nit,telefono,direccion,activo,vendedor_id,licencia_sanitaria_pdf_path,licencia_sanitaria_updated_at,licencia_sanitaria_estado,licencia_sanitaria_rechazo_motivo,patente_comercio_pdf_path,patente_comercio_updated_at,credito_apertura_pdf_path,credito_apertura_updated_at,vendedor:profiles!clientes_vendedor_id_fkey(id,full_name,role)"
       )
       .eq("empresa_id", empresaActivaId)
       .eq("id", clienteId)
@@ -238,6 +278,152 @@ function ClienteDetallePanelContent({
     }
   }, [canGenerarEstadoCuentaPdf, empresaActivaId, row, pdfLoading]);
 
+  const alertError = useCallback((title: string, message: string) => {
+    if (Platform.OS === "web") {
+      window.alert(message);
+    } else {
+      Alert.alert(title, message);
+    }
+  }, []);
+
+  const docPathField = useCallback((tipo: DocTipo) => `${tipo}_pdf_path` as const, []);
+  const docUpdatedAtField = useCallback((tipo: DocTipo) => `${tipo}_updated_at` as const, []);
+
+  const pickAndUploadDoc = useCallback(
+    async (tipo: DocTipo) => {
+      if (!canEdit || !row) return;
+      if (docBusyTipo) return;
+      if (!empresaActivaId) {
+        alertError("Sin empresa", "No tienes una empresa activa asignada. Contacta al administrador.");
+        return;
+      }
+
+      try {
+        const res = await DocumentPicker.getDocumentAsync({
+          type: "application/pdf",
+          multiple: false,
+          copyToCacheDirectory: true,
+        });
+        if (res.canceled) return;
+        const asset = res.assets?.[0];
+        const uri = asset?.uri;
+        if (!uri) return;
+
+        setDocBusyTipo(tipo);
+
+        const stamp = Date.now();
+        const rnd = Math.random().toString(16).slice(2);
+        const path = `${empresaActivaId}/clientes/${row.id}/${tipo}/${stamp}-${rnd}.pdf`;
+
+        const bytes = await uriToBytes(uri);
+        if (bytes.byteLength > 20 * 1024 * 1024) throw new Error("El PDF excede 20 MB.");
+
+        const { error: upErr } = await supabase.storage.from(BUCKET_CLIENTES_DOCS).upload(path, bytes, {
+          contentType: "application/pdf",
+          upsert: false,
+        });
+        if (upErr) throw upErr;
+
+        const prevPath = row[docPathField(tipo)];
+
+        const { error: rpcErr } = await supabase.rpc("rpc_cliente_documento_registrar", {
+          p_empresa_id: empresaActivaId,
+          p_cliente_id: row.id,
+          p_tipo: tipo,
+          p_path: path,
+        });
+        if (rpcErr) throw rpcErr;
+
+        if (prevPath) {
+          await supabase.storage.from(BUCKET_CLIENTES_DOCS).remove([String(prevPath)]).catch(() => {});
+        }
+
+        await loadCliente();
+      } catch (e: any) {
+        alertError("Error", e?.message ?? "No se pudo subir el documento");
+      } finally {
+        setDocBusyTipo(null);
+      }
+    },
+    [canEdit, row, docBusyTipo, empresaActivaId, docPathField, docUpdatedAtField, loadCliente, alertError]
+  );
+
+  const openDoc = useCallback(
+    async (tipo: DocTipo) => {
+      if (!row) return;
+      const path = row[docPathField(tipo)];
+      if (!path) return;
+
+      try {
+        const { data: s, error: se } = await supabase.storage
+          .from(BUCKET_CLIENTES_DOCS)
+          .createSignedUrl(String(path), 60 * 15);
+        if (se) throw se;
+        const url = (s as any)?.signedUrl ?? null;
+        if (!url) throw new Error("No se pudo abrir el documento");
+        if (Platform.OS === "web") {
+          window.open(url, "_blank");
+        } else {
+          await openInBrowser(url);
+        }
+      } catch (e: any) {
+        alertError("Error", e?.message ?? "No se pudo abrir el documento");
+      }
+    },
+    [row, docPathField, alertError]
+  );
+
+  const deleteDoc = useCallback(
+    (tipo: DocTipo) => {
+      if (!canEdit || !row) return;
+      const path = row[docPathField(tipo)];
+      if (!path) return;
+
+      const doDelete = async () => {
+        if (!empresaActivaId) return;
+        setDocBusyTipo(tipo);
+        try {
+          const payload: Record<string, any> = {
+            [docPathField(tipo)]: null,
+            [docUpdatedAtField(tipo)]: null,
+          };
+          if (tipo === "licencia_sanitaria") {
+            payload.licencia_sanitaria_estado = null;
+            payload.licencia_sanitaria_revisado_por = null;
+            payload.licencia_sanitaria_revisado_at = null;
+            payload.licencia_sanitaria_rechazo_motivo = null;
+          }
+
+          const { error: updErr } = await supabase
+            .from("clientes")
+            .update(payload)
+            .eq("empresa_id", empresaActivaId)
+            .eq("id", row.id);
+          if (updErr) throw updErr;
+
+          await supabase.storage.from(BUCKET_CLIENTES_DOCS).remove([String(path)]).catch(() => {});
+          await loadCliente();
+        } catch (e: any) {
+          alertError("Error", e?.message ?? "No se pudo eliminar el documento");
+        } finally {
+          setDocBusyTipo(null);
+        }
+      };
+
+      if (Platform.OS === "web") {
+        if (window.confirm(`Se eliminará "${DOC_LABELS[tipo]}". ¿Continuar?`)) {
+          void doDelete();
+        }
+      } else {
+        Alert.alert("Eliminar documento", `Se eliminará "${DOC_LABELS[tipo]}". ¿Continuar?`, [
+          { text: "Cancelar", style: "cancel" },
+          { text: "Eliminar", style: "destructive", onPress: () => void doDelete() },
+        ]);
+      }
+    },
+    [canEdit, row, docPathField, docUpdatedAtField, empresaActivaId, loadCliente, alertError]
+  );
+
   const vendedorNombre = (row?.vendedor?.full_name ?? "").trim();
   const vendedorRole = normalizeUpper(row?.vendedor?.role);
   const vendedorLabel = vendedorNombre || (row?.vendedor_id ? row?.vendedor_id : "Sin asignar");
@@ -275,6 +461,26 @@ function ClienteDetallePanelContent({
               <KV k="Teléfono" v={row.telefono ?? "—"} s={s} />
               <KV k="Dirección" v={row.direccion ?? "—"} s={s} />
               <KV k="Vendedor" v={`${vendedorLabel}${vendedorRole ? ` • ${vendedorRole}` : ""}`} s={s} />
+            </View>
+
+            <View style={s.card}>
+              <Text style={s.docsTitle}>Documentos</Text>
+              {(["licencia_sanitaria", "patente_comercio", "credito_apertura"] as DocTipo[]).map((tipo) => (
+                <DocRow
+                  key={tipo}
+                  label={DOC_LABELS[tipo]}
+                  path={row[docPathField(tipo)]}
+                  updatedAt={row[docUpdatedAtField(tipo)]}
+                  estado={tipo === "licencia_sanitaria" ? row.licencia_sanitaria_estado : null}
+                  rechazoMotivo={tipo === "licencia_sanitaria" ? row.licencia_sanitaria_rechazo_motivo : null}
+                  busy={docBusyTipo === tipo}
+                  canEdit={canEdit}
+                  onView={() => openDoc(tipo)}
+                  onUpload={() => pickAndUploadDoc(tipo)}
+                  onDelete={() => deleteDoc(tipo)}
+                  s={s}
+                />
+              ))}
             </View>
 
             {canGenerarEstadoCuentaPdf ? (
@@ -322,6 +528,75 @@ function KV({ k, v, s }: { k: string; v: string; s: ReturnType<typeof styles> })
   );
 }
 
+function docStatusText(hasDoc: boolean, updatedAt: string | null, estado: string | null, rechazoMotivo: string | null) {
+  if (!hasDoc) return "No subido";
+  if (estado === "PENDIENTE") return `Pendiente de aprobación • subido ${fmtDate(updatedAt)}`;
+  if (estado === "APROBADA") return `Aprobada • ${fmtDate(updatedAt)}`;
+  if (estado === "RECHAZADA") {
+    const motivo = String(rechazoMotivo ?? "").trim();
+    return motivo ? `Rechazada: ${motivo} — puedes volver a subirla` : "Rechazada — puedes volver a subirla";
+  }
+  return `Subido • ${fmtDate(updatedAt)}`;
+}
+
+function DocRow({
+  label,
+  path,
+  updatedAt,
+  estado = null,
+  rechazoMotivo = null,
+  busy,
+  canEdit,
+  onView,
+  onUpload,
+  onDelete,
+  s,
+}: {
+  label: string;
+  path: string | null;
+  updatedAt: string | null;
+  estado?: string | null;
+  rechazoMotivo?: string | null;
+  busy: boolean;
+  canEdit: boolean;
+  onView: () => void;
+  onUpload: () => void;
+  onDelete: () => void;
+  s: ReturnType<typeof styles>;
+}) {
+  const hasDoc = !!path;
+  return (
+    <View style={s.docRow}>
+      <View style={{ flex: 1 }}>
+        <Text style={s.docLabel}>{label}</Text>
+        <Text style={s.docStatus}>{docStatusText(hasDoc, updatedAt, estado, rechazoMotivo)}</Text>
+      </View>
+
+      {busy ? (
+        <ActivityIndicator />
+      ) : (
+        <View style={s.docActions}>
+          {hasDoc ? (
+            <Pressable onPress={onView} style={s.docActionBtn}>
+              <Text style={s.docActionText}>Ver</Text>
+            </Pressable>
+          ) : null}
+          {canEdit ? (
+            <Pressable onPress={onUpload} style={s.docActionBtn}>
+              <Text style={s.docActionText}>{hasDoc ? "Reemplazar" : "Subir"}</Text>
+            </Pressable>
+          ) : null}
+          {canEdit && hasDoc ? (
+            <Pressable onPress={onDelete} style={s.docActionBtn}>
+              <Text style={[s.docActionText, s.docActionDanger]}>Eliminar</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      )}
+    </View>
+  );
+}
+
 const styles = (colors: any) =>
   StyleSheet.create({
     safe: { flex: 1 },
@@ -356,4 +631,21 @@ const styles = (colors: any) =>
     kvRow: { marginTop: 12 },
     k: { color: colors.text + "AA", fontSize: 12, fontWeight: "800" },
     v: { color: colors.text, fontSize: Platform.OS === "web" ? 16 : 14, fontWeight: "600", marginTop: 6 },
+
+    docsTitle: { color: colors.text, fontSize: Platform.OS === "web" ? 14 : 13, fontWeight: "800", marginBottom: 4 },
+    docRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 10,
+      paddingVertical: 10,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+    docLabel: { color: colors.text, fontSize: Platform.OS === "web" ? 14 : 13, fontWeight: "700" },
+    docStatus: { color: colors.text + "AA", fontSize: 11, fontWeight: "600", marginTop: 3 },
+    docActions: { flexDirection: "row", gap: 14 },
+    docActionBtn: { paddingVertical: 4, paddingHorizontal: 2 },
+    docActionText: { color: colors.primary ?? "#153c9e", fontSize: 12, fontWeight: "800" },
+    docActionDanger: { color: "#D92D20" },
   });
