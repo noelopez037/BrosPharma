@@ -3,6 +3,8 @@
 
 import { useFocusEffect, useTheme } from "@react-navigation/native";
 import * as DocumentPicker from "expo-document-picker";
+import * as ImageManipulator from "expo-image-manipulator";
+import * as ImagePicker from "expo-image-picker";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import React, { useCallback, useMemo, useRef, useState } from "react";
@@ -17,6 +19,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AppButton } from "../ui/app-button";
+import { KeyboardAwareModal } from "../ui/keyboard-aware-modal";
 import { generarEstadoCuentaClientePdf } from "../../lib/estadoCuentaClientePdf";
 import { supabase } from "../../lib/supabase";
 import { useRole } from "../../lib/useRole";
@@ -154,6 +157,7 @@ function ClienteDetallePanelContent({
   const [row, setRow] = useState<ClienteRow | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [docBusyTipo, setDocBusyTipo] = useState<DocTipo | null>(null);
+  const [docPickerTipo, setDocPickerTipo] = useState<DocTipo | null>(null);
 
   const canGenerarEstadoCuentaPdf =
     isReady &&
@@ -289,31 +293,11 @@ function ClienteDetallePanelContent({
   const docPathField = useCallback((tipo: DocTipo) => `${tipo}_pdf_path` as const, []);
   const docUpdatedAtField = useCallback((tipo: DocTipo) => `${tipo}_updated_at` as const, []);
 
-  const pickAndUploadDoc = useCallback(
-    async (tipo: DocTipo) => {
-      if (!canEdit || !row) return;
-      if (docBusyTipo) return;
-      if (!empresaActivaId) {
-        alertError("Sin empresa", "No tienes una empresa activa asignada. Contacta al administrador.");
-        return;
-      }
-
+  const uploadPickedAsset = useCallback(
+    async (tipo: DocTipo, uri: string, ext: string, contentType: string) => {
+      if (!row || !empresaActivaId) return;
+      setDocBusyTipo(tipo);
       try {
-        const res = await DocumentPicker.getDocumentAsync({
-          type: ["application/pdf", "image/*"],
-          multiple: false,
-          copyToCacheDirectory: true,
-        });
-        if (res.canceled) return;
-        const asset = res.assets?.[0];
-        const uri = asset?.uri;
-        if (!uri) return;
-
-        setDocBusyTipo(tipo);
-
-        const ext = extFromUri(String(asset?.name ?? uri));
-        const contentType = String(asset?.mimeType ?? "").trim() || mimeFromExt(ext);
-
         const stamp = Date.now();
         const rnd = Math.random().toString(16).slice(2);
         const path = `${empresaActivaId}/clientes/${row.id}/${tipo}/${stamp}-${rnd}.${ext}`;
@@ -348,7 +332,91 @@ function ClienteDetallePanelContent({
         setDocBusyTipo(null);
       }
     },
-    [canEdit, row, docBusyTipo, empresaActivaId, docPathField, docUpdatedAtField, loadCliente, alertError]
+    [row, empresaActivaId, docPathField, loadCliente, alertError]
+  );
+
+  const pickFromFiles = useCallback(
+    async (tipo: DocTipo) => {
+      try {
+        const res = await DocumentPicker.getDocumentAsync({
+          type: ["application/pdf", "image/*"],
+          multiple: false,
+          copyToCacheDirectory: true,
+        });
+        if (res.canceled) return;
+        const asset = res.assets?.[0];
+        if (!asset?.uri) return;
+
+        const ext = extFromUri(String(asset.name ?? asset.uri));
+        const contentType = String(asset.mimeType ?? "").trim() || mimeFromExt(ext);
+        await uploadPickedAsset(tipo, asset.uri, ext, contentType);
+      } catch (e: any) {
+        alertError("Error", e?.message ?? "No se pudo seleccionar el archivo");
+      }
+    },
+    [uploadPickedAsset, alertError]
+  );
+
+  const pickFromCameraOrLibrary = useCallback(
+    async (tipo: DocTipo, source: "camera" | "library") => {
+      try {
+        const perm = source === "camera"
+          ? await ImagePicker.requestCameraPermissionsAsync()
+          : await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (perm.status !== "granted") {
+          alertError(
+            "Permiso requerido",
+            source === "camera" ? "Necesitas permitir acceso a la cámara." : "Necesitas permitir acceso a tus fotos."
+          );
+          return;
+        }
+
+        const res = source === "camera"
+          ? await ImagePicker.launchCameraAsync({ quality: 0.9 })
+          : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.9 });
+        if (res.canceled) return;
+        const asset = res.assets?.[0];
+        if (!asset?.uri) return;
+
+        let uri = asset.uri;
+        let ext = "jpg";
+        let contentType = "image/jpeg";
+        try {
+          const man = await ImageManipulator.manipulateAsync(
+            asset.uri,
+            [{ resize: { width: 1600 } }],
+            { compress: 0.78, format: ImageManipulator.SaveFormat.JPEG }
+          );
+          if (man?.uri) uri = man.uri;
+        } catch {
+          const mime = String((asset as any)?.mimeType ?? "").trim();
+          ext = extFromUri(asset.uri);
+          contentType = mime || mimeFromExt(ext);
+        }
+
+        await uploadPickedAsset(tipo, uri, ext, contentType);
+      } catch (e: any) {
+        alertError("Error", e?.message ?? "No se pudo tomar/elegir la foto");
+      }
+    },
+    [uploadPickedAsset, alertError]
+  );
+
+  const pickAndUploadDoc = useCallback(
+    (tipo: DocTipo) => {
+      if (!canEdit || !row) return;
+      if (docBusyTipo) return;
+      if (!empresaActivaId) {
+        alertError("Sin empresa", "No tienes una empresa activa asignada. Contacta al administrador.");
+        return;
+      }
+      if (Platform.OS === "web") {
+        void pickFromFiles(tipo);
+        return;
+      }
+      setDocPickerTipo(tipo);
+    },
+    [canEdit, row, docBusyTipo, empresaActivaId, pickFromFiles, alertError]
   );
 
   const openDoc = useCallback(
@@ -518,6 +586,49 @@ function ClienteDetallePanelContent({
           </View>
         )}
       </SafeAreaView>
+
+      <KeyboardAwareModal
+        visible={docPickerTipo !== null}
+        onClose={() => setDocPickerTipo(null)}
+        cardStyle={{ backgroundColor: colors.card, borderColor: colors.border }}
+      >
+        {docPickerTipo ? (
+          <>
+            <Text style={s.docsTitle}>{DOC_LABELS[docPickerTipo]}</Text>
+            <Text style={[s.docStatus, { marginBottom: 14 }]}>¿Cómo deseas agregar el documento?</Text>
+            <AppButton
+              title="Tomar foto"
+              onPress={() => {
+                const tipo = docPickerTipo;
+                setDocPickerTipo(null);
+                pickFromCameraOrLibrary(tipo, "camera").catch(() => {});
+              }}
+              style={{ marginBottom: 10 }}
+            />
+            <AppButton
+              title="Elegir de galería"
+              variant="outline"
+              onPress={() => {
+                const tipo = docPickerTipo;
+                setDocPickerTipo(null);
+                pickFromCameraOrLibrary(tipo, "library").catch(() => {});
+              }}
+              style={{ marginBottom: 10 }}
+            />
+            <AppButton
+              title="Elegir PDF o archivo"
+              variant="outline"
+              onPress={() => {
+                const tipo = docPickerTipo;
+                setDocPickerTipo(null);
+                pickFromFiles(tipo).catch(() => {});
+              }}
+              style={{ marginBottom: 10 }}
+            />
+            <AppButton title="Cancelar" variant="ghost" onPress={() => setDocPickerTipo(null)} />
+          </>
+        ) : null}
+      </KeyboardAwareModal>
     </>
   );
 }
