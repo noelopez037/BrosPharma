@@ -1984,21 +1984,23 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                    /* Móvil: igual que otros estados pero sin NIT */
                    <>
                      <View style={styles.rowBetween}>
-                       <View style={{ flex: 1, paddingRight: 12, flexDirection: "row", alignItems: "center", gap: 6 }}>
-                         <Text style={[styles.clientName, { color: C.text, flexShrink: 1 }]} numberOfLines={2}>
+                       <View style={{ flex: 1, paddingRight: 12 }}>
+                         <Text style={[styles.clientName, { color: C.text }]} numberOfLines={2}>
                            {venta.cliente_nombre ?? clienteMini?.nombre ?? "—"}
                          </Text>
+                       </View>
+                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                          {clienteVerificado ? (
                            <Ionicons
                              name="checkmark-circle"
-                             size={16}
+                             size={18}
                              color={C.ok}
                              accessibilityLabel="Cliente verificado: licencia sanitaria en archivo"
                            />
                          ) : null}
-                       </View>
-                       <View style={[styles.badgePill, { backgroundColor: badgeStyle.bg, borderColor: alphaColor(badgeStyle.color, isDark ? 0.32 : 0.22) || C.border }]}>
-                         <Text style={[styles.badgeText, { color: badgeStyle.color }]}>{badge.text}</Text>
+                         <View style={[styles.badgePill, { backgroundColor: badgeStyle.bg, borderColor: alphaColor(badgeStyle.color, isDark ? 0.32 : 0.22) || C.border }]}>
+                           <Text style={[styles.badgeText, { color: badgeStyle.color }]}>{badge.text}</Text>
+                         </View>
                        </View>
                      </View>
                      <View style={[styles.kvGrid, { marginTop: 12 }]}>
@@ -2026,35 +2028,35 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                  <>
                    <View style={styles.rowBetween}>
                      <View style={{ flex: 1, paddingRight: 12 }}>
-                       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                         <Text style={[styles.clientName, { color: C.text, flexShrink: 1 }]} numberOfLines={2}>
-                           {venta.cliente_nombre ?? clienteMini?.nombre ?? "—"}
-                         </Text>
-                         {clienteVerificado ? (
-                           <Ionicons
-                             name="checkmark-circle"
-                             size={16}
-                             color={C.ok}
-                             accessibilityLabel="Cliente verificado: licencia sanitaria en archivo"
-                           />
-                         ) : null}
-                       </View>
+                       <Text style={[styles.clientName, { color: C.text }]} numberOfLines={2}>
+                         {venta.cliente_nombre ?? clienteMini?.nombre ?? "—"}
+                       </Text>
                        {(Number(venta.cliente_id ?? 0) > 0 || clienteMini) ? (
                          <Text style={[styles.clientNit, { color: C.sub }]} numberOfLines={1}>
                            NIT: {clienteMini ? displayNit(clienteMini.nit) : "—"}
                          </Text>
                        ) : null}
                      </View>
-                     <View
-                       style={[
-                         styles.badgePill,
-                         {
-                           backgroundColor: badgeStyle.bg,
-                           borderColor: alphaColor(badgeStyle.color, isDark ? 0.32 : 0.22) || C.border,
-                         },
-                       ]}
-                     >
-                       <Text style={[styles.badgeText, { color: badgeStyle.color }]}>{badge.text}</Text>
+                     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                       {clienteVerificado ? (
+                         <Ionicons
+                           name="checkmark-circle"
+                           size={18}
+                           color={C.ok}
+                           accessibilityLabel="Cliente verificado: licencia sanitaria en archivo"
+                         />
+                       ) : null}
+                       <View
+                         style={[
+                           styles.badgePill,
+                           {
+                             backgroundColor: badgeStyle.bg,
+                             borderColor: alphaColor(badgeStyle.color, isDark ? 0.32 : 0.22) || C.border,
+                           },
+                         ]}
+                       >
+                         <Text style={[styles.badgeText, { color: badgeStyle.color }]}>{badge.text}</Text>
+                       </View>
                      </View>
                    </View>
 

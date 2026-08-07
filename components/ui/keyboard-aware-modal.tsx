@@ -38,18 +38,21 @@ export function KeyboardAwareModal({
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
-  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const keyboardOpen = keyboardHeight > 0;
 
   useEffect(() => {
     if (!visible) {
-      setKeyboardOpen(false);
+      setKeyboardHeight(0);
       return;
     }
     const showEvt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvt = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
 
-    const subShow = Keyboard.addListener(showEvt as any, () => setKeyboardOpen(true));
-    const subHide = Keyboard.addListener(hideEvt as any, () => setKeyboardOpen(false));
+    const subShow = Keyboard.addListener(showEvt as any, (e: any) => {
+      setKeyboardHeight(Math.max(0, Number(e?.endCoordinates?.height) || 0));
+    });
+    const subHide = Keyboard.addListener(hideEvt as any, () => setKeyboardHeight(0));
     return () => {
       subShow.remove();
       subHide.remove();
@@ -61,10 +64,16 @@ export function KeyboardAwareModal({
     return `rgba(0,0,0,${op})`;
   }, [backdropOpacity]);
 
+  // Con teclado abierto, KeyboardAvoidingView empuja la card hacia arriba por el alto
+  // del teclado — si la card ya usa casi toda la pantalla, ese empuje la saca por
+  // arriba. Recortamos el maxHeight para que card + teclado quepan en la pantalla.
   const maxHeight = useMemo(() => {
     const r = Math.max(0.4, Math.min(0.95, maxHeightRatio));
-    return Math.round(height * r);
-  }, [height, maxHeightRatio]);
+    const base = Math.round(height * r);
+    if (keyboardHeight <= 0) return base;
+    const available = Math.round(height - keyboardHeight - insets.top - 24);
+    return Math.max(160, Math.min(base, available));
+  }, [height, maxHeightRatio, keyboardHeight, insets.top]);
 
   const handleBackdropPress = () => {
     if (keyboardOpen) {
@@ -115,7 +124,7 @@ export function KeyboardAwareModal({
               {
                 backgroundColor: colors.card,
                 borderColor: colors.border,
-                marginBottom: Math.max(12, insets.bottom),
+                marginBottom: keyboardOpen ? 12 : Math.max(12, insets.bottom),
                 maxHeight,
               },
               cardStyle,
@@ -137,6 +146,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 16,
     padding: 14,
+    overflow: "hidden",
   },
   cardWeb: {
     marginHorizontal: 0,
