@@ -22,7 +22,7 @@ import { supabase } from "../../lib/supabase";
 import { useRole } from "../../lib/useRole";
 import { useEmpresaActiva } from "../../lib/useEmpresaActiva";
 import { useResumeLoad } from "../../lib/useResumeLoad";
-import { uriToArrayBuffer } from "../../lib/utils/file";
+import { extFromUri, mimeFromExt, uriToArrayBuffer } from "../../lib/utils/file";
 import { fmtDate } from "../../lib/utils/format";
 import { normalizeUpper } from "../../lib/utils/text";
 
@@ -300,7 +300,7 @@ function ClienteDetallePanelContent({
 
       try {
         const res = await DocumentPicker.getDocumentAsync({
-          type: "application/pdf",
+          type: ["application/pdf", "image/*"],
           multiple: false,
           copyToCacheDirectory: true,
         });
@@ -311,15 +311,18 @@ function ClienteDetallePanelContent({
 
         setDocBusyTipo(tipo);
 
+        const ext = extFromUri(String(asset?.name ?? uri));
+        const contentType = String(asset?.mimeType ?? "").trim() || mimeFromExt(ext);
+
         const stamp = Date.now();
         const rnd = Math.random().toString(16).slice(2);
-        const path = `${empresaActivaId}/clientes/${row.id}/${tipo}/${stamp}-${rnd}.pdf`;
+        const path = `${empresaActivaId}/clientes/${row.id}/${tipo}/${stamp}-${rnd}.${ext}`;
 
         const bytes = await uriToBytes(uri);
-        if (bytes.byteLength > 20 * 1024 * 1024) throw new Error("El PDF excede 20 MB.");
+        if (bytes.byteLength > 20 * 1024 * 1024) throw new Error("El archivo excede 20 MB.");
 
         const { error: upErr } = await supabase.storage.from(BUCKET_CLIENTES_DOCS).upload(path, bytes, {
-          contentType: "application/pdf",
+          contentType,
           upsert: false,
         });
         if (upErr) throw upErr;

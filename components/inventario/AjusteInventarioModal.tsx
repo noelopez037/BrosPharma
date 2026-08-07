@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { useTheme } from "@react-navigation/native";
@@ -71,6 +72,13 @@ export function AjusteInventarioModal({
   const { colors } = useTheme();
   const s = useMemo(() => styles(colors), [colors]);
   const { empresaActivaId } = useEmpresaActiva();
+
+  // La card del modal (KeyboardAwareModal) se dimensiona por su contenido, sin altura fija —
+  // un FlatList con flex:1 dentro colapsa a 0px porque no hay un ancestro con altura acotada.
+  // Le damos un maxHeight explícito calculado del alto de pantalla (mismo criterio que usa
+  // KeyboardAwareModal internamente con maxHeightRatio=0.88).
+  const { height: winHeight } = useWindowDimensions();
+  const listMaxHeight = Math.max(220, Math.round(winHeight * 0.88) - 170);
 
   // Step: 'producto' | 'lote' | 'ajuste'
   const [step, setStep] = useState<"producto" | "lote" | "ajuste">("producto");
@@ -345,7 +353,7 @@ export function AjusteInventarioModal({
 
       {/* PASO 1: buscar producto */}
       {step === "producto" && (
-        <View style={{ flex: 1 }}>
+        <View>
           <View style={s.searchWrap}>
             <TextInput
               value={q}
@@ -371,7 +379,7 @@ export function AjusteInventarioModal({
             <FlatList
               data={productos}
               keyExtractor={(r) => String(r.id)}
-              style={{ flex: 1 }}
+              style={{ maxHeight: listMaxHeight }}
               keyboardShouldPersistTaps="handled"
               ListEmptyComponent={
                 <View style={s.center}>
@@ -401,7 +409,7 @@ export function AjusteInventarioModal({
 
       {/* PASO 2: seleccionar lote */}
       {step === "lote" && (
-        <View style={{ flex: 1 }}>
+        <View>
           {selectedProducto ? (
             <Text style={s.prodName} numberOfLines={2}>{selectedProducto.nombre}</Text>
           ) : null}
@@ -418,7 +426,7 @@ export function AjusteInventarioModal({
             <FlatList
               data={lotes}
               keyExtractor={(r) => String(r.lote_id)}
-              style={{ flex: 1 }}
+              style={{ maxHeight: listMaxHeight }}
               keyboardShouldPersistTaps="handled"
               renderItem={({ item }) => (
                 <Pressable
