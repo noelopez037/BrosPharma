@@ -387,6 +387,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
   const roleUp = normalizeUpper(role) as Role;
   const [venta, setVenta] = useState<Venta | null>(null);
   const [clienteMini, setClienteMini] = useState<ClienteMini | null>(null);
+  const [clienteMiniLoading, setClienteMiniLoading] = useState(false);
   const [lineas, setLineas] = useState<DetalleRow[]>([]);
   const [recetas, setRecetas] = useState<RecetaItem[]>([]);
   const [facturas, setFacturas] = useState<FacturaRow[]>([]);
@@ -429,7 +430,8 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
   const canEditRecetas = roleUp === "ADMIN" || roleUp === "VENTAS" || roleUp === "MENSAJERO";
   const canFacturar = roleUp === "ADMIN" || roleUp === "FACTURACION";
   const licenciaSanitariaEstado = clienteMini?.licencia_sanitaria_estado ?? null;
-  const licenciaSanitariaFaltante = !!venta?.requiere_receta && licenciaSanitariaEstado !== "APROBADA";
+  const licenciaSanitariaFaltante =
+    !clienteMiniLoading && !!venta?.requiere_receta && licenciaSanitariaEstado !== "APROBADA";
   const clienteVerificado = licenciaSanitariaEstado === "APROBADA";
   const canVerFacturas = roleUp === "ADMIN" || roleUp === "FACTURACION" || roleUp === "VENTAS" || roleUp === "MENSAJERO";
   const canBodega = roleUp === "ADMIN" || roleUp === "BODEGA" || roleUp === "MENSAJERO";
@@ -481,14 +483,17 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     const cid = Number(venta?.cliente_id);
     if (!Number.isFinite(cid) || cid <= 0) {
       setClienteMini(null);
+      setClienteMiniLoading(false);
       return;
     }
 
     if (!empresaActivaId) {
       setClienteMini(null);
+      setClienteMiniLoading(false);
       return;
     }
 
+    setClienteMiniLoading(true);
     (async () => {
       try {
         const { data, error } = await supabase
@@ -501,6 +506,8 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
         if (alive) setClienteMini((data ?? null) as any);
       } catch {
         if (alive) setClienteMini(null);
+      } finally {
+        if (alive) setClienteMiniLoading(false);
       }
     })();
 
