@@ -1306,13 +1306,21 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     [canFacturar, facturaCurrentByTipo, facturaDraft, fetchFacturas, fetchVenta, venta]
   );
 
+  const alertAnular = useCallback((title: string, message: string) => {
+    if (Platform.OS === "web") {
+      window.alert(`${title}: ${message}`);
+      return;
+    }
+    Alert.alert(title, message);
+  }, []);
+
   const onFacturar = useCallback(async () => {
     if (!venta) return;
     if (!canFacturar) return;
     if (facturando) return;
 
     if (licenciaSanitariaFaltante) {
-      Alert.alert(
+      alertAnular(
         "Falta licencia sanitaria",
         "Esta venta incluye medicamento(s) que requieren receta. Agrega la licencia sanitaria del cliente antes de facturar."
       );
@@ -1323,7 +1331,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     try {
       payload = buildFacturaPayload();
     } catch (e: any) {
-      Alert.alert("Falta info", e?.message ?? "Completa numero, monto y PDF.");
+      alertAnular("Falta info", e?.message ?? "Completa numero, monto y PDF.");
       return;
     }
 
@@ -1331,7 +1339,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     const sumaFacturas = payload.reduce((acc: number, f: any) => acc + (Number(f.monto_total) || 0), 0);
     const diff = Math.abs(sumaFacturas - total);
     if (diff > 0.02) {
-      Alert.alert(
+      alertAnular(
         "Monto no coincide",
         `El total de las facturas (Q ${sumaFacturas.toFixed(2)}) no coincide con el total de la venta (Q ${total.toFixed(2)}). Verifica que las facturas sean correctas.`,
       );
@@ -1347,7 +1355,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       });
       if (error) throw error;
 
-      Alert.alert("Listo", "Venta facturada.");
+      alertAnular("Listo", "Venta facturada.");
       setFacturaTouched(false);
       emitVentaEstadoChanged();
       await fetchVenta();
@@ -1355,17 +1363,17 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     } catch (e: any) {
       const msg: string = e?.message ?? "";
       if (msg.includes("MONTO_FACTURA_NO_COINCIDE")) {
-        Alert.alert(
+        alertAnular(
           "Venta modificada",
           "El total de la venta cambió mientras tenías esta pantalla abierta. Cierra y vuelve a abrir la venta para ver los valores actualizados.",
         );
       } else {
-        Alert.alert("Error", msg || "No se pudo facturar");
+        alertAnular("Error", msg || "No se pudo facturar");
       }
     } finally {
       setFacturando(false);
     }
-  }, [buildFacturaPayload, canFacturar, empresaActivaId, facturando, fetchFacturas, fetchVenta, licenciaSanitariaFaltante, total, venta]);
+  }, [alertAnular, buildFacturaPayload, canFacturar, empresaActivaId, facturando, fetchFacturas, fetchVenta, licenciaSanitariaFaltante, total, venta]);
 
   const pasarEnRuta = useCallback(
     async (nota?: string) => {
@@ -1548,11 +1556,11 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     if (anulando || facturando || uploadingPdfTipo) return;
     if (!empresaReady) return;
     if (!empresaActivaId) {
-      return Alert.alert("Sin empresa", "No tienes una empresa activa asignada. Contacta al administrador.");
+      return alertAnular("Sin empresa", "No tienes una empresa activa asignada. Contacta al administrador.");
     }
 
     if (!facturaDraftComplete) {
-      Alert.alert("Falta info", "Completa numero, monto y PDF de las facturas requeridas para anular.");
+      alertAnular("Falta info", "Completa numero, monto y PDF de las facturas requeridas para anular.");
       return;
     }
 
@@ -1560,14 +1568,14 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     try {
       payload = buildFacturaPayload();
     } catch (e: any) {
-      Alert.alert("Falta info", e?.message ?? "Completa numero, monto y PDF.");
+      alertAnular("Falta info", e?.message ?? "Completa numero, monto y PDF.");
       return;
     }
 
     const sumaFacturas = payload.reduce((acc: number, f: any) => acc + (Number(f.monto_total) || 0), 0);
     const diff = Math.abs(sumaFacturas - total);
     if (diff > 0.02) {
-      Alert.alert(
+      alertAnular(
         "Monto no coincide",
         `El total de las facturas (Q ${sumaFacturas.toFixed(2)}) no coincide con el total de la venta (Q ${total.toFixed(2)}). Verifica que las facturas sean correctas.`,
       );
@@ -1594,21 +1602,31 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       if (ae) throw ae;
 
       emitVentaEstadoChanged();
-      Alert.alert("Listo", "Venta anulada.", [{ text: "OK", onPress: () => goBackSafe("/(drawer)/(tabs)/ventas") }]);
+      if (Platform.OS === "web") {
+        window.alert("Listo: Venta anulada.");
+        goBackSafe("/(drawer)/(tabs)/ventas");
+      } else {
+        Alert.alert("Listo", "Venta anulada.", [{ text: "OK", onPress: () => goBackSafe("/(drawer)/(tabs)/ventas") }]);
+      }
     } catch (e: any) {
-      const msg: string = e?.message ?? "";
-      if (msg.includes("MONTO_FACTURA_NO_COINCIDE")) {
-        Alert.alert(
+      const raw: string = e?.message ?? "";
+      if (raw.includes("MONTO_FACTURA_NO_COINCIDE")) {
+        alertAnular(
           "Venta modificada",
           "El total de la venta cambió mientras tenías esta pantalla abierta. Cierra y vuelve a abrir la venta para ver los valores actualizados.",
         );
+      } else if (raw.includes("tiene pagos aplicados")) {
+        alertAnular(
+          "No se puede anular",
+          "Esta venta ya tiene un pago registrado. Elimina o revierte el pago desde la sección de pagos de la venta antes de anularla.",
+        );
       } else {
-        Alert.alert("Error", msg || "No se pudo anular");
+        alertAnular("Error", raw || "No se pudo anular");
       }
     } finally {
       setAnulando(false);
     }
-  }, [anulando, buildFacturaPayload, canAnular, empresaActivaId, empresaReady, facturaDraftComplete, facturaHasChanges, facturando, fetchFacturas, isFacturado, total, uploadingPdfTipo, venta]);
+  }, [alertAnular, anulando, buildFacturaPayload, canAnular, empresaActivaId, empresaReady, facturaDraftComplete, facturaHasChanges, facturando, fetchFacturas, goBackSafe, isFacturado, total, uploadingPdfTipo, venta]);
 
   const confirmAnular = useCallback(() => {
     if (!venta) return;
@@ -1673,13 +1691,18 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     if (Platform.OS === "web") {
       if (!window.confirm(msg)) return;
       supabase.rpc("rpc_venta_anular_nuevo" as any, { p_venta_id: Number(venta.id), p_nota: null })
-        .then(({ error }) => {
-          if (error) Alert.alert("Error", error.message);
-          else {
-            emitVentaEstadoChanged();
-            goBackSafe("/(drawer)/(tabs)/ventas");
+        .then(
+          ({ error }) => {
+            if (error) window.alert(`Error: ${error.message}`);
+            else {
+              emitVentaEstadoChanged();
+              goBackSafe("/(drawer)/(tabs)/ventas");
+            }
+          },
+          (e: any) => {
+            window.alert(`Error: ${e?.message ?? "No se pudo anular"}`);
           }
-        });
+        );
       return;
     }
     Alert.alert("Anular venta", msg, [
