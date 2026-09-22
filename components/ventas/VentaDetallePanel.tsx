@@ -2755,6 +2755,11 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
               {!canAnular && !isNuevo ? null : canAnular ? (
                 <View style={{ flexDirection: "row", gap: 10 }}>
                   <View style={{ flex: 1 }}>
+                    {facturas.length === 2 ? (
+                      <Text style={[styles.facturaMeta, { color: C.sub, marginBottom: 6 }]}>
+                        Esto anula la venta completa: ambas facturas (con IVA y Exenta) y sus productos. Para anular solo una, usa "Anular esta factura" arriba.
+                      </Text>
+                    ) : null}
                     <AppButton
                       title={anulando ? "Anulando..." : "Anular venta"}
                       onPress={confirmAnular}
