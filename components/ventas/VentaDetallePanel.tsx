@@ -418,7 +418,6 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
   const [cancelandoAnulacion, setCancelandoAnulacion] = useState(false);
   const [enRutaLoading, setEnRutaLoading] = useState(false);
   const [entregarLoading, setEntregarLoading] = useState(false);
-  const [anulandoFacturaTipo, setAnulandoFacturaTipo] = useState<"IVA" | "EXENTO" | null>(null);
   const [ventaEventos, setVentaEventos] = useState<{ tipo: string; nota: string | null; by: string | null }[]>([]);
 
   const canViewRecetaTools = roleUp === "ADMIN" || roleUp === "FACTURACION" || roleUp === "VENTAS" || roleUp === "MENSAJERO";
@@ -1699,70 +1698,6 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     );
   }, [canAnular, runCancelarAnulacion, venta]);
 
-  const canAnularFacturaIndividual =
-    (roleUp === "ADMIN" || roleUp === "FACTURACION") &&
-    !isNuevo &&
-    !hasTag("ANULADO") &&
-    facturas.length === 2;
-
-  const runAnularFactura = useCallback(
-    async (tipo: "IVA" | "EXENTO", nota?: string) => {
-      if (!venta) return;
-      if (!canAnularFacturaIndividual) return;
-      if (anulandoFacturaTipo) return;
-
-      setAnulandoFacturaTipo(tipo);
-      try {
-        const { error } = await supabase.rpc("rpc_venta_anular_factura" as any, {
-          p_venta_id: Number(venta.id),
-          p_tipo: tipo,
-          p_nota: nota?.trim() ? nota.trim() : null,
-        });
-        if (error) throw error;
-
-        alertAnular("Listo", `Factura ${tipo === "IVA" ? "con IVA" : "Exenta"} anulada.`);
-        emitVentaEstadoChanged();
-        setFacturaTouched(false);
-        // fetchAll (no solo facturas/venta/eventos): el servidor tambien
-        // borra las lineas de ventas_detalle de ese tipo, asi que hay que
-        // refrescar "lineas" o el formulario se queda pensando que esa
-        // factura sigue siendo requerida con datos viejos en memoria.
-        await fetchAll();
-      } catch (e: any) {
-        alertAnular("Error", e?.message ?? "No se pudo anular la factura");
-      } finally {
-        setAnulandoFacturaTipo(null);
-      }
-    },
-    [alertAnular, anulandoFacturaTipo, canAnularFacturaIndividual, fetchAll, venta]
-  );
-
-  const confirmAnularFactura = useCallback(
-    (tipo: "IVA" | "EXENTO") => {
-      if (!venta) return;
-      if (!canAnularFacturaIndividual) return;
-      const label = tipo === "IVA" ? "con IVA" : "Exenta";
-
-      if (Platform.OS === "web") {
-        const nota = window.prompt(`Nota (opcional) para anular la factura ${label}:`);
-        if (nota === null) return;
-        if (!window.confirm(`¿Anular la factura ${label}? Esto devuelve su stock y no toca la otra factura ni el estado de la venta.`)) return;
-        runAnularFactura(tipo, nota).catch(() => {});
-        return;
-      }
-
-      Alert.alert(
-        "Anular factura",
-        `¿Anular la factura ${label}? Esto devuelve su stock y no toca la otra factura ni el estado de la venta.`,
-        [
-          { text: "Cancelar", style: "cancel" },
-          { text: "Anular", style: "destructive", onPress: () => runAnularFactura(tipo).catch(() => {}) },
-        ]
-      );
-    },
-    [canAnularFacturaIndividual, runAnularFactura, venta]
-  );
-
   const confirmAnularDirecto = useCallback(() => {
     if (!venta || !canAnularDirecto) return;
     const msg = `¿Anular la venta #${venta.id} de ${venta.cliente_nombre ?? "cliente"}? Esta acción no se puede deshacer.`;
@@ -2648,18 +2583,6 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                               </Pressable>
                             </View>
                           ) : null}
-
-                          {canAnularFacturaIndividual ? (
-                            <View style={{ marginTop: 8 }}>
-                              <AppButton
-                                title={anulandoFacturaTipo === tipo ? "Anulando..." : "Anular esta factura"}
-                                variant="danger"
-                                size="sm"
-                                onPress={() => confirmAnularFactura(tipo)}
-                                disabled={!!anulandoFacturaTipo}
-                              />
-                            </View>
-                          ) : null}
                         </View>
                       );
                     })()
@@ -2748,18 +2671,6 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                               </Pressable>
                             </View>
                           ) : null}
-
-                          {canAnularFacturaIndividual ? (
-                            <View style={{ marginTop: 8 }}>
-                              <AppButton
-                                title={anulandoFacturaTipo === tipo ? "Anulando..." : "Anular esta factura"}
-                                variant="danger"
-                                size="sm"
-                                onPress={() => confirmAnularFactura(tipo)}
-                                disabled={!!anulandoFacturaTipo}
-                              />
-                            </View>
-                          ) : null}
                         </View>
                       );
                     })()
@@ -2769,11 +2680,6 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
               {!canAnular && !isNuevo ? null : canAnular ? (
                 <View style={{ flexDirection: "row", gap: 10 }}>
                   <View style={{ flex: 1 }}>
-                    {facturas.length === 2 ? (
-                      <Text style={[styles.facturaMeta, { color: C.sub, marginBottom: 6 }]}>
-                        Esto anula la venta completa: ambas facturas (con IVA y Exenta) y sus productos. Para anular solo una, usa "Anular esta factura" arriba.
-                      </Text>
-                    ) : null}
                     <AppButton
                       title={anulando ? "Anulando..." : "Anular venta"}
                       onPress={confirmAnular}
