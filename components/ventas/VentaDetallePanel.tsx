@@ -2636,19 +2636,15 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                           ) : null}
 
                           {canAnularFacturaIndividual ? (
-                            <Pressable
-                              onPress={() => confirmAnularFactura(tipo)}
-                              disabled={!!anulandoFacturaTipo}
-                              style={({ pressed }) => [
-                                styles.pdfDelete,
-                                { marginTop: 8 },
-                                pressed ? { opacity: 0.85 } : null,
-                              ]}
-                            >
-                              <Text style={[styles.pdfDeleteText, { color: C.danger }]}>
-                                {anulandoFacturaTipo === tipo ? "Anulando..." : "Anular esta factura"}
-                              </Text>
-                            </Pressable>
+                            <View style={{ marginTop: 8 }}>
+                              <AppButton
+                                title={anulandoFacturaTipo === tipo ? "Anulando..." : "Anular esta factura"}
+                                variant="danger"
+                                size="sm"
+                                onPress={() => confirmAnularFactura(tipo)}
+                                disabled={!!anulandoFacturaTipo}
+                              />
+                            </View>
                           ) : null}
                         </View>
                       );
@@ -2740,19 +2736,15 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                           ) : null}
 
                           {canAnularFacturaIndividual ? (
-                            <Pressable
-                              onPress={() => confirmAnularFactura(tipo)}
-                              disabled={!!anulandoFacturaTipo}
-                              style={({ pressed }) => [
-                                styles.pdfDelete,
-                                { marginTop: 8 },
-                                pressed ? { opacity: 0.85 } : null,
-                              ]}
-                            >
-                              <Text style={[styles.pdfDeleteText, { color: C.danger }]}>
-                                {anulandoFacturaTipo === tipo ? "Anulando..." : "Anular esta factura"}
-                              </Text>
-                            </Pressable>
+                            <View style={{ marginTop: 8 }}>
+                              <AppButton
+                                title={anulandoFacturaTipo === tipo ? "Anulando..." : "Anular esta factura"}
+                                variant="danger"
+                                size="sm"
+                                onPress={() => confirmAnularFactura(tipo)}
+                                disabled={!!anulandoFacturaTipo}
+                              />
+                            </View>
                           ) : null}
                         </View>
                       );
