@@ -418,6 +418,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
   const [cancelandoAnulacion, setCancelandoAnulacion] = useState(false);
   const [enRutaLoading, setEnRutaLoading] = useState(false);
   const [entregarLoading, setEntregarLoading] = useState(false);
+  const [anulandoFacturaTipo, setAnulandoFacturaTipo] = useState<"IVA" | "EXENTO" | null>(null);
   const [ventaEventos, setVentaEventos] = useState<{ tipo: string; nota: string | null; by: string | null }[]>([]);
 
   const canViewRecetaTools = roleUp === "ADMIN" || roleUp === "FACTURACION" || roleUp === "VENTAS" || roleUp === "MENSAJERO";
@@ -1346,6 +1347,8 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       return;
     }
 
+    const yaEnviada = isEnRuta || normalizeUpper(venta?.estado) === "ENTREGADO";
+
     setFacturando(true);
     try {
       const { error } = await supabase.rpc("rpc_venta_facturar", {
@@ -1355,7 +1358,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       });
       if (error) throw error;
 
-      alertAnular("Listo", "Venta facturada.");
+      alertAnular("Listo", yaEnviada ? "Factura actualizada." : "Venta facturada.");
       setFacturaTouched(false);
       emitVentaEstadoChanged();
       await fetchVenta();
@@ -1373,7 +1376,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     } finally {
       setFacturando(false);
     }
-  }, [alertAnular, buildFacturaPayload, canFacturar, empresaActivaId, facturando, fetchFacturas, fetchVenta, licenciaSanitariaFaltante, total, venta]);
+  }, [alertAnular, buildFacturaPayload, canFacturar, empresaActivaId, facturando, fetchFacturas, fetchVenta, isEnRuta, licenciaSanitariaFaltante, total, venta]);
 
   const pasarEnRuta = useCallback(
     async (nota?: string) => {
@@ -1462,17 +1465,17 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
         });
         if (error) throw error;
 
-        Alert.alert("Listo", "Venta marcada como ENTREGADO.");
+        alertAnular("Listo", "Venta marcada como ENTREGADO.");
         emitVentaEstadoChanged();
         await fetchVenta();
         await fetchVentaEventos();
       } catch (e: any) {
-        Alert.alert("Error", e?.message ?? "No se pudo marcar ENTREGADO");
+        alertAnular("Error", e?.message ?? "No se pudo marcar ENTREGADO");
       } finally {
         setEntregarLoading(false);
       }
     },
-    [canEntregar, entregarLoading, fetchVentaEventos, fetchVenta, isEnRuta, venta]
+    [alertAnular, canEntregar, entregarLoading, fetchVentaEventos, fetchVenta, isEnRuta, venta]
   );
 
   const confirmMarcarEntregado = useCallback(() => {
@@ -1684,6 +1687,67 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       ]
     );
   }, [canAnular, runCancelarAnulacion, venta]);
+
+  const canAnularFacturaIndividual =
+    (roleUp === "ADMIN" || roleUp === "FACTURACION") &&
+    !isNuevo &&
+    !hasTag("ANULADO") &&
+    facturas.length === 2;
+
+  const runAnularFactura = useCallback(
+    async (tipo: "IVA" | "EXENTO", nota?: string) => {
+      if (!venta) return;
+      if (!canAnularFacturaIndividual) return;
+      if (anulandoFacturaTipo) return;
+
+      setAnulandoFacturaTipo(tipo);
+      try {
+        const { error } = await supabase.rpc("rpc_venta_anular_factura" as any, {
+          p_venta_id: Number(venta.id),
+          p_tipo: tipo,
+          p_nota: nota?.trim() ? nota.trim() : null,
+        });
+        if (error) throw error;
+
+        alertAnular("Listo", `Factura ${tipo === "IVA" ? "con IVA" : "Exenta"} anulada.`);
+        emitVentaEstadoChanged();
+        await fetchFacturas();
+        await fetchVenta();
+        await fetchVentaEventos();
+      } catch (e: any) {
+        alertAnular("Error", e?.message ?? "No se pudo anular la factura");
+      } finally {
+        setAnulandoFacturaTipo(null);
+      }
+    },
+    [alertAnular, anulandoFacturaTipo, canAnularFacturaIndividual, fetchFacturas, fetchVenta, fetchVentaEventos, venta]
+  );
+
+  const confirmAnularFactura = useCallback(
+    (tipo: "IVA" | "EXENTO") => {
+      if (!venta) return;
+      if (!canAnularFacturaIndividual) return;
+      const label = tipo === "IVA" ? "con IVA" : "Exenta";
+
+      if (Platform.OS === "web") {
+        const nota = window.prompt(`Nota (opcional) para anular la factura ${label}:`);
+        if (nota === null) return;
+        if (!window.confirm(`¿Anular la factura ${label}? Esto devuelve su stock y no toca la otra factura ni el estado de la venta.`)) return;
+        runAnularFactura(tipo, nota).catch(() => {});
+        return;
+      }
+
+      Alert.alert(
+        "Anular factura",
+        `¿Anular la factura ${label}? Esto devuelve su stock y no toca la otra factura ni el estado de la venta.`,
+        [
+          { text: "Cancelar", style: "cancel" },
+          { text: "Anular", style: "destructive", onPress: () => runAnularFactura(tipo).catch(() => {}) },
+        ]
+      );
+    },
+    [canAnularFacturaIndividual, runAnularFactura, venta]
+  );
 
   const confirmAnularDirecto = useCallback(() => {
     if (!venta || !canAnularDirecto) return;
@@ -2570,6 +2634,22 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                               </Pressable>
                             </View>
                           ) : null}
+
+                          {canAnularFacturaIndividual ? (
+                            <Pressable
+                              onPress={() => confirmAnularFactura(tipo)}
+                              disabled={!!anulandoFacturaTipo}
+                              style={({ pressed }) => [
+                                styles.pdfDelete,
+                                { marginTop: 8 },
+                                pressed ? { opacity: 0.85 } : null,
+                              ]}
+                            >
+                              <Text style={[styles.pdfDeleteText, { color: C.danger }]}>
+                                {anulandoFacturaTipo === tipo ? "Anulando..." : "Anular esta factura"}
+                              </Text>
+                            </Pressable>
+                          ) : null}
                         </View>
                       );
                     })()
@@ -2657,6 +2737,22 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                                 <Text style={[styles.pdfDeleteText, { color: C.danger }]}>Eliminar</Text>
                               </Pressable>
                             </View>
+                          ) : null}
+
+                          {canAnularFacturaIndividual ? (
+                            <Pressable
+                              onPress={() => confirmAnularFactura(tipo)}
+                              disabled={!!anulandoFacturaTipo}
+                              style={({ pressed }) => [
+                                styles.pdfDelete,
+                                { marginTop: 8 },
+                                pressed ? { opacity: 0.85 } : null,
+                              ]}
+                            >
+                              <Text style={[styles.pdfDeleteText, { color: C.danger }]}>
+                                {anulandoFacturaTipo === tipo ? "Anulando..." : "Anular esta factura"}
+                              </Text>
+                            </Pressable>
                           ) : null}
                         </View>
                       );
