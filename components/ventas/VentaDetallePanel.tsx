@@ -688,7 +688,18 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
         sizeBytes: r.size_bytes == null ? null : Number(r.size_bytes),
       };
     });
-    setFacturaDraft((prev) => ({ ...prev, ...next }));
+    // Limpia el draft de cualquier tipo que ya no tenga fila en la BD (ej: se
+    // acaba de anular esa factura) — si no, el formulario se queda con los
+    // datos viejos en memoria y una proxima "Guardar/Facturar" los resucita.
+    setFacturaDraft((prev) => {
+      const cleared: Record<string, FacturaDraft> = { ...prev };
+      (["IVA", "EXENTO"] as const).forEach((t) => {
+        if (!next[t]) {
+          cleared[t] = { tipo: t, numero: "", monto: "", path: null, originalName: null, sizeBytes: null };
+        }
+      });
+      return { ...cleared, ...next };
+    });
   }, [ventaIdNum, empresaActivaId]);
 
   const fetchRecetas = useCallback(async () => {
@@ -1711,16 +1722,19 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
 
         alertAnular("Listo", `Factura ${tipo === "IVA" ? "con IVA" : "Exenta"} anulada.`);
         emitVentaEstadoChanged();
-        await fetchFacturas();
-        await fetchVenta();
-        await fetchVentaEventos();
+        setFacturaTouched(false);
+        // fetchAll (no solo facturas/venta/eventos): el servidor tambien
+        // borra las lineas de ventas_detalle de ese tipo, asi que hay que
+        // refrescar "lineas" o el formulario se queda pensando que esa
+        // factura sigue siendo requerida con datos viejos en memoria.
+        await fetchAll();
       } catch (e: any) {
         alertAnular("Error", e?.message ?? "No se pudo anular la factura");
       } finally {
         setAnulandoFacturaTipo(null);
       }
     },
-    [alertAnular, anulandoFacturaTipo, canAnularFacturaIndividual, fetchFacturas, fetchVenta, fetchVentaEventos, venta]
+    [alertAnular, anulandoFacturaTipo, canAnularFacturaIndividual, fetchAll, venta]
   );
 
   const confirmAnularFactura = useCallback(
