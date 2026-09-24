@@ -57,6 +57,7 @@ type Venta = {
   comentarios: string | null;
   requiere_receta: boolean;
   receta_cargada: boolean;
+  entrega_respaldo_cargado?: boolean;
 };
 
 type ClienteMini = {
@@ -98,6 +99,19 @@ type RecetaRow = {
 
 type RecetaItem = {
   row: RecetaRow;
+  signedUrl: string | null;
+};
+
+type EntregaFotoRow = {
+  id: number;
+  venta_id: number;
+  path: string;
+  created_at: string;
+  uploaded_by: string | null;
+};
+
+type EntregaFotoItem = {
+  row: EntregaFotoRow;
   signedUrl: string | null;
 };
 
@@ -390,6 +404,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
   const [clienteMiniLoading, setClienteMiniLoading] = useState(false);
   const [lineas, setLineas] = useState<DetalleRow[]>([]);
   const [recetas, setRecetas] = useState<RecetaItem[]>([]);
+  const [entregaFotos, setEntregaFotos] = useState<EntregaFotoItem[]>([]);
   const [facturas, setFacturas] = useState<FacturaRow[]>([]);
   const [facturaDraft, setFacturaDraft] = useState<Record<string, FacturaDraft>>({});
   const [montoTouched, setMontoTouched] = useState<Record<"IVA" | "EXENTO", boolean>>({ IVA: false, EXENTO: false });
@@ -410,6 +425,8 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
 
   const [uploading, setUploading] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [uploadingEntrega, setUploadingEntrega] = useState(false);
+  const [deletingEntregaId, setDeletingEntregaId] = useState<number | null>(null);
 
   const [uploadingPdfTipo, setUploadingPdfTipo] = useState<"IVA" | "EXENTO" | null>(null);
   const [facturando, setFacturando] = useState(false);
@@ -562,7 +579,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     const { data, error } = await supabase
       .from("ventas")
       .select(
-        "id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,comentarios,requiere_receta,receta_cargada"
+        "id,fecha,estado,cliente_id,cliente_nombre,vendedor_id,vendedor_codigo,comentarios,requiere_receta,receta_cargada,entrega_respaldo_cargado"
       )
       .eq("empresa_id", empresaActivaId)
       .eq("id", ventaIdNum)
@@ -729,11 +746,40 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
     setRecetas(items);
   }, [ventaIdNum, empresaActivaId]);
 
+  const fetchEntregaFotos = useCallback(async () => {
+    if (!empresaActivaId) return;
+    const { data, error } = await supabase
+      .from("ventas_entrega_fotos")
+      .select("id,venta_id,path,created_at,uploaded_by")
+      .eq("empresa_id", empresaActivaId)
+      .eq("venta_id", ventaIdNum)
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+
+    const rows = (data ?? []) as any as EntregaFotoRow[];
+    const items: EntregaFotoItem[] = [];
+
+    for (const r of rows) {
+      const path = normalizeStoragePath(r.path);
+      let signedUrl: string | null = null;
+      try {
+        const { data: s, error: se } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 30);
+        if (!se) signedUrl = (s as any)?.signedUrl ?? null;
+      } catch {
+        signedUrl = null;
+      }
+      items.push({ row: { ...r, path }, signedUrl });
+    }
+
+    setEntregaFotos(items);
+  }, [ventaIdNum, empresaActivaId]);
+
   const fetchAll = useCallback(async () => {
     if (!Number.isFinite(ventaIdNum) || ventaIdNum <= 0) {
       setVenta(null);
       setLineas([]);
       setRecetas([]);
+      setEntregaFotos([]);
       setFacturas([]);
       setSolicitudAnulacion(null);
       return;
@@ -746,6 +792,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       fetchVenta(),
       fetchLineas(allowSplit),
       fetchRecetas(),
+      fetchEntregaFotos(),
       fetchFacturas(),
       fetchTags(),
       fetchVentaEventos(),
@@ -755,7 +802,7 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
         setSolicitudAnulacion(null);
       }),
     ]);
-  }, [fetchNotas, fetchVentaEventos, fetchFacturas, fetchLineas, fetchRecetas, fetchSolicitudAnulacion, fetchTags, fetchVenta, refreshRole, ventaIdNum, empresaActivaId]);
+  }, [fetchNotas, fetchVentaEventos, fetchFacturas, fetchLineas, fetchRecetas, fetchEntregaFotos, fetchSolicitudAnulacion, fetchTags, fetchVenta, refreshRole, ventaIdNum, empresaActivaId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1080,6 +1127,113 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       setUploading(false);
     }
   }, [canEditRecetas, empresaActivaId, empresaReady, fetchRecetas, fetchVenta, scrollRef, uploading, venta, returnTo]);
+
+  const uploadEntregaFotoFromUri = useCallback(
+    async (uri: string, mimeType?: string | null) => {
+      if (!venta) return;
+      if (!empresaActivaId) return;
+
+      let uploadUri = uri;
+      let ext = "jpg";
+      let ct = "image/jpeg";
+      try {
+        const man = await ImageManipulator.manipulateAsync(
+          uri,
+          [{ resize: { width: 1600 } }],
+          { compress: 0.78, format: ImageManipulator.SaveFormat.JPEG }
+        );
+        if (man?.uri) uploadUri = man.uri;
+      } catch {
+        const mime = String(mimeType ?? "").trim();
+        ext = extFromMime(mime);
+        ct = mime || guessMimeFromExt(ext);
+      }
+      const stamp = Date.now();
+      const rnd = Math.random().toString(16).slice(2);
+      const path = `${empresaActivaId}/ventas/${venta.id}/entrega/${stamp}-${rnd}.${ext}`;
+
+      const bytes = await uriToArrayBuffer(uploadUri);
+      if (bytes.byteLength > 10 * 1024 * 1024) throw new Error("La imagen excede 10 MB.");
+
+      const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, bytes, {
+        contentType: ct,
+        upsert: false,
+      });
+      if (upErr) throw upErr;
+
+      const { error: rpcErr } = await supabase.rpc("rpc_venta_registrar_entrega_foto", {
+        p_venta_id: Number(venta.id),
+        p_path: path,
+      });
+      if (rpcErr) throw rpcErr;
+
+      await fetchVenta();
+      await fetchEntregaFotos();
+    },
+    [empresaActivaId, fetchEntregaFotos, fetchVenta, venta]
+  );
+
+  const pickAndUploadEntregaFoto = useCallback(
+    async (source: "camera" | "library") => {
+      if (!venta) return;
+      if (!canEditRecetas) return;
+      if (uploadingEntrega) return;
+      if (!empresaReady) return;
+      if (!empresaActivaId) {
+        return Alert.alert("Sin empresa", "No tienes una empresa activa asignada. Contacta al administrador.");
+      }
+      if (entregaFotos.length >= 2) {
+        return Alert.alert("Límite alcanzado", "Ya agregaste 2 fotos de respaldo para esta venta.");
+      }
+
+      try {
+        let asset: ImagePicker.ImagePickerAsset | undefined;
+
+        if (source === "camera") {
+          const perm = await ImagePicker.requestCameraPermissionsAsync();
+          if (perm.status !== "granted") {
+            Alert.alert("Permiso requerido", "Necesitas permitir acceso a la cámara para tomar la foto.");
+            return;
+          }
+          const res = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.9 });
+          if (res.canceled) return;
+          asset = res.assets?.[0];
+        } else {
+          const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (perm.status !== "granted") {
+            Alert.alert("Permiso requerido", "Necesitas permitir acceso a fotos para escoger la imagen.");
+            return;
+          }
+          const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.9 });
+          if (res.canceled) return;
+          asset = res.assets?.[0];
+        }
+
+        const uri = asset?.uri;
+        if (!uri) return;
+
+        setUploadingEntrega(true);
+        await uploadEntregaFotoFromUri(uri, (asset as any)?.mimeType);
+      } catch (e: any) {
+        Alert.alert("Error", e?.message ?? "No se pudo subir la foto de respaldo");
+      } finally {
+        setUploadingEntrega(false);
+      }
+    },
+    [canEditRecetas, empresaActivaId, empresaReady, entregaFotos.length, uploadEntregaFotoFromUri, uploadingEntrega, venta]
+  );
+
+  const confirmPickEntregaFoto = useCallback(() => {
+    if (Platform.OS === "web") {
+      pickAndUploadEntregaFoto("library").catch(() => {});
+      return;
+    }
+    Alert.alert("Foto de respaldo de entrega", "¿Recibo firmado o foto de guía?", [
+      { text: "Cancelar", style: "cancel" },
+      { text: "Tomar foto", onPress: () => pickAndUploadEntregaFoto("camera").catch(() => {}) },
+      { text: "Elegir de galería", onPress: () => pickAndUploadEntregaFoto("library").catch(() => {}) },
+    ]);
+  }, [pickAndUploadEntregaFoto]);
 
   const setNumero = useCallback((tipo: "IVA" | "EXENTO", val: string) => {
     // Factura No: is always numeric.
@@ -1480,7 +1634,15 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
         await fetchVenta();
         await fetchVentaEventos();
       } catch (e: any) {
-        alertAnular("Error", e?.message ?? "No se pudo marcar ENTREGADO");
+        const msg = String(e?.message ?? "");
+        if (msg.includes("FALTA_RESPALDO_ENTREGA")) {
+          alertAnular(
+            "Falta respaldo de entrega",
+            "Debes agregar al menos una foto de respaldo (recibo firmado o guía) antes de marcar como entregado."
+          );
+        } else {
+          alertAnular("Error", msg || "No se pudo marcar ENTREGADO");
+        }
       } finally {
         setEntregarLoading(false);
       }
@@ -1852,6 +2014,56 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
       ]);
     },
     [deleteReceta]
+  );
+
+  const deleteEntregaFoto = useCallback(
+    async (r: EntregaFotoItem) => {
+      if (!venta) return;
+      if (!canEditRecetas) return;
+      if (deletingEntregaId) return;
+      if (!empresaReady) return;
+      if (!empresaActivaId) {
+        return Alert.alert("Sin empresa", "No tienes una empresa activa asignada. Contacta al administrador.");
+      }
+
+      const fotoId = Number(r.row.id);
+      if (!fotoId) return;
+
+      setDeletingEntregaId(fotoId);
+      try {
+        const path = normalizeStoragePath(r.row.path);
+        const { error: rmErr } = await supabase.storage.from(BUCKET).remove([path]);
+        if (rmErr) throw rmErr;
+
+        const { error: rpcErr } = await supabase.rpc("rpc_venta_borrar_entrega_foto", {
+          p_foto_id: fotoId,
+        });
+        if (rpcErr) throw rpcErr;
+
+        await fetchVenta();
+        await fetchEntregaFotos();
+      } catch (e: any) {
+        Alert.alert("Error", e?.message ?? "No se pudo eliminar la foto de respaldo");
+      } finally {
+        setDeletingEntregaId(null);
+      }
+    },
+    [canEditRecetas, deletingEntregaId, empresaActivaId, empresaReady, fetchEntregaFotos, fetchVenta, venta]
+  );
+
+  const confirmDeleteEntregaFoto = useCallback(
+    (r: EntregaFotoItem) => {
+      if (Platform.OS === "web") {
+        const ok = window.confirm("Se eliminara la foto de respaldo. ¿Seguro?");
+        if (ok) deleteEntregaFoto(r).catch(() => {});
+        return;
+      }
+      Alert.alert("Eliminar foto de respaldo", "Se eliminara la foto de respaldo. ¿Seguro?", [
+        { text: "Cancelar", style: "cancel" },
+        { text: "Eliminar", style: "destructive", onPress: () => deleteEntregaFoto(r).catch(() => {}) },
+      ]);
+    },
+    [deleteEntregaFoto]
   );
 
   const title = "Detalles";
@@ -2862,6 +3074,82 @@ function VentaDetallePanelContent({ embedded, ventaIdProp, params: routeParams, 
                       onPress={pickAndUploadReceta}
                       disabled={uploading}
                       accessibilityLabel="Subir receta"
+                    />
+                  </View>
+                ) : null}
+              </>
+            )}
+
+            {!venta || anulada || anulacionRequerida ? null : (
+              <>
+                <View style={[styles.divider, { backgroundColor: C.border }]} />
+
+                <Text style={[styles.blockTitle, { color: C.sub }]}>Respaldo de entrega</Text>
+
+                {entregaFotos.length ? (
+                  <View style={{ marginTop: 10, gap: 12 }}>
+                    {entregaFotos.map((r) => {
+                      const isDeleting = deletingEntregaId === Number(r.row.id);
+                      return (
+                        <View key={r.row.id} style={[styles.recetaRow, { borderColor: C.border }]}>
+                          <Pressable
+                            disabled={!canViewRecetaTools}
+                            onPress={() => {
+                              openViewer(r).catch((e: any) => {
+                                Alert.alert("Error", e?.message ?? "No se pudo abrir la foto");
+                              });
+                            }}
+                            style={({ pressed }) => [pressed && canViewRecetaTools ? { opacity: 0.85 } : null]}
+                          >
+                            {r.signedUrl ? (
+                              <Image source={{ uri: r.signedUrl }} style={styles.recetaThumb} />
+                            ) : (
+                              <View
+                                style={[
+                                  styles.recetaThumb,
+                                  { backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "#f3f3f3" },
+                                ]}
+                              />
+                            )}
+                          </Pressable>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.lineTitle, { color: C.text }]} numberOfLines={1}>
+                              {fmtDateEsGT(r.row.created_at)}
+                            </Text>
+                            <Text style={[styles.lineSub, { color: C.sub }]} numberOfLines={1}>
+                              Foto de entrega
+                            </Text>
+                          </View>
+
+                          {!canEditRecetas ? null : (
+                            <Pressable
+                              disabled={isDeleting}
+                              onPress={() => confirmDeleteEntregaFoto(r)}
+                              style={({ pressed }) => [
+                                styles.deleteBtn,
+                                { opacity: isDeleting ? 0.5 : pressed ? 0.85 : 1 },
+                              ]}
+                            >
+                              <Text style={{ color: C.danger, fontWeight: "800" }}>{isDeleting ? "..." : "Eliminar"}</Text>
+                            </Pressable>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <Text style={{ marginTop: 10, color: C.sub, fontWeight: "700" }}>
+                    Sin fotos de respaldo (recibo firmado o guía de envío)
+                  </Text>
+                )}
+
+                {canEditRecetas && entregaFotos.length < 2 ? (
+                  <View style={{ marginTop: 16 }}>
+                    <AppButton
+                      title={uploadingEntrega ? "Subiendo foto..." : "📷 Agregar foto de entrega"}
+                      onPress={confirmPickEntregaFoto}
+                      disabled={uploadingEntrega}
+                      accessibilityLabel="Agregar foto de entrega"
                     />
                   </View>
                 ) : null}
