@@ -51,6 +51,25 @@ type UtilidadExportRow = {
   participacion_utilidad_pct: number | null;
 };
 
+type ClienteListadoRow = {
+  id: number;
+  nombre: string | null;
+  nit: string | null;
+  telefono: string | null;
+  direccion: string | null;
+  activo: boolean | null;
+  vendedor: { full_name: string | null } | null;
+};
+
+type ProveedorListadoRow = {
+  id: number;
+  nombre: string | null;
+  nit: string | null;
+  telefono: string | null;
+  direccion: string | null;
+  activo: boolean | null;
+};
+
 type UtilidadGlobalRow = {
   total_ventas: number | null;
   costo_total: number | null;
@@ -261,6 +280,10 @@ export default function ReportesScreen() {
   const [cxpStatus, setCxpStatus] = useState<FooterState>(() => makeEmptyStatus());
   const [cxpEstado, setCxpEstado] = useState<"ALL" | "PENDIENTE" | "VENCIDA">("ALL");
   const [cxpSummary, setCxpSummary] = useState<{ count: number; saldo: number } | null>(null);
+  const [generatingClientes, setGeneratingClientes] = useState(false);
+  const [clientesStatus, setClientesStatus] = useState<FooterState>(() => makeEmptyStatus());
+  const [generatingProveedores, setGeneratingProveedores] = useState(false);
+  const [proveedoresStatus, setProveedoresStatus] = useState<FooterState>(() => makeEmptyStatus());
   const [utilidadGlobal, setUtilidadGlobal] = useState<UtilidadGlobalRow | null>(null);
   const [utilidadGlobalAttempted, setUtilidadGlobalAttempted] = useState(false);
 
@@ -844,6 +867,127 @@ export default function ReportesScreen() {
     }
   }, [generatingCxp, empresaActivaId, desde, hasta, cxpEstado]);
 
+  const handleDownloadClientes = useCallback(async () => {
+    if (generatingClientes) return;
+    setGeneratingClientes(true);
+    setClientesStatus(makeEmptyStatus());
+
+    try {
+      if (!empresaActivaId) {
+        setClientesStatus({ error: "No tienes una empresa activa asignada.", warning: null, info: null });
+        return;
+      }
+
+      const PAGE = 1000;
+      let rows: ClienteListadoRow[] = [];
+      let page = 0;
+      while (true) {
+        const { data, error } = await supabase
+          .from("clientes")
+          .select("id,nombre,nit,telefono,direccion,activo,vendedor:profiles!clientes_vendedor_id_fkey(full_name)")
+          .eq("empresa_id", empresaActivaId)
+          .order("nombre", { ascending: true })
+          .range(page * PAGE, (page + 1) * PAGE - 1);
+        if (error) throw error;
+        const pageRows = (data ?? []) as unknown as ClienteListadoRow[];
+        rows = rows.concat(pageRows);
+        if (pageRows.length < PAGE) break;
+        page++;
+      }
+
+      if (rows.length === 0) {
+        setClientesStatus({ error: "No hay clientes registrados.", warning: null, info: null });
+        return;
+      }
+
+      await exportSimpleXlsx<ClienteListadoRow>({
+        title: "Listado de clientes",
+        fileName: `listado_clientes_${fmtDateYmd(new Date())}`,
+        sheetName: "Clientes",
+        columns: [
+          { key: "nombre",    header: "Nombre",    value: (r) => r.nombre ?? "" },
+          { key: "nit",       header: "NIT",       value: (r) => r.nit ?? "" },
+          { key: "telefono",  header: "Teléfono",  value: (r) => r.telefono ?? "" },
+          { key: "direccion", header: "Dirección", value: (r) => r.direccion ?? "" },
+          { key: "vendedor",  header: "Vendedor",  value: (r) => r.vendedor?.full_name ?? "" },
+          { key: "activo",    header: "Estado",    value: (r) => (r.activo ? "ACTIVO" : "INACTIVO") },
+        ],
+        rows,
+      });
+
+      setClientesStatus({ error: null, info: `Se exportaron ${rows.length} clientes.`, warning: null });
+    } catch (e: any) {
+      if (__DEV__) console.error("[reportes] error exportando clientes", e);
+      if (isPostgrestError(e)) {
+        setClientesStatus({ error: `${e.code ?? ""} - ${e.message ?? ""}`, warning: null, info: null });
+      } else {
+        setClientesStatus({ error: e?.message ?? "Error desconocido", warning: null, info: null });
+      }
+    } finally {
+      setGeneratingClientes(false);
+    }
+  }, [generatingClientes, empresaActivaId]);
+
+  const handleDownloadProveedores = useCallback(async () => {
+    if (generatingProveedores) return;
+    setGeneratingProveedores(true);
+    setProveedoresStatus(makeEmptyStatus());
+
+    try {
+      if (!empresaActivaId) {
+        setProveedoresStatus({ error: "No tienes una empresa activa asignada.", warning: null, info: null });
+        return;
+      }
+
+      const PAGE = 1000;
+      let rows: ProveedorListadoRow[] = [];
+      let page = 0;
+      while (true) {
+        const { data, error } = await supabase
+          .from("proveedores")
+          .select("id,nombre,nit,telefono,direccion,activo")
+          .eq("empresa_id", empresaActivaId)
+          .order("nombre", { ascending: true })
+          .range(page * PAGE, (page + 1) * PAGE - 1);
+        if (error) throw error;
+        const pageRows = (data ?? []) as ProveedorListadoRow[];
+        rows = rows.concat(pageRows);
+        if (pageRows.length < PAGE) break;
+        page++;
+      }
+
+      if (rows.length === 0) {
+        setProveedoresStatus({ error: "No hay proveedores registrados.", warning: null, info: null });
+        return;
+      }
+
+      await exportSimpleXlsx<ProveedorListadoRow>({
+        title: "Listado de proveedores",
+        fileName: `listado_proveedores_${fmtDateYmd(new Date())}`,
+        sheetName: "Proveedores",
+        columns: [
+          { key: "nombre",    header: "Nombre",    value: (r) => r.nombre ?? "" },
+          { key: "nit",       header: "NIT",       value: (r) => r.nit ?? "" },
+          { key: "telefono",  header: "Teléfono",  value: (r) => r.telefono ?? "" },
+          { key: "direccion", header: "Dirección", value: (r) => r.direccion ?? "" },
+          { key: "activo",    header: "Estado",    value: (r) => (r.activo ? "ACTIVO" : "INACTIVO") },
+        ],
+        rows,
+      });
+
+      setProveedoresStatus({ error: null, info: `Se exportaron ${rows.length} proveedores.`, warning: null });
+    } catch (e: any) {
+      if (__DEV__) console.error("[reportes] error exportando proveedores", e);
+      if (isPostgrestError(e)) {
+        setProveedoresStatus({ error: `${e.code ?? ""} - ${e.message ?? ""}`, warning: null, info: null });
+      } else {
+        setProveedoresStatus({ error: e?.message ?? "Error desconocido", warning: null, info: null });
+      }
+    } finally {
+      setGeneratingProveedores(false);
+    }
+  }, [generatingProveedores, empresaActivaId]);
+
   const renderFooter = (status: FooterState) => (
     <>
       <Text style={styles.caption}>Máximo 5,000 registros</Text>
@@ -860,6 +1004,8 @@ export default function ReportesScreen() {
   const bajoMovimientoFooter = renderFooter(bajoMovimientoStatus);
   const cxcFooter = renderFooter(cxcStatus);
   const cxpFooter = renderFooter(cxpStatus);
+  const clientesFooter = renderFooter(clientesStatus);
+  const proveedoresFooter = renderFooter(proveedoresStatus);
 
   const DateRangeFields = () => (
     <View style={styles.rangeRow}>
@@ -1164,6 +1310,32 @@ export default function ReportesScreen() {
                     </View>
                   ) : null}
                 </ReportCard>
+              </View>
+
+              <View style={styles.cardWrapper}>
+                <ReportCard
+                  title="Listado de clientes"
+                  description="Exporta todos los clientes con NIT, teléfono, dirección, vendedor y estado."
+                  onExport={handleDownloadClientes}
+                  loading={generatingClientes}
+                  disabled={generatingClientes}
+                  footer={clientesFooter}
+                  exportButtonVariant="excel"
+                  style={styles.cardFill}
+                />
+              </View>
+
+              <View style={styles.cardWrapper}>
+                <ReportCard
+                  title="Listado de proveedores"
+                  description="Exporta todos los proveedores con NIT, teléfono, dirección y estado."
+                  onExport={handleDownloadProveedores}
+                  loading={generatingProveedores}
+                  disabled={generatingProveedores}
+                  footer={proveedoresFooter}
+                  exportButtonVariant="excel"
+                  style={styles.cardFill}
+                />
               </View>
             </View>
           </ScrollView>
